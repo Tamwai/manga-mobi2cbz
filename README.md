@@ -132,3 +132,7 @@ A: 目前仅支持 `.mobi` 格式。
 #### 新增
 
 - 首个可用版本：递归收集 mobi、批量转 cbz、双目录去重、EOCD + testzip 完整性校验、失败清理半成品
+
+## License
+
+[MIT](./LICENSE)
