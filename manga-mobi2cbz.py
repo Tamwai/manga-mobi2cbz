@@ -3,7 +3,7 @@
 manga-mobi2cbz — 将 mobi 漫画文件批量转换为 cbz 格式（OPF spine 排序 + 封面兜底增强版）
 
 用法:
-    python manga-mobi2cbz.py <目录或文件路径> [--delete] [--prefer mobi7|mobi8] [--drop-extra] [--overwrite] [--timeout SECONDS] [--output-dir DIR] [--dry-run] [--quiet] [--log FILE]
+    python manga-mobi2cbz.py <目录或文件路径> [--delete] [--prefer mobi7|mobi8] [--drop-extra] [--overwrite] [--timeout SECONDS] [--output-dir DIR] [--dry-run] [--quiet] [--short-summary] [--compress LEVEL] [--inspect] [--inspect-all] [--log FILE]
 
 示例:
     # 转换整个文件夹（递归搜索所有 .mobi）
@@ -36,6 +36,15 @@ manga-mobi2cbz — 将 mobi 漫画文件批量转换为 cbz 格式（OPF spine �
     # 静默模式批量转换，只显示错误与汇总；完整输出写入日志文件
     python manga-mobi2cbz.py "D:\\Manga" --quiet --log "D:\\Manga\\convert.log"
 
+    # 以 deflate 压缩级别 9 打包（PNG 源收益明显，JPEG 源没必要）
+    python manga-mobi2cbz.py "D:\\Manga" --compress 9
+
+    # 检查模式：随机抽查 1 个 mobi 内部信息（元数据/结构/图片/分辨率/DRM），不生成 CBZ
+    python manga-mobi2cbz.py "D:\\Manga" --inspect
+
+    # 检查全部 mobi 内部信息
+    python manga-mobi2cbz.py "D:\\Manga" --inspect --inspect-all
+
 参数:
     --delete         转换成功后删除原始 mobi 文件
     --prefer         双目录 mobi（mobi7/mobi8）时保留哪份，默认 mobi8
@@ -46,6 +55,13 @@ manga-mobi2cbz — 将 mobi 漫画文件批量转换为 cbz 格式（OPF spine �
     --output-dir DIR CBZ 输出到指定目录（自动创建），默认与源 mobi 同目录
     --dry-run        试运行：只扫描文件并打印转换流程，不实际解压打包、不创建输出目录
     --quiet          静默模式：只显示错误与最终汇总（日志文件不受影响）
+    --short-summary  精简汇总：成功/跳过文件只显示数量不列出路径，失败始终全路径
+    --compress LEVEL zip 压缩级别 0-9：0=不压缩（默认，图片本身已压缩），
+                     1-9=deflate 压缩（PNG 源有收益，级别越高越小但越慢）
+    --inspect       检查模式：随机抽查 1 个 mobi，只解包读取内部信息
+                     （元数据/结构/图片/分辨率/DRM），不生成 CBZ，
+                     结束自动清理临时目录
+    --inspect-all   检查全部 mobi（需配合 --inspect 使用）
     --log FILE       将全部输出追加写入指定日志文件
     --version        显示版本号
 
@@ -53,6 +69,31 @@ manga-mobi2cbz — 将 mobi 漫画文件批量转换为 cbz 格式（OPF spine �
 要求: Python 3.10+
 
 更新日志:
+    v1.7.0 (2026-08-13)
+        - 新增 --inspect 检查模式：随机抽查 1 个 mobi（--inspect-all 全量），
+          只解包读取内部信息不生成 CBZ，结束后自动清理临时目录；
+          输出基础检查（魔数/大小/DRM）、EXTH 元数据（标题/作者/语言/
+          出版日期/出版社/ISBN，读到才显示）、双目录标记、OPF 与 spine
+          提取数、目录全部图片数、封面、图片格式分布、主流分辨率（主流
+          高/宽 + 另一维范围）、压缩建议；疑似 DRM（无图）与解包超时单独计数
+        - --inspect 增强（并入 v1.7.0 发版）：
+          - 封面检测：OPF guide type=cover 官方引用优先于文件名扫描，
+            未命中回退文件名匹配（cover/front）
+          - spine 提取图片前 5 个文件名竖排预览，便于排查阅读顺序
+          - 新增目录(NCX)解析：toc.ncx 条目数 + 前 3 条标题预览
+          - EXTH 元数据新增 ASIN(type113)、版权(type109) 字段
+          - DRM 双重判断：头部标记有→直接判有并跳过解包；无标记+
+            解包图片0→疑似；无标记+有图片→无，汇总行新增 DRM标记 计数
+          - 双目录选择统一走 select_mobi_dir 公用函数，新增 prefer
+            参数由 --prefer 控制 mobi7/mobi8，不再手写判断
+          - 输出行缩进统一为 2 空格，修复 OPF 行缩进不一致
+        - 打包分支重构：compress>0 用 ZIP_DEFLATED+compresslevel，
+          否则 ZIP_STORED，消除旧版 Python 在 STORED 下传
+          compresslevel=None 的弃用警告
+        - 新增 --compress LEVEL：zip 压缩级别 0-9，0=不压缩（默认，
+          图片本身已压缩），1-9=deflate 压缩，PNG 源可显著减小体积，
+          级别越高越小但越慢，JPEG 源收益有限不建议开
+
     v1.6.0 (2026-08-13)
         - 新增 --output-dir DIR：CBZ 输出到指定目录（自动创建），
           不再强制与源 mobi 同目录；--overwrite 存在性判断同样基于输出目录
@@ -152,7 +193,7 @@ manga-mobi2cbz — 将 mobi 漫画文件批量转换为 cbz 格式（OPF spine �
           EOCD + testzip 完整性校验、失败清理半成品
 """
 
-__version__ = "1.6.0"
+__version__ = "1.7.0"
 
 SCRIPT_NAME = "manga-mobi2cbz"
 
@@ -160,6 +201,8 @@ import os
 import re
 import sys
 import time
+import random
+import struct
 import shutil
 import zipfile
 import argparse
@@ -168,6 +211,7 @@ import xml.etree.ElementTree as ET
 from enum import Enum
 from pathlib import Path
 from datetime import datetime
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 
 # 全局前置依赖检测，启动即校验，无需等到循环文件
@@ -238,11 +282,13 @@ def run_with_timeout(func, timeout: float, *args, **kwargs):
         executor.shutdown(wait=False)
 
 # 全局输出控制：--quiet 抑制 info 输出，--log 将输出同时写入文件，
-# --short-summary 精简汇总（不逐条罗列成功/跳过文件路径）
+# --short-summary 精简汇总（不逐条罗列成功/跳过文件路径），
+# --compress 设置 zip 压缩级别（0=不压缩，1-9=deflate）
 _quiet_mode = False
 _log_path = None
 _log_write_failed = False
 _short_summary = False
+_compress_level = 0
 
 
 def emit(msg: str, level: str = "info") -> None:
@@ -512,7 +558,7 @@ def select_mobi_dir(tempdir: Path, prefer: str) -> Path:
     return tempdir
 
 
-def mobi_to_cbz(mobi_path: Path, delete_original: bool = False, prefer: str = "mobi8", drop_extra: bool = False, overwrite: bool = False, output_dir: Path | None = None) -> tuple[Path | None, ConvStatus]:
+def mobi_to_cbz(mobi_path: Path, delete_original: bool = False, prefer: str = "mobi8", drop_extra: bool = False, overwrite: bool = False, output_dir: Path | None = None, compress: int = 0) -> tuple[Path | None, ConvStatus]:
     """将单个 mobi 文件转换为 cbz
 
     prefer: 双目录 mobi（mobi7/mobi8）时保留哪份，默认 "mobi8"
@@ -575,9 +621,13 @@ def mobi_to_cbz(mobi_path: Path, delete_original: bool = False, prefer: str = "m
         elif total_in_dir != len(images):
             emit(f"  {TAG_INFO} 目录共 {total_in_dir} 张图片，收集 {len(images)} 张，数量不一致")
 
-        # Step 4: 打包为 cbz (ZIP 无压缩，因为图片已经压缩过了)
+        # Step 4: 打包为 cbz（默认 ZIP 无压缩，图片本身已压缩；--compress 1-9 启用 deflate）
         seen = {}
-        with zipfile.ZipFile(str(cbz_path), "w", zipfile.ZIP_STORED) as zf:
+        if compress > 0:
+            zf_obj = zipfile.ZipFile(str(cbz_path), "w", zipfile.ZIP_DEFLATED, compresslevel=compress)
+        else:
+            zf_obj = zipfile.ZipFile(str(cbz_path), "w", zipfile.ZIP_STORED)
+        with zf_obj as zf:
             for idx, img in enumerate(images, 1):
                 if img.name in seen:
                     # 重名：用序号前缀 + 原文件名，保证顺序且不冲突
@@ -618,6 +668,393 @@ def mobi_to_cbz(mobi_path: Path, delete_original: bool = False, prefer: str = "m
         for p in extract_temp_paths:
             if p.exists():
                 shutil.rmtree(p, ignore_errors=True)
+
+
+def read_exth_metadata(p: Path) -> dict:
+    """读取 mobi 文件头 EXTH 扩展记录中的元数据（不解包，只读文件头）。
+
+    EXTH 记录通过搜索 "EXTH" 魔数定位（限制在前 64KB 头部区域），
+    兼容 BOOKMOBI 位于偏移 60 的非标准头部变体。
+    返回 dict，仅包含实际存在的字段：
+    title(503) author(100) publisher(101) language(524)
+    publish_date(106) isbn(104) asin(113) copyright(109)
+    """
+    try:
+        with open(p, "rb") as f:
+            head = f.read(65536)
+        idx = head.find(b"EXTH")
+        if idx < 0 or idx > 65536 - 12:
+            return {}
+        count = struct.unpack(">I", head[idx + 8:idx + 12])[0]
+        if count <= 0 or count > 1000:
+            return {}
+        key_map = {
+            503: "title", 100: "author", 101: "publisher", 524: "language",
+            106: "publish_date", 104: "isbn", 113: "asin", 109: "copyright",
+        }
+        pos = idx + 12
+        meta = {}
+        for _ in range(count):
+            t = struct.unpack(">I", head[pos:pos + 4])[0]
+            l = struct.unpack(">I", head[pos + 4:pos + 8])[0]
+            if l < 8 or pos + l > len(head):
+                break
+            val = head[pos + 8:pos + l].decode("utf-8", errors="replace").strip("\x00")
+            key = key_map.get(t)
+            if key and val and key not in meta:
+                meta[key] = val
+            pos += l
+        return meta
+    except Exception:
+        return {}
+
+
+def get_drm_flag(p: Path) -> bool:
+    """读取 PalmDB 头偏移 12 处的加密字段，非 0 表示 DRM 加密"""
+    try:
+        with open(p, "rb") as f:
+            f.seek(12)
+            return struct.unpack(">H", f.read(2))[0] != 0
+    except Exception:
+        return False
+
+
+def image_dimensions(img: Path) -> tuple[int, int] | None:
+    """从图片文件头读取宽高（不加载整图），支持 png/jpeg/gif/webp/bmp，失败返回 None。
+
+    JPEG 的 SOF 段可能被 APP0/APP1(EXIF) 等大段标记推后到几 KB 处，
+    因此读取 64KB 头部用于扫描，避免只读到前 64 字节而解析失败。"""
+    try:
+        with open(img, "rb") as f:
+            head = f.read(65536)
+        if head.startswith(b"\x89PNG\r\n\x1a\n") and len(head) >= 24:
+            w, h = struct.unpack(">II", head[16:24])
+            return w, h
+        if head.startswith(b"\xff\xd8"):
+            # JPEG: 扫描 SOF 段（C0-CF，排除 D8/D9/DA 等）
+            pos = 2
+            while pos + 9 < len(head):
+                if head[pos] != 0xFF:
+                    pos += 1
+                    continue
+                marker = head[pos + 1]
+                if marker in (0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7,
+                              0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF):
+                    h, w = struct.unpack(">HH", head[pos + 5:pos + 9])
+                    return w, h
+                if marker in (0xD8, 0xD9) or 0xD0 <= marker <= 0xD7:
+                    pos += 2
+                else:
+                    seg_len = struct.unpack(">H", head[pos + 2:pos + 4])[0]
+                    pos += 2 + seg_len
+            return None
+        if head.startswith(b"GIF8"):
+            w, h = struct.unpack("<HH", head[6:10])
+            return w, h
+        if head.startswith(b"RIFF") and head[8:12] == b"WEBP":
+            if head[12:16] == b"VP8X" and len(head) >= 32:
+                w = struct.unpack("<I", head[24:28])[0] & 0xFFFFFF
+                h = struct.unpack("<I", head[28:32])[0] & 0xFFFFFF
+                return w + 1, h + 1
+            if head[12:16] == b"VP8 " and len(head) >= 30:
+                w = struct.unpack("<H", head[26:28])[0] & 0x3FFF
+                h = struct.unpack("<H", head[28:30])[0] & 0x3FFF
+                return w, h
+            if head[12:16] == b"VP8L" and len(head) >= 25:
+                b = head[21:25]
+                w = (b[0] | ((b[1] & 0x3F) << 8)) + 1
+                h = ((b[1] >> 6) | (b[2] << 2) | ((b[3] & 0x0F) << 10)) + 1
+                return w, h
+            return None
+        if head.startswith(b"BM") and len(head) >= 26:
+            w, h = struct.unpack("<ii", head[18:26])
+            return abs(w), abs(h)
+        return None
+    except Exception:
+        return None
+
+
+def get_opf_guide_cover_href(opf_path: Path) -> str | None:
+    """解析 OPF 文件中 <guide><reference type="cover" href="..."> 的封面引用。
+
+    兼容 type/href 属性顺序互换；找不到 type="cover" 引用时返回 None。"""
+    try:
+        text = opf_path.read_text("utf-8", errors="replace")
+        m = re.search(
+            r'<reference\s+[^>]*type=["\']cover["\'][^>]*href=["\']([^"\']+)["\']',
+            text, re.I,
+        )
+        if not m:
+            m = re.search(
+                r'<reference\s+[^>]*href=["\']([^"\']+)["\'][^>]*type=["\']cover["\']',
+                text, re.I,
+            )
+        return m.group(1) if m else None
+    except Exception:
+        return None
+
+
+def parse_ncx_toc(base_dir: Path) -> tuple[int, list[str]]:
+    """解析 toc.ncx 目录条目数并预览前 3 条标题。
+
+    返回 (条目数, 标题预览列表)；找不到 ncx 或解析失败返回 (0, [])。"""
+    ncx = None
+    for f in base_dir.rglob("*.ncx"):
+        ncx = f
+        break
+    if ncx is None:
+        return 0, []
+    try:
+        text = ncx.read_text("utf-8", errors="replace")
+        titles = re.findall(r"<text>(.*?)</text>", text, re.I | re.S)
+        titles = [re.sub(r"<[^>]+>", "", t).strip() for t in titles]
+        titles = [t for t in titles if t]
+        return len(titles), titles[:3]
+    except Exception:
+        return 0, []
+
+
+def inspect_mobi(p: Path, min_bytes: int, prefer: str = "mobi8") -> str:
+    """检查单个 mobi 内部信息（--inspect 模式核心）。
+
+    流程：头部基础检查（魔数/大小/DRM）→ EXTH 元数据 → 解包 →
+    目录结构/OPF/spine/NCX/图片数/封面/格式分布/分辨率统计 → 压缩建议。
+    DRM 双重判断：头部标记有→直接判有并跳过解包；
+    无标记+解包图片0→疑似；无标记+有图片→无。
+    只解包不打包，结束后自动清理临时目录。
+    返回状态字符串：ok / invalid / noimg / drm / fail（供汇总计数）。
+    """
+    size = p.stat().st_size
+    size_mb = size / (1024 * 1024)
+    emit(f"{TAG_FILE} {p.name} ({size_mb:.1f} MB)", level="summary")
+
+    reason = precheck_mobi(p, min_bytes)
+    if reason:
+        if "BOOKMOBI" in reason:
+            emit(f" 基础: 魔数非法（偏移 60 处无 BOOKMOBI） | --min-size 不会过滤")
+        else:
+            emit(f" 基础: {reason}")
+        emit(f" 提示: 疑似损坏或非 mobi 文件，跳过解包")
+        return "invalid"
+
+    drm = get_drm_flag(p)
+    meta = read_exth_metadata(p)
+
+    base_parts = ["魔数合法"]
+    if drm:
+        base_parts.append("DRM: 有(头部标记)")
+    else:
+        base_parts.append("DRM: 头部标记无")
+    if min_bytes > 0 and size < min_bytes:
+        base_parts.append(f"低于 --min-size({min_bytes})")
+    else:
+        base_parts.append("--min-size 不会过滤")
+    emit(f" 基础: {' | '.join(base_parts)}")
+    if drm:
+        emit(f" 提示: 头部已标记 DRM 加密，跳过解包，转换会失败需先去除 DRM", level="summary")
+        return "drm"
+
+    meta_parts = []
+    if meta.get("title"):
+        meta_parts.append(f"标题 {meta['title']}")
+    if meta.get("author"):
+        meta_parts.append(f"作者 {meta['author']}")
+    if meta.get("language"):
+        meta_parts.append(f"语言 {meta['language']}")
+    if meta.get("publish_date"):
+        meta_parts.append(f"出版日期 {meta['publish_date']}")
+    if meta.get("publisher"):
+        meta_parts.append(f"出版社 {meta['publisher']}")
+    if meta.get("isbn"):
+        meta_parts.append(f"ISBN {meta['isbn']}")
+    if meta.get("asin"):
+        meta_parts.append(f"ASIN {meta['asin']}")
+    if meta.get("copyright"):
+        meta_parts.append(f"版权 {meta['copyright']}")
+    if meta_parts:
+        emit(f" 元数据: {' | '.join(meta_parts)}")
+
+    extract_temp_paths = []
+    try:
+        tempdir_raw, _ = mobi.extract(str(p))
+        tempdir = Path(tempdir_raw)
+        extract_temp_paths.append(tempdir)
+
+        has7 = (tempdir / "mobi7").is_dir()
+        has8 = (tempdir / "mobi8").is_dir()
+        emit(f"  双目录标记: mobi7={has7} mobi8={has8}")
+        base_dir = select_mobi_dir(tempdir, prefer)
+
+        opf_path = find_opf(base_dir)
+        emit(f"  OPF文件: {'存在' if opf_path else '不存在'}")
+        spine_count = 0
+        spine_images = []
+        if opf_path:
+            spine_images = extract_images_by_spine(opf_path) or []
+            spine_count = len(spine_images)
+        emit(f"  Spine提取图片: {spine_count} 张")
+        for s_img in spine_images[:5]:
+            emit(f"    {s_img.name}")
+
+        ncx_count, ncx_preview = parse_ncx_toc(base_dir)
+        if ncx_count:
+            emit(f"  目录(NCX): {ncx_count} 个条目 | 预览: {' | '.join(ncx_preview)}")
+        else:
+            emit(f"  目录(NCX): 未找到或解析失败")
+
+        total_in_dir = count_images_in_dir(base_dir)
+        emit(f"  目录全部图片: {total_in_dir} 张")
+
+        if total_in_dir == 0:
+            emit(f"  DRM: 疑似(头部标记无但图片0张)")
+            emit(f"  封面文件未找到")
+            emit(f"  图片格式统计: 无图片可统计")
+            emit(f"  提示: 疑似 DRM 加密或内容损坏，转换会失败，需先去除 DRM", level="summary")
+            return "noimg"
+        emit(f"  DRM: 无(头部标记无+图片{total_in_dir}张)")
+
+        # 封面检测：OPF guide type=cover 引用优先，未命中回退文件名扫描
+        cover = None
+        cover_src = ""
+        if opf_path:
+            href = get_opf_guide_cover_href(opf_path)
+            if href:
+                cand = (base_dir / href).resolve()
+                if cand.is_file() and cand.suffix.lower() in IMAGE_EXTENSIONS:
+                    cover = cand
+                    cover_src = "OPF guide 官方引用"
+                else:
+                    fname = href.replace("\\", "/").rsplit("/", 1)[-1]
+                    for cp in base_dir.rglob(fname):
+                        if cp.is_file() and cp.suffix.lower() in IMAGE_EXTENSIONS:
+                            cover = cp
+                            cover_src = "OPF guide 官方引用"
+                            break
+        if cover is None:
+            for cp in base_dir.rglob("*"):
+                if (cp.is_file() and cp.suffix.lower() in IMAGE_EXTENSIONS
+                        and any(k in cp.name.lower() for k in COVER_KEYWORDS)):
+                    cover = cp
+                    cover_src = "文件名匹配"
+                    break
+        if cover:
+            emit(f"  封面文件已找到: {cover.name}（{cover_src}）")
+        else:
+            emit(f"  封面文件未找到")
+
+        # 格式分布 + 分辨率统计
+        fmt_counter = {}
+        res_list = []
+        all_imgs = []
+        for root, dirs, files in os.walk(base_dir):
+            for f in files:
+                fp = Path(root) / f
+                if fp.suffix.lower() not in IMAGE_EXTENSIONS:
+                    continue
+                all_imgs.append(fp)
+                ext = fp.suffix.lower().lstrip(".")
+                if ext == "jpeg":
+                    ext = "jpg"
+                fmt_counter[ext] = fmt_counter.get(ext, 0) + 1
+                dim = image_dimensions(fp)
+                if dim:
+                    res_list.append(dim)
+
+        total_fmt = sum(fmt_counter.values())
+        fmt_parts = [
+            f"{k} {v} ({v / total_fmt * 100:.1f}%)"
+            for k, v in sorted(fmt_counter.items(), key=lambda x: -x[1])
+        ]
+        emit(f"  图片格式统计: {' | '.join(fmt_parts)}")
+
+        if res_list:
+            total_res = len(res_list)
+            w_counter = Counter(d[0] for d in res_list)
+            h_counter = Counter(d[1] for d in res_list)
+            main_w, main_wc = w_counter.most_common(1)[0]
+            main_h, main_hc = h_counter.most_common(1)[0]
+            if main_hc >= main_wc:
+                # 主流高度明确时：显示主流高 + 该高度下的宽度范围
+                w_sub = [d[0] for d in res_list if d[1] == main_h]
+                res_parts = [
+                    f"主流高 {main_h} ({main_hc}张, {main_hc / total_res * 100:.0f}%)",
+                    f"宽 {min(w_sub)}~{max(w_sub)}",
+                ]
+            else:
+                # 主流宽度明确时：显示主流宽 + 该宽度下的高度范围
+                h_sub = [d[1] for d in res_list if d[0] == main_w]
+                res_parts = [
+                    f"主流宽 {main_w} ({main_wc}张, {main_wc / total_res * 100:.0f}%)",
+                    f"高 {min(h_sub)}~{max(h_sub)}",
+                ]
+            emit(f"  分辨率: {' | '.join(res_parts)}")
+
+        # 压缩建议
+        jpeg_ratio = (fmt_counter.get("jpg", 0) + fmt_counter.get("jpeg", 0)) / total_fmt
+        png_ratio = fmt_counter.get("png", 0) / total_fmt
+        if png_ratio >= 0.5:
+            emit(f"  建议: PNG 为主，建议 --compress 6~9，可显著减小体积")
+        elif jpeg_ratio >= 0.8:
+            emit(f"  建议: JPEG 为主，--compress 收益有限，不建议开启")
+        else:
+            emit(f"  建议: 混合格式，可试 --compress 6 对比体积")
+        return "ok"
+    except Exception as e:
+        emit(f" 提示: 解包失败（{e}）", level="summary")
+        return "fail"
+    finally:
+        for tp in extract_temp_paths:
+            if tp.exists():
+                shutil.rmtree(tp, ignore_errors=True)
+
+
+def inspect_mode(mobi_files: list[Path], precheck_skipped: list, args) -> None:
+    """--inspect 模式入口：随机抽查或全量检查 mobi 内部信息，不生成 CBZ"""
+    if precheck_skipped:
+        emit(f"预处理跳过 {len(precheck_skipped)} 个文件（魔数非法/过小，不进入检查）：", level="summary")
+        for mf, reason in precheck_skipped:
+            emit(f"  {TAG_SKIP} {mf}（{reason}）", level="summary")
+
+    if not mobi_files:
+        emit("无有效 mobi 文件可检查（全部被预处理过滤）", level="error")
+        sys.exit(0)
+
+    if args.inspect_all:
+        targets = mobi_files
+        emit(f"检查全部 {len(targets)} 个有效 mobi 文件...\n", level="summary")
+    else:
+        targets = [random.choice(mobi_files)]
+        emit(f"随机抽查 1/{len(mobi_files)} 个文件...\n", level="summary")
+
+    total_start = time.perf_counter()
+    ok = fail = invalid = noimg = drm_n = timeout_n = 0
+    try:
+        for mf in targets:
+            result = run_with_timeout(inspect_mobi, args.timeout, mf, args.min_size, args.prefer)
+            if result is None:
+                emit(f"  {TAG_TIMEOUT} {mf.name}: 检查超过 {args.timeout} 秒，已跳过（计入失败）", level="error")
+                timeout_n += 1
+            elif result == "invalid":
+                invalid += 1
+            elif result == "drm":
+                drm_n += 1
+            elif result == "noimg":
+                noimg += 1
+            elif result == "ok":
+                ok += 1
+            else:
+                fail += 1
+    except KeyboardInterrupt:
+        emit("\n检测到 Ctrl+C，中断检查，输出当前进度汇总：", level="summary")
+
+    total_elapsed = time.perf_counter() - total_start
+    if not args.inspect_all:
+        emit(f"[检查] 抽查 1/{len(mobi_files)}（随机），全部查看请加 --inspect-all", level="summary")
+    emit(
+        f"[检查] 检查完成: 共 {len(targets)} 个, 正常 {ok}, 魔数非法 {invalid}, "
+        f"DRM标记 {drm_n}, 疑似DRM/无图 {noimg}, 解包超时 {timeout_n}, 共耗时 {total_elapsed:.1f}s",
+        level="summary",
+    )
 
 
 def main():
@@ -696,16 +1133,35 @@ def _main():
         help="精简汇总：成功/跳过文件只显示数量不列出路径，失败文件始终全路径列出",
     )
     parser.add_argument(
+        "--compress",
+        type=int,
+        default=0,
+        choices=range(0, 10),
+        metavar="LEVEL",
+        help="zip 压缩级别 0-9：0=不压缩（默认，图片本身已压缩），1-9=deflate 压缩（PNG 源有收益，级别越高越小但越慢）",
+    )
+    parser.add_argument(
+        "--inspect",
+        action="store_true",
+        help="检查模式：随机抽查 1 个 mobi，只解包读取内部信息（元数据/结构/图片/分辨率/DRM），不生成 CBZ，结束自动清理临时目录",
+    )
+    parser.add_argument(
+        "--inspect-all",
+        action="store_true",
+        help="检查全部 mobi（需配合 --inspect 使用，单独使用无效果）",
+    )
+    parser.add_argument(
         "--log",
         metavar="FILE",
         help="将全部输出追加写入指定日志文件",
     )
     args = parser.parse_args()
 
-    global _quiet_mode, _log_path, _short_summary
+    global _quiet_mode, _log_path, _short_summary, _compress_level
     _quiet_mode = args.quiet
     _log_path = args.log
     _short_summary = args.short_summary
+    _compress_level = args.compress
 
     target = Path(args.target)
     if not target.exists():
@@ -730,11 +1186,15 @@ def _main():
             valid_mobi_files.append(mf)
     mobi_files = valid_mobi_files
 
-    if precheck_skipped and not args.dry_run:
+    if precheck_skipped and not args.dry_run and not args.inspect:
         emit(f"预处理跳过 {len(precheck_skipped)} 个文件：", level="summary")
         if not _short_summary:
             for mf, reason in precheck_skipped:
                 emit(f"  {TAG_SKIP} {mf}（{reason}）", level="summary")
+
+    if args.inspect:
+        inspect_mode(mobi_files, precheck_skipped, args)
+        return
 
     if not mobi_files:
         emit("无有效 mobi 文件可转换（全部被预处理过滤）", level="error")
@@ -776,7 +1236,7 @@ def _main():
                 mobi_to_cbz, args.timeout,
                 mf, delete_original=args.delete, prefer=args.prefer,
                 drop_extra=args.drop_extra, overwrite=args.overwrite,
-                output_dir=output_dir,
+                output_dir=output_dir, compress=_compress_level,
             )
             file_elapsed = time.perf_counter() - file_start
             if converted is None:
