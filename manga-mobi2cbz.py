@@ -1,44 +1,76 @@
 #!/usr/bin/env python3
 """
-manga-mobi2cbz — 将 mobi 漫画文件批量转换为 cbz 格式
+manga-mobi2cbz — 将 mobi 漫画文件批量转换为 cbz 格式（OPF spine 排序 + 封面兜底增强版）
 
 用法:
     python manga-mobi2cbz.py <目录或文件路径> [--delete] [--prefer mobi7|mobi8]
 
 示例:
     # 转换整个文件夹（递归搜索所有 .mobi）
-    python mobi2cbz.py "D:\\漫画\\"
+    python manga-mobi2cbz.py "D:\\Manga\\"
 
     # 转换单个文件
-    python mobi2cbz.py "D:\\漫画\\第一卷.mobi"
+    python manga-mobi2cbz.py "D:\\Manga\\Vol1.mobi"
 
     # 转换后自动删除原始 mobi
-    python mobi2cbz.py "D:\\漫画\\" --delete
+    python manga-mobi2cbz.py "D:\\Manga" --delete
 
     # 双目录 mobi 时保留 mobi7
-    python mobi2cbz.py "D:\\漫画\\第一卷.mobi" --prefer mobi7
+    python manga-mobi2cbz.py "D:\\Manga\\Vol1.mobi" --prefer mobi7
+
+    # 目录中有未被收集的多余图片时放弃追加（默认追加到 cbz 末尾）
+    python manga-mobi2cbz.py "D:\\Manga\\Vol1.mobi" --drop-extra
 
 参数:
     --delete         转换成功后删除原始 mobi 文件
     --prefer         双目录 mobi（mobi7/mobi8）时保留哪份，默认 mobi8
+    --drop-extra     目录中有未被收集的多余图片时放弃追加，默认追加到末尾
+    --version        显示版本号
 
 依赖: pip install mobi
 要求: Python 3.10+
+
+更新日志:
+    v1.3.0 (2026-08-13)
+        - 新增封面兜底：spine 提取后扫描文件名含 cover/front 的图片；
+          封面已在列表中则以列表顺序为准，仅缺失时插入首位，
+          修复封面仅由 OPF metadata meta 定义、未在 spine 中引用时导致的丢页
+        - 封面关键字兼容 cover 与 front 两种命名
+        - 新增目录对齐兜底：目录图片数与收集数不一致时，
+          多出的图片默认按自然排序追加到 cbz 末尾，--drop-extra 可改为放弃，
+          处理结果会打印输出
+
+    v1.2.0 (2026-08-13)
+        - 新增 OPF spine 顺序提取图片，按真实阅读顺序排列
+        - 重名图片改用序号前缀（{idx:04d}_），保证顺序且不冲突
+        - 新增 select_mobi_dir 目录选择逻辑
+        - 新增 --version 参数
+
+    v1.1.0 (2026-08-13)
+        - 脚本更名为 manga-mobi2cbz
+        - 新增 __version__ 与 SCRIPT_NAME 常量
+
+    v1.0.0 (2026-08-12)
+        - 首个可用版本：递归收集 mobi、批量转 cbz、双目录去重、
+          EOCD + testzip 完整性校验、失败清理半成品
 """
 
-__version__ = "1.1.0"
+__version__ = "1.3.0"
 
 SCRIPT_NAME = "manga-mobi2cbz"
+
 import os
 import re
 import sys
 import shutil
 import zipfile
 import argparse
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".tiff", ".tif"}
 EOCD_SIGNATURE = b"\x50\x4b\x05\x06"  # End of Central Directory 签名
+OPF_NS = {"opf": "http://www.idpf.org/2007/opf"}
 
 
 def natural_key(p: Path) -> list:
@@ -79,10 +111,172 @@ def collect_mobi_files(target: Path) -> list[Path]:
     return sorted(mobi_files)
 
 
-def mobi_to_cbz(mobi_path: Path, delete_original: bool = False, prefer: str = "mobi8") -> Path | None:
+def find_opf(base_dir: Path) -> Path | None:
+    """在目录下递归查找 .opf 文件"""
+    for p in base_dir.rglob("*.opf"):
+        return p
+    return None
+
+
+def extract_images_from_html(html_path: Path) -> list[Path]:
+    """从 HTML 文件中提取所有 <img> 引用的本地图片路径"""
+    try:
+        content = html_path.read_text(encoding="utf-8", errors="ignore")
+        srcs = re.findall(r'<img[^>]+src=["\']([^"\']+)["\']', content, re.IGNORECASE)
+        base_dir = html_path.parent
+        result = []
+        for src in srcs:
+            if src.startswith(("data:", "http://", "https://", "//")):
+                continue
+            img_path = (base_dir / src).resolve()
+            if img_path.exists() and img_path.suffix.lower() in IMAGE_EXTENSIONS:
+                result.append(img_path)
+        return result
+    except Exception:
+        return []
+
+
+def extract_images_by_spine(opf_path: Path) -> list[Path] | None:
+    """按 OPF spine 顺序提取图片。成功返回图片路径列表，失败返回 None"""
+    try:
+        tree = ET.parse(opf_path)
+        root = tree.getroot()
+
+        # 解析 manifest: id -> href
+        manifest = {}
+        for item in root.findall(".//opf:manifest/opf:item", OPF_NS):
+            item_id = item.get("id")
+            href = item.get("href")
+            if item_id and href:
+                manifest[item_id] = href
+
+        # 解析 spine 顺序（这才是权威阅读顺序）
+        spine_ids = []
+        for itemref in root.findall(".//opf:spine/opf:itemref", OPF_NS):
+            idref = itemref.get("idref")
+            if idref:
+                spine_ids.append(idref)
+
+        if not spine_ids:
+            return None
+
+        opf_dir = opf_path.parent
+        images = []
+        for sid in spine_ids:
+            href = manifest.get(sid)
+            if not href:
+                continue
+            html_path = (opf_dir / href).resolve()
+            if not html_path.exists():
+                continue
+            imgs = extract_images_from_html(html_path)
+            images.extend(imgs)
+
+        return images if images else None
+    except Exception:
+        return None
+
+
+COVER_KEYWORDS = ("cover", "front")
+
+
+def ensure_cover_first(images: list[Path], base_dir: Path) -> list[Path]:
+    """确保封面图片不被遗漏。
+
+    扫描目录下文件名含 cover/front 的图片（如 cover00198.jpeg、
+    front.jpeg）：
+    - 封面已在 spine 提取列表中：保持列表顺序不变，以列表为准
+    - 封面不在列表中：插入首位补齐
+    没有候选封面时原样返回。
+    """
+    cover_candidates = []
+    for p in base_dir.rglob("*"):
+        if (
+            p.is_file()
+            and p.suffix.lower() in IMAGE_EXTENSIONS
+            and any(k in p.name.lower() for k in COVER_KEYWORDS)
+        ):
+            cover_candidates.append(p)
+    if not cover_candidates:
+        return images
+    cover_candidates.sort(key=natural_key)
+    cover = cover_candidates[0]
+    if any(p.resolve() == cover.resolve() for p in images):
+        return images
+    images.insert(0, cover)
+    return images
+
+
+def count_images_in_dir(base_dir: Path) -> int:
+    """统计目录下所有图片数量（含子目录）"""
+    count = 0
+    for root, dirs, files in os.walk(base_dir):
+        for f in files:
+            if Path(f).suffix.lower() in IMAGE_EXTENSIONS:
+                count += 1
+    return count
+
+
+def align_images_with_dir(images: list[Path], base_dir: Path, drop_extra: bool) -> tuple[list[Path], str | None]:
+    """目录对齐兜底：把目录中存在但未被收集的图片补齐到末尾。
+
+    返回 (处理后的图片列表, 处理说明文本或 None)：
+    - 无多余图片：原样返回，说明为 None
+    - 有多余图片且 drop_extra=False：追加到末尾并返回说明
+    - 有多余图片且 drop_extra=True：放弃追加并返回说明
+    """
+    collected = {p.resolve() for p in images}
+    extras = []
+    for root, dirs, files in os.walk(base_dir):
+        for f in files:
+            p = Path(root) / f
+            if p.suffix.lower() in IMAGE_EXTENSIONS and p.resolve() not in collected:
+                extras.append(p)
+    extras.sort(key=natural_key)
+    if not extras:
+        return images, None
+    if drop_extra:
+        return images, f"[提示] 目录中 {len(extras)} 张图片未被收集，已按 --drop-extra 放弃"
+    return images + extras, f"[提示] 目录中 {len(extras)} 张图片未被收集，已追加到末尾"
+
+
+def collect_images_fallback(base_dir: Path) -> list[Path]:
+    """兜底方案：直接扫描目录下所有图片，按自然排序"""
+    images = []
+    for root, dirs, files in os.walk(base_dir):
+        for f in files:
+            ext = Path(f).suffix.lower()
+            if ext in IMAGE_EXTENSIONS:
+                images.append(Path(root) / f)
+    images.sort(key=natural_key)
+    return images
+
+
+def select_mobi_dir(tempdir: Path, prefer: str) -> Path:
+    """根据 prefer 参数选择 mobi7 或 mobi8 目录；如果只有一份则返回那一份"""
+    mobi7_dir = tempdir / "mobi7"
+    mobi8_dir = tempdir / "mobi8"
+
+    has7 = mobi7_dir.is_dir()
+    has8 = mobi8_dir.is_dir()
+
+    if has7 and has8:
+        chosen = mobi7_dir if prefer == "mobi7" else mobi8_dir
+        print(f"  [去重] 检测到双目录，保留 {'mobi7' if prefer == 'mobi7' else 'mobi8'}")
+        return chosen
+    if has8:
+        return mobi8_dir
+    if has7:
+        return mobi7_dir
+    # 都没有子目录，直接用 tempdir
+    return tempdir
+
+
+def mobi_to_cbz(mobi_path: Path, delete_original: bool = False, prefer: str = "mobi8", drop_extra: bool = False) -> Path | None:
     """将单个 mobi 文件转换为 cbz
 
     prefer: 双目录 mobi（mobi7/mobi8）时保留哪份，默认 "mobi8"
+    drop_extra: 目录中有未被收集的多余图片时放弃追加，默认追加到末尾
     """
     try:
         import mobi
@@ -100,46 +294,44 @@ def mobi_to_cbz(mobi_path: Path, delete_original: bool = False, prefer: str = "m
         # Step 1: 解压 mobi
         tempdir, _ = mobi.extract(str(mobi_path))
 
-        # Step 2: 收集所有图片
-        images = []
-        for root, dirs, files in os.walk(tempdir):
-            for f in files:
-                ext = Path(f).suffix.lower()
-                if ext in IMAGE_EXTENSIONS:
-                    images.append(Path(root) / f)
+        # Step 2: 选择目录（mobi7/mobi8 去重）
+        base_dir = select_mobi_dir(Path(tempdir), prefer)
 
-        # 双目录 mobi（mobi7/mobi8）：默认保留 mobi8 一份，避免重复内容导致体积翻倍/重名冲突
-        # 可通过 --prefer 参数改为保留 mobi7
-        mobi7_images = [p for p in images if "mobi7" in p.parts]
-        mobi8_images = [p for p in images if "mobi8" in p.parts]
-        if mobi7_images and mobi8_images:
-            if prefer == "mobi7":
-                images = mobi7_images
-                print(f"  [去重] 检测到双目录，按参数保留 mobi7 图片（{len(images)} 张）")
+        # Step 3: 优先按 OPF spine 顺序提取图片，兜底按文件名排序
+        opf_path = find_opf(base_dir)
+        if opf_path:
+            images = extract_images_by_spine(opf_path)
+            if images:
+                print(f"  [排序] 按 OPF spine 顺序（{len(images)} 张图片）")
             else:
-                images = mobi8_images
-                print(f"  [去重] 检测到双目录，默认保留 mobi8 图片（{len(images)} 张）")
-        elif mobi8_images:
-            images = mobi8_images
-            print(f"  [去重] 仅检测到 mobi8 目录，保留 mobi8 图片（{len(images)} 张）")
-        elif mobi7_images:
-            images = mobi7_images
-            print(f"  [去重] 仅检测到 mobi7 目录，保留 mobi7 图片（{len(images)} 张）")
+                images = collect_images_fallback(base_dir)
+                print(f"  [排序] spine 提取为空，兜底按文件名排序（{len(images)} 张）")
+        else:
+            images = collect_images_fallback(base_dir)
+            print(f"  [排序] 未找到 OPF，兜底按文件名排序（{len(images)} 张）")
 
         if not images:
             print(f"  [失败] 未找到图片: {mobi_path.name}")
             return None
 
-        # 自然排序，保证页码顺序正确（2.jpg 在 10.jpg 前面）
-        images.sort(key=natural_key)
+        # 确保封面在第一位（兼容 cover/front 命名，封面可能未被 spine 引用）
+        images = ensure_cover_first(images, base_dir)
 
-        # Step 3: 打包为 cbz (ZIP 无压缩，因为图片已经压缩过了)
+        # 目录对齐兜底：目录图片数 vs 收集数不一致时，多出的图片追加到末尾
+        total_in_dir = count_images_in_dir(base_dir)
+        images, align_msg = align_images_with_dir(images, base_dir, drop_extra)
+        if align_msg:
+            print(f"  {align_msg}")
+        elif total_in_dir != len(images):
+            print(f"  [提示] 目录共 {total_in_dir} 张图片，收集 {len(images)} 张，数量不一致")
+
+        # Step 4: 打包为 cbz (ZIP 无压缩，因为图片已经压缩过了)
         seen = {}
         with zipfile.ZipFile(str(cbz_path), "w", zipfile.ZIP_STORED) as zf:
-            for img in images:
+            for idx, img in enumerate(images, 1):
                 if img.name in seen:
-                    # 重名：以相对路径为条目名，保留两份
-                    arcname = img.relative_to(tempdir).as_posix()
+                    # 重名：用序号前缀 + 原文件名，保证顺序且不冲突
+                    arcname = f"{idx:04d}_{img.name}"
                 else:
                     arcname = img.name
                     seen[img.name] = arcname
@@ -156,7 +348,7 @@ def mobi_to_cbz(mobi_path: Path, delete_original: bool = False, prefer: str = "m
             return None
         print(f"  [校验] {msg}")
 
-        # Step 4: 可选删除原始 mobi
+        # Step 5: 可选删除原始 mobi
         if delete_original:
             mobi_path.unlink()
             print(f"  [清理] 已删除原始文件: {mobi_path.name}")
@@ -189,6 +381,11 @@ def main():
         default="mobi8",
         help="双目录 mobi（mobi7/mobi8）时保留哪份，默认 mobi8",
     )
+    parser.add_argument(
+        "--drop-extra",
+        action="store_true",
+        help="目录中有未被收集的多余图片时放弃追加（默认追加到 cbz 末尾）",
+    )
     args = parser.parse_args()
 
     target = Path(args.target)
@@ -205,7 +402,7 @@ def main():
 
     success = 0
     for mf in mobi_files:
-        result = mobi_to_cbz(mf, delete_original=args.delete, prefer=args.prefer)
+        result = mobi_to_cbz(mf, delete_original=args.delete, prefer=args.prefer, drop_extra=args.drop_extra)
         if result:
             success += 1
 
