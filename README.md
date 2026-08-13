@@ -11,7 +11,9 @@ manga-mobi2cbz
 - **双目录去重** — 自动识别 mobi7/mobi8 双目录，默认保留 mobi8（画质可能更好），可切换
 - **自然排序** — 按页码自然排序，避免 `10.jpg` 排在 `2.jpg` 前面
 - **完整性校验** — 转换后自动校验 CBZ 文件，损坏则删除并提示
-- **无压缩打包** — 图片已是压缩格式，ZIP 仅存储不压缩，速度快、体积小
+- **无压缩打包** — 图片已是压缩格式，ZIP 默认仅存储不压缩，速度快、体积小
+- **可选压缩** — `--compress LEVEL` 启用 deflate 压缩（1-9），PNG 源漫画可显著减小体积，级别越高越小但越慢；JPEG 源收益有限，不建议开启（默认 `0` 不压缩）
+- **检查模式** — `--inspect` 随机抽查 1 个 mobi（`--inspect-all` 全量），只解包读取内部信息不生成 CBZ：基础检查（魔数/大小/DRM 双重判断）、EXTH 元数据（标题/作者/语言/出版日期/出版社/ISBN/ASIN/版权，读到才显示）、双目录标记、OPF 与 spine 提取数（前 5 文件名竖排预览）、目录(NCX) 条目数与预览、目录全部图片数、封面（OPF guide 官方引用优先，未命中回退文件名匹配）、图片格式分布、主流分辨率（主流高/宽 + 另一维范围）、压缩建议；DRM 头部标记有→直接判有并跳过解包，无标记+图片 0→疑似，无标记+有图片→无；结束后自动清理临时目录
 - **可选删除原文件** — `--delete` 参数转换成功后自动删除原始 mobi
 - **强制覆盖** — `--overwrite` 参数对已存在的 cbz 强制重新生成，更新漫画后无需手动删旧文件
 - **单文件超时保护** — `--timeout` 参数限制单个文件转换时长，损坏/加密/超大 mobi 导致底层解包无限阻塞时自动跳过并计入失败，不再卡死整批转换（默认 600 秒，`0` 表示不限制）
@@ -109,6 +111,24 @@ python manga-mobi2cbz.py "D:\Manga" --quiet --log convert.log
 python manga-mobi2cbz.py "D:\Manga" --quiet --short-summary --log convert.log
 ```
 
+### 开启 zip 压缩（PNG 源漫画可显著减小体积）
+
+```bash
+python manga-mobi2cbz.py "D:\Manga" --compress 9
+```
+
+### 检查模式：随机抽查 1 个 mobi 内部信息（元数据/结构/图片/分辨率/DRM/NCX 目录）
+
+```bash
+python manga-mobi2cbz.py "D:\Manga" --inspect
+```
+
+### 检查全部 mobi 内部信息
+
+```bash
+python manga-mobi2cbz.py "D:\Manga" --inspect --inspect-all
+```
+
 ### 查看版本号
 
 ```bash
@@ -130,6 +150,9 @@ python manga-mobi2cbz.py --version
 | `--dry-run` | 试运行：只扫描文件并打印转换流程，不实际解压打包、不创建输出目录 |
 | `--quiet` | 静默模式，只显示错误与最终汇总 |
 | `--short-summary` | 精简汇总：成功/跳过文件只显示数量不列出路径（失败文件始终全路径列出） |
+| `--compress LEVEL` | zip 压缩级别 0-9：`0`=不压缩（默认，图片本身已压缩），`1-9`=deflate 压缩（PNG 源有收益，级别越高越小但越慢） |
+| `--inspect` | 检查模式：随机抽查 1 个 mobi，只解包读取内部信息（元数据/结构/图片/分辨率/DRM 双重判断/NCX 目录），不生成 CBZ，结束自动清理临时目录 |
+| `--inspect-all` | 检查全部 mobi（需配合 `--inspect` 使用，单独使用无效果） |
 | `--log FILE` | 将全部输出追加写入指定日志文件 |
 | `--version` | 显示版本号 |
 
@@ -166,6 +189,19 @@ A: 单文件转换默认有 600 秒超时（`--timeout` 可调），超时后会
 A: 目前仅支持 `.mobi` 格式。
 
 ## 更新日志
+
+### [1.7.0] - 2026-08-13
+
+#### 新增
+
+- `--compress LEVEL`：zip 压缩级别 0-9，`0`=不压缩（默认，图片本身已压缩），`1-9`=deflate 压缩，PNG 源可显著减小体积，级别越高越小但越慢，JPEG 源收益有限不建议开
+- `--inspect` 检查模式：随机抽查 1 个 mobi（`--inspect-all` 全量），只解包读取内部信息不生成 CBZ，结束后自动清理临时目录；输出基础检查（魔数/大小/DRM 标记）、EXTH 元数据（标题/作者/语言/出版日期/出版社/ISBN，读到才显示）、双目录标记、OPF 与 spine 提取数、目录全部图片数、封面、图片格式分布、主流分辨率（主流高/宽 + 另一维范围）、压缩建议；疑似 DRM（无图）与解包超时单独计数
+- `--inspect` 增强：封面检测改为 OPF guide `type="cover"` 官方引用优先（未命中回退文件名匹配）；spine 提取图片前 5 个文件名竖排预览；新增目录(NCX) 条目数 + 前 3 条标题预览；EXTH 元数据新增 ASIN(type113)、版权(type109)；DRM 双重判断（头部标记有→直接判有并跳过解包；无标记+解包图片 0→疑似；无标记+有图片→无），汇总行新增 DRM 标记计数
+
+#### 重构
+
+- 打包分支重构：`compress>0` 用 `ZIP_DEFLATED`+`compresslevel`，否则 `ZIP_STORED`，消除旧版 Python 在 STORED 下传 `compresslevel=None` 的弃用警告
+- `--inspect` 双目录选择统一走 `select_mobi_dir` 公用函数（新增 prefer 参数由 `--prefer` 控制），不再手写判断；输出行缩进统一为 2 空格，修复 OPF 行缩进不一致
 
 ### [1.6.0] - 2026-08-13
 
