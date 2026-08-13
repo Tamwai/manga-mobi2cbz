@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# 虚拟环境
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 系统文件
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 漫画文件（避免提交大文件）
+*.mobi
+*.cbz
+*.azw
+*.azw3
+*.epub
+*.pdf
+*.zip
+*.rar
+*.7z
+
+# 临时文件
+*.tmp
+*.bak
+*.log
