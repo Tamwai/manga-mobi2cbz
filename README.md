@@ -13,6 +13,9 @@ manga-mobi2cbz
 - **完整性校验** — 转换后自动校验 CBZ 文件，损坏则删除并提示
 - **无压缩打包** — 图片已是压缩格式，ZIP 仅存储不压缩，速度快、体积小
 - **可选删除原文件** — `--delete` 参数转换成功后自动删除原始 mobi
+- **强制覆盖** — `--overwrite` 参数对已存在的 cbz 强制重新生成，更新漫画后无需手动删旧文件
+- **静默模式** — `--quiet` 批量转换只显示错误与汇总，不再刷屏；`--log FILE` 可将全部输出追加写入日志文件
+- **DRM 加密识别** — 遇到 DRM 加密的 Kindle 漫画时明确提示无法解密，避免静默失败
 
 ## 支持的图片格式
 
@@ -61,6 +64,18 @@ python manga-mobi2cbz.py "D:\Manga\Vol1.mobi" --prefer mobi7
 python manga-mobi2cbz.py "D:\Manga\Vol1.mobi" --drop-extra
 ```
 
+### 已存在 cbz 时强制重新生成
+
+```bash
+python manga-mobi2cbz.py "D:\Manga\Vol1.mobi" --overwrite
+```
+
+### 静默模式 + 输出写入日志
+
+```bash
+python manga-mobi2cbz.py "D:\Manga" --quiet --log convert.log
+```
+
 ### 查看版本号
 
 ```bash
@@ -73,15 +88,24 @@ python manga-mobi2cbz.py --version
 | --- | --- |
 | `target` | mobi 文件路径或包含 mobi 的目录（必填） |
 | `--delete` | 转换成功后删除原始 mobi 文件（默认不删除） |
-| `--prefer mobi7\\|mobi8` | 双目录 mobi 时保留哪份，默认 `mobi8` |
+| `--prefer` | 双目录 mobi 时保留哪份：`mobi7` 或 `mobi8`（默认 `mobi8`） |
 | `--drop-extra` | 目录中有未被收集的多余图片时放弃追加（默认追加到 cbz 末尾） |
+| `--overwrite` | 目标 cbz 已存在时强制重新生成（默认跳过） |
+| `--quiet` | 静默模式，只显示错误与最终汇总 |
+| `--log FILE` | 将全部输出追加写入指定日志文件 |
 | `--version` | 显示版本号 |
 
 ## 输出
 
 - 转换后的 `.cbz` 文件与原 `.mobi` 文件在同一目录
-- 已存在的 `.cbz` 会自动跳过，不会覆盖
+- 已存在的 `.cbz` 默认自动跳过，不会覆盖；加 `--overwrite` 可强制重新生成
 - 转换失败的文件会打印错误信息，不影响其他文件继续转换
+
+## 已知限制
+
+- **DRM 加密的 mobi 不兼容** — 底层 mobi 库无法解密 Kindle 商店购买的 DRM 加密漫画，此类文件会明确提示"可能为 DRM 加密"并跳过，不会静默产生空 cbz。请先去除 DRM 后再转换
+- **不生成 ComicInfo.xml** — 脚本只负责打包图片，转换产物不含 ComicInfo.xml 元数据（系列、作者、标签等）；如需元数据请另行注入
+- **不支持 `.azw` / `.azw3`** — 目前仅支持 `.mobi` 格式
 
 ## 常见问题
 
@@ -98,6 +122,22 @@ A: 双目录 mobi（mobi7+mobi8）默认只保留 mobi8 一份，避免内容重
 A: 目前仅支持 `.mobi` 格式。
 
 ## 更新日志
+
+### [1.4.0] - 2026-08-13
+
+#### 新增
+
+- 依赖检测前置到模块顶部，启动即校验
+- DRM 加密识别提示：解压失败或未提取到任何图片时，明确提示可能为 DRM 加密的 Kindle 漫画，mobi 库无法解密，避免静默失败
+- `--overwrite` 参数：目标 cbz 已存在时强制重新生成，更新漫画后无需手动删除旧 cbz
+- `--quiet` 静默模式：只显示错误与最终汇总，批量转换时不再刷屏
+- `--log FILE`：将全部输出追加写入指定日志文件
+- 转换开始前列出待转换 mobi 文件完整路径，转换完成后列出输出 cbz 文件完整路径
+- 转换完成后列出失败文件数量与完整路径（跳过已存在的不计为失败）
+
+#### 修复
+
+- 修复临时目录残留：`mobi.extract` 不支持 `output_dir` 参数，改为仅传输入文件并记录其生成的解压路径，finally 统一清理；外层以 `TemporaryDirectory` 兜底，正常 / Ctrl+C / 异常均不残留
 
 ### [1.3.0] - 2026-08-13
 
@@ -135,4 +175,4 @@ A: 目前仅支持 `.mobi` 格式。
 
 ## License
 
-[MIT](./LICENSE)
+[MIT
