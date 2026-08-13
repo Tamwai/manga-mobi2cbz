@@ -34,31 +34,31 @@ pip install mobi
 ### 转换单个文件
 
 ```bash
-python manga-mobi2cbz.py "D:\漫画\第一卷.mobi"
+python manga-mobi2cbz.py "D:\Manga\Vol1.mobi"
 ```
 
 ### 批量转换整个目录（递归搜索所有 .mobi）
 
 ```bash
-python manga-mobi2cbz.py "D:\漫画"
+python manga-mobi2cbz.py "D:\Manga"
 ```
 
 ### 转换成功后删除原始 mobi
 
 ```bash
-python manga-mobi2cbz.py "D:\漫画" --delete
+python manga-mobi2cbz.py "D:\Manga" --delete
 ```
 
 ### 双目录 mobi 时保留 mobi7 版本
 
 ```bash
-python manga-mobi2cbz.py "D:\漫画\第一卷.mobi" --prefer mobi7
+python manga-mobi2cbz.py "D:\Manga\Vol1.mobi" --prefer mobi7
 ```
 
 ### 目录中有未被收集的多余图片时放弃追加
 
 ```bash
-python manga-mobi2cbz.py "D:\漫画\第一卷.mobi" --drop-extra
+python manga-mobi2cbz.py "D:\Manga\Vol1.mobi" --drop-extra
 ```
 
 ### 查看版本号
