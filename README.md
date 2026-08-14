@@ -23,6 +23,7 @@
 - **同名扩展名去重** — 同目录下仅扩展名不同（如 `Vol1.mobi` + `Vol1.azw3`）时只保留一份，`--ext-priority` 控制保留优先级（默认 azw3）
 - **自然排序** — 按页码自然排序，避免 `10.jpg` 排在 `2.jpg` 前面
 - **完整性校验** — 转换后自动校验 CBZ 文件，损坏则删除并提示
+- **ComicInfo.xml 元数据** — 默认在 CBZ 根目录生成 ComicInfo.xml（UTF-8，含 XML 声明），写入 Title / Series / Number / Writer / Publisher / Year / LanguageISO / PageCount / Summary 漫画元数据；Series/Number 由文件名高置信度推断（支持 `001` / `01` / `1` / `Vol.01` / `Vol 01` / `Volume 01` / `第 01 卷` 等形式），无法高置信度判断时省略（宁缺勿错）；无可靠来源的字段不生成空标签；`--no-comicinfo` 关闭生成
 - **无压缩打包** — 图片已是压缩格式，ZIP 默认仅存储不压缩，速度快、体积小
 - **可选压缩** — `--compress LEVEL` 启用 deflate 压缩（1-9），PNG 源漫画可显著减小体积，级别越高越小但越慢；JPEG 源收益有限，不建议开启（默认 `0` 不压缩）
 - **检查模式** — `--inspect` 随机抽查 1 个电子书（`--inspect-all` 全量），只解包读取内部信息不生成 CBZ：基础检查（魔数/大小/DRM 双重判断）、EXTH 元数据（标题/作者/语言/出版日期/出版社/ISBN/ASIN/版权，读到才显示）、双目录标记、OPF 与 spine 提取数（前 5 文件名竖排预览）、目录(NCX) 条目数与预览、目录全部图片数、封面（OPF guide 官方引用优先，未命中回退文件名匹配）、图片格式分布、主流分辨率（主流高/宽 + 另一维范围）、压缩建议；DRM 头部标记有→直接判有并跳过解包，无标记+图片 0→疑似，无标记+有图片→无；结束后自动清理临时目录
@@ -174,8 +175,9 @@ python manga-mobi2cbz.py --version
 | `--quiet`             | 静默模式，只显示错误与最终汇总                                                                                                        |
 | `--short-summary`     | 精简汇总：成功/跳过文件只显示数量不列出路径（失败文件始终全路径列出）                                                                                    |
 | `--compress LEVEL`    | zip 压缩级别 0-9：`0`=不压缩（默认，图片本身已压缩），`1-9`=deflate 压缩（PNG 源有收益，级别越高越小但越慢）                                                  |
-| `--inspect`           | 检查模式：随机抽查 1 个电子书，只解包读取内部信息（元数据/结构/图片/分辨率/DRM 双重判断/NCX 目录），不生成 CBZ，结束自动清理临时目录                                           |
-| `--inspect-all`       | 检查全部电子书（需配合 `--inspect` 使用，单独使用无效果）                                                                                    |
+| `--inspect`           | 检查模式：位置参数为单个文件时直接检查该文件，为目录时随机抽查 1 个，只解包读取内部信息（元数据/结构/图片/分辨率/DRM 双重判断/NCX 目录），不生成 CBZ，结束自动清理临时目录                                           |
+| `--inspect-all`       | 检查全部电子书（需配合 `--inspect` 使用，单独使用将自动启用 `--inspect`）                                                                                    |
+| `--no-comicinfo`      | 不生成 ComicInfo.xml（默认生成：向 CBZ 根目录写入 Title / Series / Number / Writer / Publisher / Year / LanguageISO / PageCount / Summary 漫画元数据）                                                                                          |
 | `--log FILE`          | 将全部输出追加写入指定日志文件                                                                                                        |
 | `--version`           | 显示版本号                                                                                                                  |
 
@@ -190,7 +192,6 @@ python manga-mobi2cbz.py --version
 ## 已知限制
 
 - **DRM 加密的 mobi 不兼容** — 底层 mobi 库无法解密 Kindle 商店购买的 DRM 加密漫画，此类文件会明确提示"可能为 DRM 加密"并跳过，不会静默产生空 cbz。请先去除 DRM 后再转换
-- **不生成 ComicInfo.xml** — 脚本只负责打包图片，转换产物不含 ComicInfo.xml 元数据（系列、作者、标签等）；如需元数据请另行注入
 - **超时后线程无法强制终止** — 单个文件超过 `--timeout` 后主流程会跳过它继续处理，但 Python 无法杀死已阻塞的解包线程，卡死的线程会残留到进程结束并持续占用内存/IO；批量大量损坏文件时可能堆积后台僵尸线程。若需彻底隔离卡死任务，可改用 `multiprocessing` 实现可终止子进程，但会增加跨平台兼容复杂度，暂未采用
 
 ## 常见问题
@@ -214,6 +215,26 @@ A: v1.9.0 起 `--output-dir` 默认保留相对输入的子目录结构（旧版
 A: 支持。v1.8.0 起输入扩展名扩展为 `.mobi` / `.azw` / `.azw3`，三种格式统一走同一转换链路；同目录同名不同扩展名时默认保留 azw3，可用 `--ext-priority` 调整。
 
 ## 更新日志
+
+### [2.0.0] - 2026-08-14
+
+#### 新增
+
+- 默认生成 ComicInfo.xml（写入 CBZ ZIP 根目录，UTF-8 含 XML 声明），新增 `--no-comicinfo` 关闭
+- 新增 4 个函数：`build_comicinfo`（用 `xml.etree.ElementTree` 生成，禁止手工拼接字符串）、`write_comicinfo`、`normalize_language`（语言代码标准化为 ISO 639-1）、`infer_series_number`（高置信度推断 Series/Number，支持 `001`/`01`/`1`/`Vol.01`/`Vol 01`/`Volume 01`/`第 01 卷` 等形式，无法高置信度判断时返回 None，宁缺勿错）
+- 字段映射：Title=OPF title→EXTH title→文件名 stem，Writer=OPF creator→EXTH author，Publisher=OPF publisher→EXTH publisher，Year=PublicationDate 年份，LanguageISO=电子书自身语言（不按文件名猜），PageCount=最终写入 CBZ 的实际图片数（必写），Series/Number=文件名高置信度推断，Summary=OPF description（读到才写）；无可靠来源的字段直接省略不生成空标签
+- 流程插入：确定最终图片集合后构建 ComicInfo，创建 CBZ 时图片+ComicInfo.xml 一起写入；完整性校验新增 3 项（ComicInfo.xml 存在、可被标准 XML parser 解析、根节点为 ComicInfo）；ComicInfo 生成或验证失败=整个转换任务失败，禁止 `--delete` 删除源文件
+- `--dry-run` 不创建 ComicInfo.xml，但输出一行提示 ComicInfo 是否启用
+- `--inspect` 输出追加 ComicInfo 预览块（Title/Series/Number/Writer/Publisher/Year/LanguageISO/PageCount/Summary 有值才显示），推断字段明确标记 `[inferred]`
+- i18n 四语言新增 6 键：`comicinfo.generating` / `comicinfo.created` / `comicinfo.disabled` / `comicinfo.invalid` / `comicinfo.inferred` / `help.no_comicinfo`
+
+### [1.9.1] - 2026-08-14
+
+#### 新增
+
+- `--inspect-all` 单独使用（未配合 `--inspect`）时自动启用 `--inspect`，并输出 warning 提示（四语言新增 `warn.inspect_all_auto_enable` 键）
+- `--inspect` 说明更新：位置参数为单个文件时直接检查该文件，为目录时随机抽查 1 个
+- `--inspect-all` 说明更新：需配合 `--inspect` 使用，单独使用将自动启用 `--inspect`
 
 ### [1.9.0] - 2026-08-14
 
