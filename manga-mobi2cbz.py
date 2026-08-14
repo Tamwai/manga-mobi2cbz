@@ -3,7 +3,7 @@
 manga-mobi2cbz — 将 mobi/azw/azw3 电子书漫画文件批量转换为 cbz 格式（OPF spine 排序 + 封面兜底增强版）
 
 用法:
-    python manga-mobi2cbz.py <目录或文件路径> [--language auto|zh-CN|zh-TW|ja|en] [--delete] [--prefer mobi7|mobi8] [--ext-priority EXTS] [--drop-extra] [--overwrite] [--timeout SECONDS] [--output-dir DIR] [--flatten] [--dry-run] [--progress|--no-progress] [--quiet] [--short-summary] [--compress LEVEL] [--inspect] [--inspect-all] [--log FILE]
+    python manga-mobi2cbz.py <目录或文件路径> [--language auto|zh-CN|zh-TW|ja|en] [--delete] [--prefer mobi7|mobi8] [--ext-priority EXTS] [--drop-extra] [--overwrite] [--timeout SECONDS] [--output-dir DIR] [--flatten] [--dry-run] [--progress|--no-progress] [--quiet] [--short-summary] [--compress LEVEL] [--inspect] [--inspect-all] [--no-comicinfo] [--log FILE]
 
 示例:
     # 转换整个文件夹（递归搜索所有 .mobi/.azw/.azw3）
@@ -45,10 +45,10 @@ manga-mobi2cbz — 将 mobi/azw/azw3 电子书漫画文件批量转换为 cbz �
     # 以 deflate 压缩级别 9 打包（PNG 源收益明显，JPEG 源没必要）
     python manga-mobi2cbz.py "D:\\Manga" --compress 9
 
-    # 检查模式：随机抽查 1 个电子书内部信息（元数据/结构/图片/分辨率/DRM），不生成 CBZ
+    # 检查模式：目录随机抽查 1 个 / 单文件直接检查（元数据/结构/图片/分辨率/DRM），不生成 CBZ
     python manga-mobi2cbz.py "D:\\Manga" --inspect
 
-    # 检查全部电子书内部信息
+    # 检查全部电子书内部信息（--inspect-all 单独使用也会自动启用 --inspect）
     python manga-mobi2cbz.py "D:\\Manga" --inspect --inspect-all
 
 参数:
@@ -79,10 +79,15 @@ manga-mobi2cbz — 将 mobi/azw/azw3 电子书漫画文件批量转换为 cbz �
     --short-summary  精简汇总：成功/跳过文件只显示数量不列出路径，失败始终全路径
     --compress LEVEL zip 压缩级别 0-9：0=不压缩（默认，图片本身已压缩），
                      1-9=deflate 压缩（PNG 源有收益，级别越高越小但越慢）
-    --inspect       检查模式：随机抽查 1 个电子书，只解包读取内部信息
+    --inspect       检查模式：位置参数为单个文件时直接检查该文件，
+                     为目录时随机抽查 1 个，只解包读取内部信息
                      （元数据/结构/图片/分辨率/DRM），不生成 CBZ，
                      结束自动清理临时目录
-    --inspect-all   检查全部电子书（需配合 --inspect 使用）
+    --inspect-all   检查全部电子书（需配合 --inspect 使用，
+                     单独使用将自动启用 --inspect）
+    --no-comicinfo  不生成 ComicInfo.xml（默认生成：向 CBZ 根目录写入
+                     Title/Series/Number/Writer/Publisher/Year/
+                     LanguageISO/PageCount/Summary 等漫画元数据）
     --log FILE       将全部输出追加写入指定日志文件
     --version        显示版本号
 
@@ -90,6 +95,36 @@ manga-mobi2cbz — 将 mobi/azw/azw3 电子书漫画文件批量转换为 cbz �
 要求: Python 3.10+
 
 更新日志:
+    v2.0.0 (2026-08-14)
+        - 新增 ComicInfo.xml 生成（默认启用，--no-comicinfo 关闭）：
+          写入 CBZ ZIP 根目录，UTF-8 含 XML 声明
+        - 新增函数 build_comicinfo / write_comicinfo /
+          normalize_language / infer_series_number
+        - 字段映射：Title=OPF title→EXTH title→文件名 stem；
+          Writer=OPF creator→EXTH author；Publisher=OPF publisher→
+          EXTH publisher；Year=PublicationDate 年份；LanguageISO=电子书
+          自身语言（ISO 639-1 标准化，不按文件名猜）；PageCount=最终写入
+          CBZ 的实际图片数（必写）；Series/Number=文件名高置信度推断
+          （支持 001/01/1/Vol.01/Vol 01/Volume 01/第 01 卷 等，无法
+          高置信度判断时省略，宁缺勿错）；Summary=OPF description
+        - 无可靠来源的字段省略，不生成空标签
+        - 完整性校验新增 3 项：ComicInfo.xml 存在、可被标准 XML parser
+          解析、根节点为 ComicInfo；生成/验证失败=整个转换任务失败，
+          禁止 --delete 删除源文件
+        - --dry-run 不创建 ComicInfo.xml，输出一行提示启用状态
+        - --inspect 追加 ComicInfo 预览块，推断字段标记 [inferred]
+        - i18n 四语言新增 6 键：comicinfo.generating / comicinfo.created
+          / comicinfo.disabled / comicinfo.invalid / comicinfo.inferred /
+          help.no_comicinfo；README 三语同步
+
+    v1.9.1 (2026-08-14)
+        - --inspect-all 单独使用（未配合 --inspect）时自动启用
+          --inspect 并输出 warning 提示（四语言新增键
+          warn.inspect_all_auto_enable，中文「注意: --inspect-all 已自动启用 --inspect」）
+        - --inspect / --inspect-all 说明文案更新：位置参数为单个文件
+          时直接检查该文件、为目录时随机抽查 1 个；--inspect-all 单独
+          使用将自动启用 --inspect；README 三语参数表同步
+
     v1.9.0 (2026-08-14)
         - [Breaking] --output-dir 默认保留相对输入的子目录结构（旧版一律平铺）
           * 迁移方式：旧命令 ... --output-dir DIR 改为
@@ -271,7 +306,7 @@ manga-mobi2cbz — 将 mobi/azw/azw3 电子书漫画文件批量转换为 cbz �
           EOCD + testzip 完整性校验、失败清理半成品
 """
 
-__version__ = "1.9.0"
+__version__ = "2.0.0"
 
 SCRIPT_NAME = "manga-mobi2cbz"
 
@@ -326,8 +361,15 @@ LANGUAGES = {
         "help.quiet": "静默模式：只显示错误与最终汇总（日志文件不受影响）",
         "help.short_summary": "精简汇总：成功/跳过文件只显示数量不列出路径，失败文件始终全路径列出",
         "help.compress": "zip 压缩级别 0-9：0=不压缩（默认，图片本身已压缩），1-9=deflate 压缩（PNG 源有收益，级别越高越小但越慢）",
-        "help.inspect": "检查模式：随机抽查 1 个电子书，只解包读取内部信息（元数据/结构/图片/分辨率/DRM），不生成 CBZ，结束自动清理临时目录",
-        "help.inspect_all": "检查全部电子书（需配合 --inspect 使用，单独使用无效果）",
+        "help.inspect": "检查模式：位置参数为单个文件时直接检查该文件，为目录时随机抽查 1 个，只解包读取内部信息（元数据/结构/图片/分辨率/DRM），不生成 CBZ，结束自动清理临时目录",
+        "help.inspect_all": "检查全部电子书（需配合 --inspect 使用，单独使用将自动启用 --inspect）",
+        "warn.inspect_all_auto_enable": "注意: --inspect-all 已自动启用 --inspect",
+        "help.no_comicinfo": "不生成 ComicInfo.xml（默认生成：向 CBZ 根目录写入漫画元数据）",
+        "comicinfo.generating": "生成 ComicInfo.xml",
+        "comicinfo.created": "已写入 ComicInfo.xml",
+        "comicinfo.disabled": "ComicInfo.xml 已禁用（--no-comicinfo）",
+        "comicinfo.invalid": "ComicInfo.xml 无效或生成失败: {err}",
+        "comicinfo.inferred": "推断",
         "help.log": "将全部输出追加写入指定日志文件",
         # ---- 输出标签 ----
         "tag.info": "[提示]",
@@ -503,8 +545,15 @@ LANGUAGES = {
         "help.quiet": "靜默模式：只顯示錯誤與最終彙總（日誌檔案不受影響）",
         "help.short_summary": "精簡彙總：成功/跳過檔案只顯示數量不列出路徑，失敗檔案始終全路徑列出",
         "help.compress": "zip 壓縮級別 0-9：0=不壓縮（預設，圖片本身已壓縮），1-9=deflate 壓縮（PNG 來源有收益，級別越高越小但越慢）",
-        "help.inspect": "檢查模式：隨機抽查 1 個電子書，只解包讀取內部資訊（中繼資料/結構/圖片/解析度/DRM），不生成 CBZ，結束自動清理臨時目錄",
-        "help.inspect_all": "檢查全部電子書（需配合 --inspect 使用，單獨使用無效果）",
+        "help.inspect": "檢查模式：位置參數為單一檔案時直接檢查該檔案，為目錄時隨機抽查 1 個，只解包讀取內部資訊（中繼資料/結構/圖片/解析度/DRM），不生成 CBZ，結束自動清理臨時目錄",
+        "help.inspect_all": "檢查全部電子書（需配合 --inspect 使用，單獨使用將自動啟用 --inspect）",
+        "warn.inspect_all_auto_enable": "注意: --inspect-all 已自動啟用 --inspect",
+        "help.no_comicinfo": "不生成 ComicInfo.xml（預設生成：向 CBZ 根目錄寫入漫畫元資料）",
+        "comicinfo.generating": "生成 ComicInfo.xml",
+        "comicinfo.created": "已寫入 ComicInfo.xml",
+        "comicinfo.disabled": "ComicInfo.xml 已停用（--no-comicinfo）",
+        "comicinfo.invalid": "ComicInfo.xml 無效或生成失敗: {err}",
+        "comicinfo.inferred": "推斷",
         "help.log": "將全部輸出追加寫入指定日誌檔案",
         # ---- 输出标签 ----
         "tag.info": "[提示]",
@@ -680,8 +729,15 @@ LANGUAGES = {
         "help.quiet": "Quiet mode: only show errors and the final summary (log file unaffected)",
         "help.short_summary": "Compact summary: list counts instead of paths for succeeded/skipped files; failed files always show full paths",
         "help.compress": "zip compression level 0-9: 0=none (default, images already compressed), 1-9=deflate (helps for PNG sources, higher is smaller but slower)",
-        "help.inspect": "Inspect mode: randomly check 1 ebook, unpack and read internal info (metadata/structure/images/resolution/DRM) without generating CBZ, then auto-clean temp dirs",
-        "help.inspect_all": "Inspect all ebooks (requires --inspect; no effect alone)",
+        "help.inspect": "Inspect mode: inspect the file directly when the positional argument is a single file, or randomly sample 1 ebook when it is a directory; unpack only to read internal info (metadata/structure/images/resolution/DRM) without generating CBZ, then auto-clean temp dirs",
+        "help.inspect_all": "Inspect all ebooks (requires --inspect; using it alone will auto-enable --inspect)",
+        "warn.inspect_all_auto_enable": "Note: --inspect-all automatically enabled --inspect",
+        "help.no_comicinfo": "Do not generate ComicInfo.xml (default: write comic metadata into CBZ root)",
+        "comicinfo.generating": "Generating ComicInfo.xml",
+        "comicinfo.created": "ComicInfo.xml written",
+        "comicinfo.disabled": "ComicInfo.xml disabled (--no-comicinfo)",
+        "comicinfo.invalid": "ComicInfo.xml invalid or generation failed: {err}",
+        "comicinfo.inferred": "inferred",
         "help.log": "Append all output to the given log file",
         # ---- 输出标签 ----
         "tag.info": "[Info]",
@@ -857,8 +913,15 @@ LANGUAGES = {
         "help.quiet": '静音モード：エラーと最終サマリーのみ表示（ログファイルには影響なし）',
         "help.short_summary": '簡潔サマリー：成功/スキップのファイルはパスを列挙せず数のみ表示、失敗ファイルは常にフルパス表示',
         "help.compress": 'zip 圧縮レベル 0-9：0=無圧縮（デフォルト、画像は既に圧縮済み）、1-9=deflate 圧縮（PNG 元で効果あり、レベルが高いほど小さく遅い）',
-        "help.inspect": '検査モード：ランダムに 1 冊の電子書籍を検査し、解凍して内部情報（メタデータ/構造/画像/解像度/DRM）を読み取るだけで、CBZ は生成せず、終了後に一時ディレクトリを自動削除',
-        "help.inspect_all": '全電子書籍を検査（--inspect と併用必須、単独では無効）',
+        "help.inspect": '検査モード：位置引数が単一ファイルの場合はそのファイルを直接検査し、ディレクトリの場合はランダムに 1 冊を抽出して、解凍して内部情報（メタデータ/構造/画像/解像度/DRM）を読み取るだけで、CBZ は生成せず、終了後に一時ディレクトリを自動削除',
+        "help.inspect_all": '全電子書籍を検査（--inspect と併用必須、単独指定時は自動的に --inspect を有効化）',
+        "warn.inspect_all_auto_enable": '注意: --inspect-all により --inspect が自動的に有効化されました',
+        "help.no_comicinfo": "ComicInfo.xml を生成しない（既定: CBZ ルートに漫画メタデータを書き込む）",
+        "comicinfo.generating": "ComicInfo.xml を生成中",
+        "comicinfo.created": "ComicInfo.xml を書き込みました",
+        "comicinfo.disabled": "ComicInfo.xml は無効です（--no-comicinfo）",
+        "comicinfo.invalid": "ComicInfo.xml が無効、または生成に失敗しました: {err}",
+        "comicinfo.inferred": "推定",
         "help.log": 'すべての出力を指定ログファイルに追記',
         # ---- 输出标签 ----
         "tag.info": '[情報]',
@@ -1254,8 +1317,12 @@ def natural_key(p: Path) -> list:
 
 
     # 输入：cbz 文件路径；输出：(是否通过完整性校验, 校验结果消息)
-def validate_cbz(cbz_path: Path) -> tuple[bool, str]:
-    """校验 cbz 文件完整性：检查 EOCD 记录存在且所有条目可正常读取"""
+def validate_cbz(cbz_path: Path, require_comicinfo: bool = False) -> tuple[bool, str]:
+    """校验 cbz 文件完整性：检查 EOCD 记录存在且所有条目可正常读取。
+
+    require_comicinfo=True 时追加 3 项 ComicInfo 校验：ComicInfo.xml
+    存在、可被标准 XML parser 解析、根节点为 ComicInfo。
+    """
     try:
         data = cbz_path.read_bytes()[-70000:]  # EOCD 在文件末尾，读尾部足够
         if EOCD_SIGNATURE not in data:
@@ -1264,6 +1331,15 @@ def validate_cbz(cbz_path: Path) -> tuple[bool, str]:
             bad = zf.testzip()
             if bad is not None:
                 return False, t("verify.bad_entry", name=bad)
+            if require_comicinfo:
+                if "ComicInfo.xml" not in zf.namelist():
+                    return False, t("comicinfo.invalid", err="missing")
+                try:
+                    parsed = ET.fromstring(zf.read("ComicInfo.xml"))
+                except Exception as e:
+                    return False, t("comicinfo.invalid", err=e)
+                if parsed.tag.split("}")[-1] != "ComicInfo":
+                    return False, t("comicinfo.invalid", err=f"root={parsed.tag}")
             count = len(zf.namelist())
             return True, t("verify.ok", count=count)
     except zipfile.BadZipFile as e:
@@ -1641,7 +1717,7 @@ def select_mobi_dir(tempdir: Path, prefer: str) -> Path:
 
 
     # 输入：电子书路径与转换选项（delete/prefer/drop_extra/overwrite/output_dir/compress）；输出：(cbz 路径或 None, ConvStatus)
-def ebook_to_cbz(ebook_path: Path, delete_original: bool = False, prefer: str = "mobi8", drop_extra: bool = False, overwrite: bool = False, output_dir: Path | None = None, compress: int = 0, flatten: bool = False, input_root: Path | None = None, used_names: set | None = None) -> tuple[Path | None, ConvStatus]:
+def ebook_to_cbz(ebook_path: Path, delete_original: bool = False, prefer: str = "mobi8", drop_extra: bool = False, overwrite: bool = False, output_dir: Path | None = None, compress: int = 0, flatten: bool = False, input_root: Path | None = None, used_names: set | None = None, comicinfo: bool = True) -> tuple[Path | None, ConvStatus]:
     """将单个 mobi 文件转换为 cbz
 
     prefer: 双目录 mobi（mobi7/mobi8）时保留哪份，默认 "mobi8"
@@ -1651,6 +1727,7 @@ def ebook_to_cbz(ebook_path: Path, delete_original: bool = False, prefer: str = 
     flatten: 与 output_dir 联用时平铺到输出目录根下（默认保留相对子目录结构）
     input_root: target 为目录时作为相对子目录结构计算的基准
     used_names: 平铺唯一化已占用名集合（按处理顺序维护，保证 dry-run 与实跑一致）
+    comicinfo: 是否生成 ComicInfo.xml（默认生成，--no-comicinfo 关闭）
 
     返回 (结果, 状态)：状态为 ConvStatus 枚举，
     - OK: 转换成功，结果为 cbz 路径
@@ -1708,6 +1785,24 @@ def ebook_to_cbz(ebook_path: Path, delete_original: bool = False, prefer: str = 
         elif total_in_dir != len(images):
             emit(t("convert.count_mismatch", total=total_in_dir, collected=len(images)))
 
+        # Step 3.6: 生成 ComicInfo.xml（默认启用，--no-comicinfo 关闭）
+        comicinfo_xml = None
+        if comicinfo:
+            try:
+                opf_meta = read_opf_metadata(opf_path) if opf_path else {}
+                exth_meta = read_exth_metadata(ebook_path)
+                meta = collect_comicinfo_meta(opf_meta, exth_meta, ebook_path)
+                inferred = infer_series_number(ebook_path)
+                comicinfo_xml = build_comicinfo(meta, images, inferred)
+            except Exception:
+                comicinfo_xml = None
+            if comicinfo_xml is None:
+                emit(t("comicinfo.invalid", err="build"), level="error")
+                if cbz_path.exists():
+                    cbz_path.unlink(missing_ok=True)
+                return None, ConvStatus.FAIL
+            emit(t("comicinfo.generating"))
+
         # Step 4: 打包为 cbz（默认 ZIP 无压缩，图片本身已压缩；--compress 1-9 启用 deflate）
         seen = {}
         seen_paths = set()  # 归一化路径集合：判物理重复（同一物理文件重复出现则跳过不写入）
@@ -1734,11 +1829,21 @@ def ebook_to_cbz(ebook_path: Path, delete_original: bool = False, prefer: str = 
         if skipped_dup:
             emit(t("convert.dedup_physical", count=skipped_dup))
 
+        # Step 4b: 写入 ComicInfo.xml（追加进 CBZ ZIP 根目录）
+        if comicinfo_xml is not None:
+            try:
+                write_comicinfo(cbz_path, comicinfo_xml)
+                emit(t("comicinfo.created"))
+            except Exception as e:
+                cbz_path.unlink(missing_ok=True)
+                emit(t("comicinfo.invalid", err=e), level="error")
+                return None, ConvStatus.FAIL
+
         size_mb = cbz_path.stat().st_size / (1024 * 1024)
         emit(t("convert.done", name=cbz_path.name, count=len(images), size=f"{size_mb:.1f}"))
 
-        # 完整性校验
-        ok, msg = validate_cbz(cbz_path)
+        # 完整性校验（ComicInfo 启用时追加 3 项校验）
+        ok, msg = validate_cbz(cbz_path, require_comicinfo=(comicinfo_xml is not None))
         if not ok:
             cbz_path.unlink(missing_ok=True)
             emit(t("convert.verify_fail", name=cbz_path.name, msg=msg), level="error")
@@ -1804,6 +1909,184 @@ def read_exth_metadata(p: Path) -> dict:
         return meta
     except Exception:
         return {}
+
+
+# 输入：OPF 文件路径；输出：dc:metadata 字段字典（title/creator/publisher/date/language/description）
+def read_opf_metadata(opf_path: Path) -> dict:
+    """读取 OPF 的 dc:metadata 元数据（title/creator/publisher/date/language/description）。
+
+    仅返回实际存在的字段，供 ComicInfo.xml 字段映射使用。
+    """
+    try:
+        tree = ET.parse(opf_path)
+        root = tree.getroot()
+        ns = {"dc": "http://purl.org/dc/elements/1.1/"}
+        out = {}
+        for key, tag in (
+            ("title", "dc:title"), ("creator", "dc:creator"),
+            ("publisher", "dc:publisher"), ("date", "dc:date"),
+            ("language", "dc:language"), ("description", "dc:description"),
+        ):
+            el = root.find(f".//{tag}", ns)
+            if el is not None and el.text and el.text.strip():
+                out[key] = el.text.strip()
+        return out
+    except Exception:
+        return {}
+
+
+# 输入：OPF 元数据 + EXTH 元数据 + 源电子书路径；输出：ComicInfo 字段字典（仅含可靠来源的键）
+def collect_comicinfo_meta(opf_meta: dict, exth_meta: dict, ebook_path: Path) -> dict:
+    """按优先级聚合 ComicInfo 字段：Title/Writer/Publisher/Year/Language/Summary。
+
+    Title=OPF title→EXTH title→文件名 stem；Writer=OPF creator→EXTH author；
+    Publisher=OPF publisher→EXTH publisher；Year=PublicationDate 年份；
+    LanguageISO=电子书自身语言（不按文件名猜）；Summary=OPF description。
+    """
+    meta: dict = {}
+    title = opf_meta.get("title") or exth_meta.get("title") or ebook_path.stem
+    if title and title.strip():
+        meta["title"] = title.strip()
+    writer = opf_meta.get("creator") or exth_meta.get("author")
+    if writer and writer.strip():
+        meta["writer"] = writer.strip()
+    publisher = opf_meta.get("publisher") or exth_meta.get("publisher")
+    if publisher and publisher.strip():
+        meta["publisher"] = publisher.strip()
+    date_str = opf_meta.get("date") or exth_meta.get("publish_date")
+    if date_str:
+        m = re.search(r"(19|20)\d{2}", date_str)
+        if m:
+            meta["year"] = m.group(0)
+    lang_src = opf_meta.get("language") or exth_meta.get("language")
+    if lang_src:
+        norm = normalize_language(lang_src)
+        if norm:
+            meta["language"] = norm
+    if opf_meta.get("description"):
+        meta["summary"] = opf_meta["description"]
+    return meta
+
+
+# 输入：语言代码字符串；输出：ISO 639-1 两位小写代码，无法识别返回 None
+def normalize_language(code: str) -> str | None:
+    """把常见语言代码标准化为 ISO 639-1 两位小写。
+
+    支持 2 位（en/ja/zh...）、3 位（eng/jpn/chi...）、带区域后缀
+    （en-US/zh-CN/ja-jp...）等写法；无法高置信度识别时返回 None。
+    """
+    if not code:
+        return None
+    seg = code.strip().split("-")[0].split("_")[0].split(".")[0].lower()
+    if not seg or not seg.isalpha():
+        return None
+    if len(seg) == 2:
+        return seg
+    three_to_two = {
+        "eng": "en", "jpn": "ja", "chi": "zh", "zho": "zh", "cmn": "zh",
+        "kor": "ko", "fre": "fr", "fra": "fr", "ger": "de", "deu": "de",
+        "spa": "es", "ita": "it", "rus": "ru", "por": "pt", "ara": "ar",
+        "tha": "th", "vie": "vi", "ind": "id", "msa": "ms", "may": "ms",
+        "nld": "nl", "dut": "nl", "pol": "pl", "tur": "tr", "ukr": "uk",
+        "swe": "sv", "dan": "da", "fin": "fi", "nor": "no", "ell": "el",
+        "gre": "el", "heb": "he", "hin": "hi", "ces": "cs", "cze": "cs",
+        "hun": "hu", "ron": "ro", "rum": "ro", "bul": "bg", "slk": "sk",
+        "slo": "sk", "slv": "sl", "hrv": "hr", "srp": "sr", "est": "et",
+        "lav": "lv", "lit": "lt", "cat": "ca", "fas": "fa", "per": "fa",
+        "ben": "bn", "tam": "ta", "tel": "te", "mal": "ml", "kan": "kn",
+        "guj": "gu", "pan": "pa", "urd": "ur", "nep": "ne", "sin": "si",
+        "khm": "km", "lao": "lo", "mya": "my", "bur": "my", "tgl": "tl",
+        "swa": "sw", "afr": "af", "sqi": "sq", "alb": "sq", "amh": "am",
+        "aze": "az", "bel": "be", "bos": "bs", "cym": "cy", "wel": "cy",
+        "epo": "eo", "eus": "eu", "baq": "eu", "fry": "fy", "gle": "ga",
+        "gla": "gd", "glg": "gl", "hau": "ha", "hye": "hy", "arm": "hy",
+        "isl": "is", "ice": "is", "kat": "ka", "geo": "ka", "kaz": "kk",
+        "kur": "ku", "ltz": "lb", "mkd": "mk", "mac": "mk", "mon": "mn",
+        "mar": "mr", "mlt": "mt", "nob": "nb", "nno": "nn", "oci": "oc",
+        "pus": "ps", "kin": "rw", "snd": "sd", "sme": "se", "smo": "sm",
+        "sna": "sn", "som": "so", "sot": "st", "sun": "su", "tgk": "tg",
+        "tir": "ti", "tuk": "tk", "tat": "tt", "uig": "ug", "uzb": "uz",
+        "xho": "xh", "yid": "yi", "yor": "yo", "zul": "zu",
+    }
+    return three_to_two.get(seg)
+
+
+# 输入：电子书文件路径；输出：(series, number) 高置信度推断结果，无法判断返回 (None, None)
+def infer_series_number(path: Path) -> tuple[str | None, str | None]:
+    """从文件名高置信度推断漫画 Series/Number。
+
+    支持形式：001 / 01 / 1 / Vol.01 / Vol 01 / Volume 01 / 第 01 卷 /
+    01巻 等；纯数字结尾（如 "One Piece 108"）也视为高置信度，
+    但 4 位年份（19xx/20xx）与纯数字文件名会被排除，宁缺勿错。
+    """
+    stem = path.stem
+    if not stem:
+        return None, None
+    s = stem.strip()
+    # 1) Vol.01 / Vol 01 / Volume 01 / vol.1 / v01 形式
+    m = re.match(r"^(?P<series>.+?)[\s_\-\.]*[Vv]ol(?:ume)?[\s_\-\.]*(\d{1,4})\s*$", s)
+    if m:
+        return m.group("series").strip(), str(int(m.group(2)))
+    # 2) 中文卷：第 01 卷 / 第1卷（阿拉伯数字）
+    m = re.match(r"^(?P<series>.+?)[\s_\-\.]*第[\s_\-\.]*(\d{1,4})[\s_\-\.]*卷\s*$", s)
+    if m:
+        return m.group("series").strip(), str(int(m.group(2)))
+    # 3) 日文卷：01巻 / 第1巻
+    m = re.match(r"^(?P<series>.+?)[\s_\-\.]*第?[\s_\-\.]*(\d{1,4})[\s_\-\.]*巻\s*$", s)
+    if m:
+        return m.group("series").strip(), str(int(m.group(2)))
+    # 4) 纯数字结尾（空格/连字符/下划线/点分隔）：如 "One Piece 108"
+    m = re.match(r"^(?P<series>.+?)[\s_\-\.]+(\d{1,4})$", s)
+    if m:
+        num = m.group(2)
+        if len(num) == 4 and 1900 <= int(num) <= 2100:
+            return None, None  # 疑似年份，宁缺勿错
+        series = m.group("series").strip()
+        if series:
+            return series, str(int(num))
+    return None, None
+
+
+# 输入：聚合后的元数据字典 + 最终图片列表 + (series, number) 推断结果；输出：ComicInfo.xml 文本或 None
+def build_comicinfo(meta: dict, images: list, inferred: tuple) -> str | None:
+    """用 xml.etree.ElementTree 生成 ComicInfo.xml（禁止手工拼接字符串）。
+
+    PageCount 必写（=最终写入 CBZ 的实际图片数）；其余字段有可靠来源
+    才写入，无来源直接省略，不生成空标签。返回含 XML 声明的 UTF-8 文本。
+    """
+    try:
+        root = ET.Element("ComicInfo")
+        series, number = inferred if isinstance(inferred, tuple) else (None, None)
+        ordered = [
+            ("Title", meta.get("title")),
+            ("Series", series),
+            ("Number", number),
+            ("Writer", meta.get("writer")),
+            ("Publisher", meta.get("publisher")),
+            ("Year", meta.get("year")),
+            ("LanguageISO", meta.get("language")),
+            ("PageCount", str(len(images))),
+            ("Summary", meta.get("summary")),
+        ]
+        for tag, val in ordered:
+            if val is None:
+                continue
+            el = ET.SubElement(root, tag)
+            el.text = str(val)
+        xml_bytes = ET.tostring(root, encoding="utf-8", xml_declaration=True)
+        return xml_bytes.decode("utf-8")
+    except Exception:
+        return None
+
+
+# 输入：CBZ 文件路径 + ComicInfo.xml 文本内容；输出：追加写入 CBZ 根目录
+def write_comicinfo(cbz_path: Path, xml_content: str) -> None:
+    """把 ComicInfo.xml 追加写入 CBZ ZIP 根目录（UTF-8，含 XML 声明）。
+
+    失败时抛出异常，由调用方决定清理与失败处理。
+    """
+    with zipfile.ZipFile(str(cbz_path), "a", zipfile.ZIP_STORED) as zf:
+        zf.writestr("ComicInfo.xml", xml_content.encode("utf-8"))
 
 
 def get_drm_flag(p: Path) -> bool:
@@ -2096,6 +2379,29 @@ def inspect_ebook(p: Path, min_bytes: int, prefer: str = "mobi8") -> str:
             emit(t("inspect.adv_jpeg"))
         else:
             emit(t("inspect.adv_mixed"))
+
+        # ComicInfo.xml 预览块（inspect 不写文件，仅展示即将生成的元数据）
+        opf_meta = read_opf_metadata(opf_path) if opf_path else {}
+        cmeta = collect_comicinfo_meta(opf_meta, meta, p)
+        cseries, cnumber = infer_series_number(p)
+        emit("ComicInfo.xml:")
+        if cmeta.get("title"):
+            emit(f"  Title: {cmeta['title']}")
+        if cseries:
+            emit(f"  Series: {cseries} [{t('comicinfo.inferred')}]")
+        if cnumber:
+            emit(f"  Number: {cnumber} [{t('comicinfo.inferred')}]")
+        if cmeta.get("writer"):
+            emit(f"  Writer: {cmeta['writer']}")
+        if cmeta.get("publisher"):
+            emit(f"  Publisher: {cmeta['publisher']}")
+        if cmeta.get("year"):
+            emit(f"  Year: {cmeta['year']}")
+        if cmeta.get("language"):
+            emit(f"  LanguageISO: {cmeta['language']}")
+        emit(f"  PageCount: {len(all_imgs)}")
+        if cmeta.get("summary"):
+            emit(f"  Summary: {cmeta['summary']}")
         return "ok"
     except Exception as e:
         emit(t("inspect.unpack_fail", err=e), level="summary")
@@ -2308,6 +2614,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help=t("help.inspect_all"),
     )
+    # 输入：是否关闭 ComicInfo.xml 生成；输出：关闭时 CBZ 不含漫画元数据
+    parser.add_argument(
+        "--no-comicinfo",
+        action="store_true",
+        help=t("help.no_comicinfo"),
+    )
     # 输入：日志文件路径；输出：控制台输出同步写入该文件（UTF-8）
     parser.add_argument(
         "--log",
@@ -2366,6 +2678,11 @@ def _main():
         emit(t("output.flatten_requires_dir"), level="error")
         sys.exit(2)
 
+    # --inspect-all 单独使用（未配合 --inspect）时自动启用 --inspect
+    if args.inspect_all and not args.inspect:
+        emit(t("warn.inspect_all_auto_enable"), level="warning")
+        args.inspect = True
+
     # input_root：target 为目录时作为相对子目录结构的基准；
     # target 为文件时不计算相对路径，直接输出 DIR/stem.cbz
     input_root = target if target.is_dir() else None
@@ -2415,6 +2732,8 @@ def _main():
 
     if args.dry_run:
         emit(t("run.dryrun_banner"), level="summary")
+        # ComicInfo 启用状态提示（dry-run 不创建 XML，仅提示一行）
+        emit(t("comicinfo.generating") if not args.no_comicinfo else t("comicinfo.disabled"), level="summary")
         # dry-run 输出目录可写性检查：--output-dir 指定目录，或各源文件所在目录（默认输出位置）
         if output_dir is not None:
             check_dirs = [str(output_dir)]
@@ -2468,6 +2787,7 @@ def _main():
                 drop_extra=args.drop_extra, overwrite=args.overwrite,
                 output_dir=output_dir, compress=_compress_level,
                 flatten=args.flatten, input_root=input_root, used_names=used_names,
+                comicinfo=not args.no_comicinfo,
             )
             file_elapsed = time.perf_counter() - file_start
             if timed_out:
