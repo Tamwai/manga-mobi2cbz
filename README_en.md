@@ -24,6 +24,7 @@ It natively follows the OPF spine reading order to extract images, and comes wit
 - **Same-name extension deduplication** — when files in the same directory differ only by extension (e.g. `Vol1.mobi` + `Vol1.azw3`), only one is kept; `--ext-priority` controls the keep priority (default azw3)
 - **Natural sorting** — sorts by page number naturally, avoiding `10.jpg` being placed before `2.jpg`
 - **Integrity verification** — automatically verifies the CBZ file after conversion; corrupt output is deleted and reported
+- **ComicInfo.xml metadata** — generates ComicInfo.xml in the CBZ root by default (UTF-8, with XML declaration), writing Title / Series / Number / Writer / Publisher / Year / LanguageISO / PageCount / Summary metadata; Series/Number are inferred with high confidence from the filename (supporting `001` / `01` / `1` / `Vol.01` / `Vol 01` / `Volume 01` / `第 01 卷` forms) and omitted when confidence is insufficient (better missing than wrong); fields without a reliable source are omitted (no empty tags); `--no-comicinfo` disables generation
 - **No-compression packing** — images are already compressed; ZIP defaults to store-only for speed and small output
 - **Optional compression** — `--compress LEVEL` enables deflate compression (1-9), which can significantly shrink PNG-source manga; higher levels are smaller but slower; JPEG sources benefit little, not recommended (default `0` = no compression)
 - **Inspect mode** — `--inspect` randomly samples one ebook (`--inspect-all` for every file). It unpacks only to read internal information and does not create a CBZ; temporary files are removed afterwards.
@@ -177,8 +178,9 @@ python manga-mobi2cbz.py --version
 | `--quiet`               | Quiet mode: only show errors and the final summary                                                                                |
 | `--short-summary`       | Compact summary: succeeded/skipped files show counts only (failed files always list full paths)                                    |
 | `--compress LEVEL`      | zip compression level 0-9: `0` = no compression (default, images are already compressed), `1-9` = deflate (benefits PNG sources; higher = smaller but slower) |
-| `--inspect`             | Inspect mode: randomly sample 1 ebook, unpack only to read internal info (metadata/structure/images/resolution/dual DRM judgment/NCX TOC), no CBZ produced, temp directory cleaned up automatically |
-| `--inspect-all`         | Inspect all ebooks (requires `--inspect`; has no effect by itself)                                                                |
+| `--inspect`             | Inspect mode: inspect the file directly when the positional argument is a single file, or randomly sample 1 ebook for a directory; unpack only to read internal info (metadata/structure/images/resolution/dual DRM judgment/NCX TOC), no CBZ produced, temp directory cleaned up automatically |
+| `--inspect-all`         | Inspect all ebooks (requires `--inspect`; using it alone will auto-enable `--inspect`)                                                                |
+| `--no-comicinfo`        | Do not generate ComicInfo.xml (default: generates it into the CBZ root with Title / Series / Number / Writer / Publisher / Year / LanguageISO / PageCount / Summary metadata)                                                          |
 | `--log FILE`            | Append all output to the specified log file                                                                                       |
 | `--version`             | Show version number                                                                                                               |
 
@@ -193,7 +195,6 @@ python manga-mobi2cbz.py --version
 ## Known limitations
 
 - **DRM-encrypted mobi is not supported** — the underlying mobi library cannot decrypt DRM-encrypted manga purchased from the Kindle store; such files are clearly reported as "possibly DRM-encrypted" and skipped rather than silently producing an empty cbz. Remove DRM before converting
-- **No ComicInfo.xml generated** — the script only packs images; the output contains no ComicInfo.xml metadata (series, author, tags, etc.); inject metadata separately if needed
 - **Threads cannot be force-terminated after timeout** — when a single file exceeds `--timeout`, the main flow skips it and continues, but Python cannot kill a blocked unpacking thread; the stuck thread lingers until the process exits, continuously consuming memory/IO; batch-processing many corrupt files may accumulate zombie threads in the background. To fully isolate stuck jobs, `multiprocessing` could be used for terminable child processes, but that adds cross-platform complexity and has not been adopted yet
 
 ## FAQ
@@ -217,6 +218,26 @@ A: Since v1.9.0, `--output-dir` preserves the relative subdirectory structure of
 A: Yes. Since v1.8.0 the accepted input extensions are `.mobi` / `.azw` / `.azw3`, all three going through the same conversion pipeline; for same-name files with different extensions in the same directory, azw3 is kept by default, adjustable via `--ext-priority`.
 
 ## Changelog
+
+### [2.0.0] - 2026-08-14
+
+#### Added
+
+- Generates ComicInfo.xml by default (written into the CBZ ZIP root, UTF-8 with XML declaration); new `--no-comicinfo` flag disables it
+- New functions: `build_comicinfo` (built with `xml.etree.ElementTree`, no manual string concatenation), `write_comicinfo`, `normalize_language` (normalizes language codes to ISO 639-1), `infer_series_number` (high-confidence Series/Number inference from the filename, supporting `001`/`01`/`1`/`Vol.01`/`Vol 01`/`Volume 01`/`第 01 卷` forms; returns None when confidence is insufficient — better missing than wrong)
+- Field mapping: Title=OPF title→EXTH title→filename stem, Writer=OPF creator→EXTH author, Publisher=OPF publisher→EXTH publisher, Year=PublicationDate year, LanguageISO=the ebook's own language (not guessed from the filename), PageCount=the actual image count written into the CBZ (always written), Series/Number=high-confidence filename inference, Summary=OPF description (written only when present); fields without a reliable source are omitted (no empty tags)
+- Flow insertion: ComicInfo is built after the final image set is determined, then written into the CBZ together with the images; integrity verification adds 3 checks (ComicInfo.xml exists, parseable by a standard XML parser, root node is ComicInfo); ComicInfo generation or verification failure = the whole conversion fails, and `--delete` must not delete the source file
+- `--dry-run` does not create ComicInfo.xml but prints one line indicating whether ComicInfo is enabled
+- `--inspect` output gains a ComicInfo preview block (Title/Series/Number/Writer/Publisher/Year/LanguageISO/PageCount/Summary shown only when present), with inferred fields clearly marked `[inferred]`
+- i18n: 6 new keys across all four languages: `comicinfo.generating` / `comicinfo.created` / `comicinfo.disabled` / `comicinfo.invalid` / `comicinfo.inferred` / `help.no_comicinfo`
+
+### [1.9.1] - 2026-08-14
+
+#### Added
+
+- `--inspect-all` used alone (without `--inspect`) now auto-enables `--inspect` and prints a warning (new key `warn.inspect_all_auto_enable` in all four languages)
+- `--inspect` help updated: a single-file positional argument inspects that file directly; a directory samples 1 ebook randomly
+- `--inspect-all` help updated: requires `--inspect`; using it alone will auto-enable `--inspect`
 
 ### [1.9.0] - 2026-08-14
 
