@@ -65,6 +65,7 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force ${{ env.PACKAGE_FOLDER }}
           Copy-Item dist/${{ env.APP_NAME }}${{ matrix.bin_ext }} ${{ env.PACKAGE_FOLDER }}
+          Copy-Item LICENSE ${{ env.PACKAGE_FOLDER }}
           Copy-Item README*.md ${{ env.PACKAGE_FOLDER }} -ErrorAction SilentlyContinue
           Compress-Archive -Path ${{ env.PACKAGE_FOLDER }} -DestinationPath ${{ env.APP_NAME }}-${{ env.VERSION }}-${{ matrix.archive_suffix }}
 
@@ -73,6 +74,7 @@ jobs:
         run: |
           mkdir -p ${{ env.PACKAGE_FOLDER }}
           cp dist/${{ env.APP_NAME }}${{ matrix.bin_ext }} ${{ env.PACKAGE_FOLDER }}
+          cp LICENSE ${{ env.PACKAGE_FOLDER }}
           cp README*.md ${{ env.PACKAGE_FOLDER }} 2>/dev/null || true
           tar -zcvf ${{ env.APP_NAME }}-${{ env.VERSION }}-${{ matrix.archive_suffix }} ${{ env.PACKAGE_FOLDER }}
 
