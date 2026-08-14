@@ -1,93 +1,83 @@
 name: Build CLI Release Binaries
+
 on:
   workflow_dispatch:
     inputs:
-      target_tag:
-        description: 要上传附件的Release标签（当前v2.0.0）
+      tag:
+        description: 'Release tag (例: v1.0.0)'
         required: true
-        default: v2.0.0
+        default: 'v2.0.0'
 
 permissions:
   contents: write
 
 env:
-  APP_NAME: manga-mobi2cbz-cli
-  VERSION: ${{ github.event.inputs.target_tag }}
-  PIP_REQUIREMENTS: mobi lxml Pillow pyinstaller tqdm
+  APP_NAME: manga-mobi2cbz
+  VERSION: ${{ github.event.inputs.tag }}
   PACKAGE_FOLDER: manga-mobi2cbz-cli
 
 jobs:
   build-binary:
-    runs-on: ${{ matrix.build.os }}
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        build:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+        include:
           - os: windows-latest
-            platform: win
-            arch: x64
-            archive_ext: zip
+            bin_ext: .exe
+            archive_suffix: windows-x64.zip
             shell: pwsh
           - os: ubuntu-latest
-            platform: linux
-            arch: x64
-            archive_ext: tar.gz
+            bin_ext: ''
+            archive_suffix: linux-x64.tar.gz
             shell: bash
           - os: macos-latest
-            platform: macos
-            arch: x64
-            archive_ext: tar.gz
+            bin_ext: ''
+            archive_suffix: macos-x64.tar.gz
             shell: bash
     defaults:
       run:
-        shell: ${{ matrix.build.shell }}
+        shell: ${{ matrix.shell }}
     steps:
-      - name: Checkout source code
+      - name: Checkout source
         uses: actions/checkout@v4
 
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
-          cache: pip
+          python-version: '3.12'
+          cache: 'pip'
 
       - name: Install dependencies
-        run: python -m pip install --upgrade pip && pip install pyinstaller ${{ env.PIP_REQUIREMENTS }}
-
-      - name: Install UPX
-        uses: crazy-max/ghaction-upx@v3
-        with:
-          install-only: true
-
-      - name: Compile single CLI binary
-        run: pyinstaller --onefile --console --strip manga-mobi2cbz.py
-
-      - name: Set archive filename env
-        run: echo "ARCHIVE_NAME=${{ env.APP_NAME }}-${{ env.VERSION }}-${{ matrix.build.platform }}-${{ matrix.build.arch }}.${{ matrix.build.archive_ext }}" >> $GITHUB_ENV
-
-      - name: Organize & archive (Windows)
-        if: matrix.build.platform == 'win'
         run: |
-          New-Item -ItemType Directory -Path $env:PACKAGE_FOLDER -Force
-          Move-Item dist\manga-mobi2cbz.exe $env:PACKAGE_FOLDER\
-          Move-Item README.md $env:PACKAGE_FOLDER\
-          Move-Item README_en.md $env:PACKAGE_FOLDER\
-          Move-Item README_ja.md $env:PACKAGE_FOLDER\
-          Compress-Archive -Path $env:PACKAGE_FOLDER -DestinationPath dist\$env:ARCHIVE_NAME
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
 
-      - name: Organize & archive (Linux/macOS)
-        if: matrix.build.platform != 'win'
+      - name: PyInstaller build
+        run: pyinstaller --onefile --console --name ${{ env.APP_NAME }} ${{ env.APP_NAME }}.py
+
+      - name: Package Windows
+        if: matrix.os == 'windows-latest'
         run: |
-          mkdir -p $PACKAGE_FOLDER
-          mv dist/manga-mobi2cbz $PACKAGE_FOLDER/
-          mv README.md README_en.md README_ja.md $PACKAGE_FOLDER/
-          tar -czf dist/$ARCHIVE_NAME $PACKAGE_FOLDER
+          New-Item -ItemType Directory -Force ${{ env.PACKAGE_FOLDER }}
+          Copy-Item dist/${{ env.APP_NAME }}${{ matrix.bin_ext }} ${{ env.PACKAGE_FOLDER }}
+          Copy-Item README*.md ${{ env.PACKAGE_FOLDER }} -ErrorAction SilentlyContinue
+          Compress-Archive -Path ${{ env.PACKAGE_FOLDER }} -DestinationPath ${{ env.APP_NAME }}-${{ env.VERSION }}-${{ matrix.archive_suffix }}
 
-      - name: Upload build artifact
+      - name: Package Linux / macOS
+        if: matrix.os != 'windows-latest'
+        run: |
+          mkdir -p ${{ env.PACKAGE_FOLDER }}
+          cp dist/${{ env.APP_NAME }}${{ matrix.bin_ext }} ${{ env.PACKAGE_FOLDER }}
+          cp README*.md ${{ env.PACKAGE_FOLDER }} 2>/dev/null || true
+          tar -zcvf ${{ env.APP_NAME }}-${{ env.VERSION }}-${{ matrix.archive_suffix }} ${{ env.PACKAGE_FOLDER }}
+
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.ARCHIVE_NAME }}
-          path: dist/${{ env.ARCHIVE_NAME }}
+          name: ${{ matrix.archive_suffix }}
+          path: ${{ env.APP_NAME }}-${{ env.VERSION }}-${{ matrix.archive_suffix }}
 
   upload-to-release:
     needs: build-binary
@@ -98,9 +88,11 @@ jobs:
         with:
           path: ./build_assets
 
-      - name: Attach packages to Release
+      - name: Publish Release
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: ${{ env.VERSION }}
+          tag_name: ${{ github.event.inputs.tag }}
+          name: Release ${{ github.event.inputs.tag }}
           files: ./build_assets/*/*
           overwrite: true
+          draft: false
