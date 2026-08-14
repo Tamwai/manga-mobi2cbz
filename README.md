@@ -1,5 +1,6 @@
 **Languages:** [中文](README.md) | [English](README_en.md) | [日本語](README_ja.md)
 
+
 # manga-mobi2cbz
 
 一款专为Kindle漫画打造的批量转换CLI工具，一键将无DRM MOBI / AZW / AZW3 电子书导出标准CBZ漫画包。
@@ -33,7 +34,7 @@
 - **DRM 加密识别** — 遇到 DRM 加密的 Kindle 漫画时明确提示无法解密，避免静默失败
 - **路径大小写兼容** — 封面比对与目录对齐使用归一化小写路径，Windows 不区分大小写的文件系统下不会因大小写命名差异误判重复/遗漏
 - **输出时间戳** — 每条输出自动追加 `[YYYY-MM-DD HH:MM:SS]` 前缀，控制台与日志文件一致，方便定位每次转换的执行时刻
-- **自定义输出目录** — `--output-dir DIR` 将 CBZ 输出到指定目录（自动创建），不再强制与源电子书同目录
+- **自定义输出目录** — `--output-dir DIR` 将 CBZ 输出到指定目录（自动创建），默认保留相对输入的子目录结构（如 `One Piece/001.mobi` → `DIR/One Piece/001.cbz`）；加 `--flatten` 平铺到目录根下，重名自动编号 `base (2).cbz`
 - **预处理过滤** — 0 字节、文件头损坏（偏移 60 处无 `BOOKMOBI` 魔数）的电子书在预处理阶段直接跳过，日志输出跳过文件完整路径与原因
 - **大小下限过滤** — `--min-size BYTES` 过滤小于指定字节数的电子书（不带数字默认 1000，`0` 关闭，不传则关闭大小过滤），兜住头部恰好完整但内容被截断的边缘损坏样本
 - **试运行模式** — `--dry-run` 只扫描与打印转换流程，不实际解压打包，适合先确认转换结果
@@ -98,10 +99,16 @@ python manga-mobi2cbz.py "D:\Manga\Vol1.mobi" --overwrite
 python manga-mobi2cbz.py "D:\Manga" --timeout 300
 ```
 
-### 输出到自定义目录
+### 输出到自定义目录（默认保留相对子目录结构）
 
 ```bash
 python manga-mobi2cbz.py "D:\Manga" --output-dir "E:\CBZ"
+```
+
+### 平铺输出（所有 CBZ 直接放到输出目录根下）
+
+```bash
+python manga-mobi2cbz.py "D:\Manga" --output-dir "E:\CBZ" --flatten
 ```
 
 ### 试运行：只扫描并打印转换流程，不实际转换
@@ -159,7 +166,8 @@ python manga-mobi2cbz.py --version
 | `--ext-priority EXTS` | 同目录同名（仅扩展名不同）时保留哪种格式：逗号分隔、顺序即优先级从高到低，仅接受 mobi/azw/azw3，默认 azw3；优先级未覆盖时回退兜底顺序 azw3→mobi→azw；与 `--prefer`（双目录选择）无关       |
 | `--timeout`           | 单文件转换超时秒数，超时自动跳过并计入失败（默认 600，`0` 表示不限制）                                                                                |
 | `--min-size BYTES`    | 过滤小于指定字节的电子书；不带数字默认 1000，`0` 关闭，不传则关闭大小过滤                                                                              |
-| `--output-dir DIR`    | CBZ 输出到指定目录（自动创建），默认与源电子书同目录                                                                                           |
+| `--output-dir DIR`    | CBZ 输出到指定目录（自动创建），默认保留相对输入的子目录结构（如 `One Piece/001.mobi` → `DIR/One Piece/001.cbz`）；加 `--flatten` 可平铺到目录根下                     |
+| `--flatten`          | 仅与 `--output-dir` 联用：所有 CBZ 平铺到输出目录根下，重名自动编号 `base (2).cbz`；单独使用（无 `--output-dir`）将报错退出                                                        |
 | `--progress`          | 强制显示文件级进度条（默认 TTY 且文件数≥2 时自动显示；与 `--no-progress` 同传时以最后出现的参数为准；`--quiet` 下默认保留；进度条写 stderr，不进 `--log` 日志）              |
 | `--no-progress`       | 强制关闭进度条（即使 TTY 且文件数≥2）                                                                                                 |
 | `--dry-run`           | 试运行：只扫描文件并打印转换流程，不实际解压打包、不创建输出目录                                                                                       |
@@ -173,7 +181,7 @@ python manga-mobi2cbz.py --version
 
 ## 输出
 
-- 默认转换后的 `.cbz` 文件与原电子书文件在同一目录；指定 `--output-dir` 时输出到该目录（自动创建）
+- 默认转换后的 `.cbz` 文件与原电子书文件在同一目录；指定 `--output-dir` 时输出到该目录（自动创建），默认保留相对输入的子目录结构，加 `--flatten` 可平铺到输出目录根下（重名自动编号）
 - 已存在的 `.cbz` 默认自动跳过，不会覆盖；加 `--overwrite` 可强制重新生成
 - 0 字节 / 文件头损坏的电子书在预处理阶段直接跳过，日志输出完整路径与原因
 - 每个文件转换耗时实时输出，汇总底部显示总耗时
@@ -199,10 +207,43 @@ A: 双目录 mobi（mobi7+mobi8）默认只保留 mobi8 一份，避免内容重
 **Q: 批量转换时遇到损坏/加密 mobi 卡住不动了？**
 A: 单文件转换默认有 600 秒超时（`--timeout` 可调），超时后会自动跳过该文件并计入失败，主流程继续处理后续文件。若你更早发现某个文件卡住，可用 `--timeout 30` 之类的较小值加快跳过，或用 `--quiet` 减少输出。
 
+**Q: 使用 --output-dir 后为什么保留了子目录？**
+A: v1.9.0 起 `--output-dir` 默认保留相对输入的子目录结构（旧版一律平铺，属破坏性变更）。需要平铺时加 `--flatten`，旧命令 `python manga-mobi2cbz.py Manga --output-dir CBZ` 改为 `python manga-mobi2cbz.py Manga --output-dir CBZ --flatten` 即可恢复旧行为。
+
 **Q: 支持 .azw / .azw3 吗？**
 A: 支持。v1.8.0 起输入扩展名扩展为 `.mobi` / `.azw` / `.azw3`，三种格式统一走同一转换链路；同目录同名不同扩展名时默认保留 azw3，可用 `--ext-priority` 调整。
 
 ## 更新日志
+
+### [1.9.0] - 2026-08-14
+
+#### 破坏性变更（Breaking Change）
+
+- `--output-dir DIR` 由「一律平铺到 DIR」改为「**默认保留相对输入的子目录结构**」（如 `One Piece/001.mobi` → `DIR/One Piece/001.cbz`）
+- 迁移方式：旧命令 `python manga-mobi2cbz.py Manga --output-dir CBZ` 需改为 `python manga-mobi2cbz.py Manga --output-dir CBZ --flatten` 才能恢复「平铺」行为
+
+#### 新增
+
+- `--flatten`：仅与 `--output-dir` 联用，将全部 CBZ 平铺到输出目录根下；平铺命名规则：文件直接在输入根下 → `stem`，位于子目录 → `父目录名 - stem`；非法文件名字符（`<>:"/\|?*`）替换为 `_`
+- 平铺重名自动唯一化：`base.cbz` → `base (2).cbz` → `base (3).cbz` …，不静默覆盖、不跳过，编号时输出 info 提示
+- 仅使用 `--flatten` 而无 `--output-dir` 报错退出（exit 2），文案多语言化
+- 每次运行打印一次输出模式提示（保留结构 / 平铺），四语言表新增 `output.mode_preserve` / `output.mode_flatten` / `output.renamed_due_to_conflict` / `output.flatten_requires_dir` / `error.flatten_without_output_dir` / `rel_fallback` 等键
+- 相对子目录路径计算失败（如跨盘符）时回退 `DIR/stem.cbz` 并输出 warning
+- 单文件输入 + `--output-dir` 输出 `DIR/stem.cbz`（不套子目录）
+- `--overwrite` 保留结构语义不变；平铺模式以唯一化避让为主，`--overwrite` 仍作用于最终选中的路径
+
+#### 重构
+
+- `target_cbz_path` 新增 `flatten` / `input_root` / `used_names` 参数；新增 `sanitize_filename_component` / `flat_base_name` / `unique_path` 独立函数
+- dry-run 平铺唯一名按处理顺序维护已占用名集合，与正式运行一致
+
+#### 修复与增强（并入 v1.9.0，不升号）
+
+- `run_with_timeout` 返回值改为 `(timed_out, result)` 二元组：超时 → `(True, None)`，正常 → `(False, 函数返回值)`，消除“超时”与“正常返回 None”的歧义
+- `--inspect` 超时分支追加提示「临时目录可能残留，请手动清理」（四语言新增 `inspect_mode.timeout_residue` 键）
+- 打包阶段 `seen` 增加归一化路径判物理重复：同一物理文件重复出现时跳过不写入（重名不同文件仍序号前缀），输出去重计数（四语言新增 `convert.dedup_physical` 键）
+- 新增 `HtmlImgParser`（HTMLParser 子类）兜底提取 `<img src>`：HTML 实体由 HTMLParser 自动解码 + `unquote` 处理 `%XX`，接入 OPF/spine 的 HTML 图片提取，正则未命中时启用，不破坏 ElementTree 主流程
+- `--dry-run` 增加输出目录可写性检查（`--output-dir` 或各源文件所在目录），不可写时输出 warning（四语言新增 `dryrun.output_not_writable` 键）
 
 ### [1.8.0] - 2026-08-14
 
