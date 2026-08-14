@@ -37,7 +37,7 @@ It natively follows the OPF spine reading order to extract images, and comes wit
 - **DRM encryption detection** — clearly reports when it encounters DRM-encrypted Kindle manga instead of failing silently
 - **Path case compatibility** — cover comparison and directory alignment use normalized lowercase paths, so case-only naming differences are not misjudged as duplicates/missing on case-insensitive Windows filesystems
 - **Output timestamps** — every output line is prefixed with `[YYYY-MM-DD HH:MM:SS]`, consistent across console and log files, making it easy to pinpoint when each conversion ran
-- **Custom output directory** — `--output-dir DIR` outputs CBZ to a specified directory (auto-created) instead of forcing the source ebook's directory
+- **Custom output directory** — `--output-dir DIR` outputs CBZ to a specified directory (auto-created); by default it preserves the relative subdirectory structure of the input (e.g. `One Piece/001.mobi` → `DIR/One Piece/001.cbz`); add `--flatten` to flatten everything into the directory root, with automatic `base (2).cbz` numbering on conflicts
 - **Precheck filtering** — 0-byte files and ebooks with a corrupt header (no `BOOKMOBI` magic at offset 60) are skipped directly at the precheck stage, with the full path and reason logged
 - **Minimum-size filtering** — `--min-size BYTES` filters out ebooks smaller than the given byte count (default 1000 when no number is given, `0` disables, not passing it disables size filtering), catching edge-corrupt samples whose header is intact but content is truncated
 - **Dry-run mode** — `--dry-run` only scans and prints the conversion flow without actually unpacking/packing, handy for previewing results first
@@ -102,10 +102,16 @@ python manga-mobi2cbz.py "D:\Manga\Vol1.mobi" --overwrite
 python manga-mobi2cbz.py "D:\Manga" --timeout 300
 ```
 
-### Output to a custom directory
+### Output to a custom directory (preserves relative subdirectory structure by default)
 
 ```bash
 python manga-mobi2cbz.py "D:\Manga" --output-dir "E:\CBZ"
+```
+
+### Flatten output (all CBZ files go directly to the output directory root)
+
+```bash
+python manga-mobi2cbz.py "D:\Manga" --output-dir "E:\CBZ" --flatten
 ```
 
 ### Dry run: only scan and print the conversion flow, without actually converting
@@ -163,7 +169,8 @@ python manga-mobi2cbz.py --version
 | `--ext-priority EXTS`   | Which format to keep when files share the same name in the same directory (differing only by extension): comma-separated, order = priority high→low, accepts only mobi/azw/azw3, default azw3; groups not covered fall back to azw3→mobi→azw; unrelated to `--prefer` (dual-directory selection) |
 | `--timeout`             | Per-file conversion timeout in seconds; timeout files are skipped and counted as failed (default 600, `0` = no limit)              |
 | `--min-size BYTES`      | Filter out ebooks smaller than the given bytes; default 1000 without a number, `0` disables, not passing it disables size filtering |
-| `--output-dir DIR`      | Output CBZ to the specified directory (auto-created); default is the source ebook's directory                                      |
+| `--output-dir DIR`      | Output CBZ to the specified directory (auto-created); preserves the relative subdirectory structure of the input by default (e.g. `One Piece/001.mobi` → `DIR/One Piece/001.cbz`); add `--flatten` to flatten into the directory root |
+| `--flatten`              | Only used together with `--output-dir`: flattens all CBZ files into the output directory root, auto-numbering conflicts `base (2).cbz`; using it alone (without `--output-dir`) exits with an error |
 | `--progress`            | Force the per-file progress bar (auto-shown by default when stderr is TTY and file count ≥ 2; when passed with `--no-progress`, the last one wins; kept by default under `--quiet`; writes to stderr, not into `--log`) |
 | `--no-progress`         | Force-disable the progress bar (even when TTY and file count ≥ 2)                                                                 |
 | `--dry-run`             | Dry run: only scan files and print the conversion flow, without unpacking/packing or creating output directories                   |
@@ -177,7 +184,7 @@ python manga-mobi2cbz.py --version
 
 ## Output
 
-- By default, the converted `.cbz` file is placed in the same directory as the original ebook; with `--output-dir`, it goes to that directory (auto-created)
+- By default, the converted `.cbz` file is placed in the same directory as the original ebook; with `--output-dir`, it goes to that directory (auto-created), preserving the relative subdirectory structure of the input, or flattened into the directory root with `--flatten` (conflicts auto-numbered)
 - Existing `.cbz` files are skipped by default and never overwritten; use `--overwrite` to force regeneration
 - 0-byte / corrupt-header ebooks are skipped at the precheck stage, with the full path and reason logged
 - Per-file conversion time is printed in real time; total elapsed time is shown at the bottom of the summary
@@ -203,10 +210,43 @@ A: Dual-directory mobi (mobi7+mobi8) keeps only the mobi8 copy by default to avo
 **Q: Batch conversion stalls on a corrupt/encrypted mobi?**
 A: Per-file conversion has a 600-second timeout by default (`--timeout` adjustable); on timeout the file is skipped automatically and counted as failed, and the main flow continues with the remaining files. If you notice a file stalling earlier, use a smaller value like `--timeout 30` to skip it faster, or `--quiet` to reduce output.
 
+**Q: Why does --output-dir keep the subdirectories now?**
+A: Since v1.9.0, `--output-dir` preserves the relative subdirectory structure of the input by default (a breaking change from the old flat behavior). Add `--flatten` to flatten instead; change the old command `python manga-mobi2cbz.py Manga --output-dir CBZ` to `python manga-mobi2cbz.py Manga --output-dir CBZ --flatten` to restore the old flat behavior.
+
 **Q: Are .azw / .azw3 supported?**
 A: Yes. Since v1.8.0 the accepted input extensions are `.mobi` / `.azw` / `.azw3`, all three going through the same conversion pipeline; for same-name files with different extensions in the same directory, azw3 is kept by default, adjustable via `--ext-priority`.
 
 ## Changelog
+
+### [1.9.0] - 2026-08-14
+
+#### Breaking Change
+
+- `--output-dir DIR` changed from "flatten everything into DIR" to "**preserve the relative subdirectory structure of the input by default**" (e.g. `One Piece/001.mobi` → `DIR/One Piece/001.cbz`)
+- Migration: the old command `python manga-mobi2cbz.py Manga --output-dir CBZ` must be changed to `python manga-mobi2cbz.py Manga --output-dir CBZ --flatten` to restore the "flatten" behavior
+
+#### Added
+
+- `--flatten`: only used together with `--output-dir`; flattens all CBZ files into the output directory root; flat naming rules: file directly under the input root → `stem`, in a subdirectory → `parent dir name - stem`; illegal filename characters (`<>:"/\|?*`) are replaced with `_`
+- Automatic conflict uniquification in flat mode: `base.cbz` → `base (2).cbz` → `base (3).cbz` …, never silently overwrites or skips; an info message is printed when numbering occurs
+- Using `--flatten` without `--output-dir` exits with an error (exit 2); the message is i18n-ized
+- Prints one output-mode line per run (preserve structure / flatten); four language tables gain keys `output.mode_preserve` / `output.mode_flatten` / `output.renamed_due_to_conflict` / `output.flatten_requires_dir` / `error.flatten_without_output_dir` / `rel_fallback`
+- If computing the relative subdirectory path fails (e.g. across drives), falls back to `DIR/stem.cbz` with a warning
+- Single-file input + `--output-dir` outputs `DIR/stem.cbz` (no subdirectory wrapping)
+- `--overwrite` semantics unchanged in preserve mode; in flat mode uniquification is preferred, and `--overwrite` still applies to the final chosen path
+
+#### Refactored
+
+- `target_cbz_path` gains `flatten` / `input_root` / `used_names` parameters; new standalone helpers `sanitize_filename_component` / `flat_base_name` / `unique_path`
+- dry-run flat uniquification maintains a used-name set in processing order, consistent with real runs
+
+#### Fixes & Enhancements (folded into v1.9.0, no version bump)
+
+- `run_with_timeout` now returns a `(timed_out, result)` tuple: timeout → `(True, None)`, normal → `(False, function return value)`, removing the ambiguity between "timeout" and a normal `None` return
+- `--inspect` timeout branch adds a hint that the extracted temp directory may be left behind and should be cleaned up manually (new key `inspect_mode.timeout_residue` in all four languages)
+- Packing-stage `seen` now also uses normalized paths to detect physically duplicate files: the same physical file appearing more than once is skipped (same-name different files still get numeric prefixes), and a dedup count is printed (new key `convert.dedup_physical`)
+- New `HtmlImgParser` (an `HTMLParser` subclass) fallback for extracting `<img src>`: HTML entities are auto-decoded by HTMLParser plus `unquote` for `%XX`; wired into OPF/spine HTML image extraction, enabled only when the regex misses; the ElementTree main flow is untouched
+- `--dry-run` now checks whether the output directory (`--output-dir` or each source file's directory) is writable and warns when it is not (new key `dryrun.output_not_writable`)
 
 ### [1.8.0] - 2026-08-14
 
