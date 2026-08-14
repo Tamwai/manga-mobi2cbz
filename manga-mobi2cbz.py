@@ -3,7 +3,7 @@
 manga-mobi2cbz — 将 mobi/azw/azw3 电子书漫画文件批量转换为 cbz 格式（OPF spine 排序 + 封面兜底增强版）
 
 用法:
-    python manga-mobi2cbz.py <目录或文件路径> [--language auto|zh-CN|zh-TW|ja|en] [--delete] [--prefer mobi7|mobi8] [--ext-priority EXTS] [--drop-extra] [--overwrite] [--timeout SECONDS] [--output-dir DIR] [--dry-run] [--progress|--no-progress] [--quiet] [--short-summary] [--compress LEVEL] [--inspect] [--inspect-all] [--log FILE]
+    python manga-mobi2cbz.py <目录或文件路径> [--language auto|zh-CN|zh-TW|ja|en] [--delete] [--prefer mobi7|mobi8] [--ext-priority EXTS] [--drop-extra] [--overwrite] [--timeout SECONDS] [--output-dir DIR] [--flatten] [--dry-run] [--progress|--no-progress] [--quiet] [--short-summary] [--compress LEVEL] [--inspect] [--inspect-all] [--log FILE]
 
 示例:
     # 转换整个文件夹（递归搜索所有 .mobi/.azw/.azw3）
@@ -27,8 +27,11 @@ manga-mobi2cbz — 将 mobi/azw/azw3 电子书漫画文件批量转换为 cbz �
     # 单文件转换超过 300 秒自动跳过（防止损坏/加密电子书卡死批量任务）
     python manga-mobi2cbz.py "D:\\Manga" --timeout 300
 
-    # CBZ 输出到自定义目录（不放在源电子书旁边，目录自动创建）
+    # CBZ 输出到自定义目录（默认保留相对输入的子目录结构，如 One Piece/001.mobi → E:\CBZ\One Piece\001.cbz）
     python manga-mobi2cbz.py "D:\\Manga" --output-dir "E:\\CBZ"
+
+    # 平铺输出：所有 CBZ 直接放到输出目录根下（重名自动编号）
+    python manga-mobi2cbz.py "D:\\Manga" --output-dir "E:\\CBZ" --flatten
 
     # 试运行：只扫描文件并打印转换流程，不实际解压打包、不创建输出目录
     python manga-mobi2cbz.py "D:\\Manga" --dry-run
@@ -62,7 +65,12 @@ manga-mobi2cbz — 将 mobi/azw/azw3 电子书漫画文件批量转换为 cbz �
     --overwrite      目标 cbz 已存在时强制重新生成（默认跳过）
     --timeout SECONDS 单文件转换超时秒数，超时自动跳过并计入失败（默认 600，0 表示不限制）
     --min-size BYTES  过滤小于指定字节的电子书（不带数字默认 1000，0 关闭，不传则关闭）
-    --output-dir DIR CBZ 输出到指定目录（自动创建），默认与源电子书同目录
+    --output-dir DIR CBZ 输出到指定目录（自动创建），默认保留相对输入的
+                     子目录结构（如 One Piece/001.mobi → DIR/One Piece/001.cbz），
+                     需要平铺时加 --flatten
+    --flatten       仅与 --output-dir 联用：所有 CBZ 平铺到输出目录根下，
+                     重名自动编号 base.cbz → base (2).cbz → …；
+                     单独使用（无 --output-dir）将报错退出
     --dry-run        试运行：只扫描文件并打印转换流程，不实际解压打包、不创建输出目录
     --progress       强制显示文件级进度条（默认 TTY 且文件数≥2 时自动显示；
                      与 --no-progress 同传时以最后出现的参数为准）
@@ -82,6 +90,26 @@ manga-mobi2cbz — 将 mobi/azw/azw3 电子书漫画文件批量转换为 cbz �
 要求: Python 3.10+
 
 更新日志:
+    v1.9.0 (2026-08-14)
+        - [Breaking] --output-dir 默认保留相对输入的子目录结构（旧版一律平铺）
+          * 迁移方式：旧命令 ... --output-dir DIR 改为
+            ... --output-dir DIR --flatten 即可恢复旧行为
+        - 新增 --flatten：与 --output-dir 联用时平铺到输出目录根下；
+          重名自动唯一化 base.cbz → base (2).cbz → …，不静默覆盖、不跳过
+        - 仅使用 --flatten 而无 --output-dir 将报错退出（exit 2）
+        - 输出根目录存在同名文件时：保留结构模式仍按 SKIP/--overwrite
+          语义处理；平铺模式以自动编号避让为主
+        - run_with_timeout 返回值改为 (timed_out, result) 二元组：超时
+          → (True, None)，正常 → (False, 函数返回值)，消除 None 歧义
+        - --inspect 超时提示追加“临时目录可能残留，请手动清理”
+        - 打包阶段 seen 增加归一化路径判物理重复：同一物理文件重复出现
+          时跳过不写入（重名不同文件仍序号前缀），输出去重计数
+        - 新增 HtmlImgParser（HTMLParser 子类）兜底提取 <img src>：
+          HTML 实体由 HTMLParser 自动解码 + unquote 处理 %XX，
+          接入 OPF/spine 的 HTML 图片提取，正则未命中时启用
+        - --dry-run 增加输出目录可写性检查（--output-dir 或源目录），
+          不可写时输出 warning 提示
+
     v1.8.0 (2026-08-14)
         - 新增轻量多语言支持：--language auto|zh-CN|zh-TW|ja|en（默认
           auto 按系统 locale 自动判定：简体中文归 zh-CN、繁体中文归
@@ -243,7 +271,7 @@ manga-mobi2cbz — 将 mobi/azw/azw3 电子书漫画文件批量转换为 cbz �
           EOCD + testzip 完整性校验、失败清理半成品
 """
 
-__version__ = "1.8.0"
+__version__ = "1.9.0"
 
 SCRIPT_NAME = "manga-mobi2cbz"
 
@@ -259,6 +287,8 @@ import zipfile
 import argparse
 import traceback
 import xml.etree.ElementTree as ET
+from html.parser import HTMLParser
+from urllib.parse import unquote
 from enum import Enum
 from pathlib import Path
 from datetime import datetime
@@ -288,7 +318,8 @@ LANGUAGES = {
         "help.overwrite": "目标 cbz 已存在时强制重新生成（默认跳过）",
         "help.timeout": "单文件转换超时秒数，超时自动跳过并计入失败（默认 600，0 表示不限制）",
         "help.min_size": "过滤小于指定字节的电子书；不带数字默认1000字节，0关闭大小过滤，不传则关闭",
-        "help.output_dir": "CBZ 输出到指定目录（自动创建），默认与源电子书同目录",
+        "help.output_dir": "CBZ 输出到指定目录（自动创建），默认保留相对输入的子目录结构（如 One Piece/001.mobi → DIR/One Piece/001.cbz），加 --flatten 可平铺到目录根下",
+    "help.flatten": "仅与 --output-dir 联用：所有 CBZ 平铺到输出目录根下，重名自动编号 (2)(3)…；单独使用将报错退出",
         "help.dry_run": "试运行：只扫描文件并打印转换流程，不实际解压打包、不创建输出目录",
         "help.progress": "强制显示文件级进度条（默认 TTY 且文件数≥2 时自动显示；与 --no-progress 同传时以最后出现的参数为准）",
         "help.no_progress": "强制关闭进度条（即使 TTY 且文件数≥2）",
@@ -334,6 +365,7 @@ LANGUAGES = {
         "convert.overwrite": "  [覆盖] 已删除旧文件，重新生成: {name}",
         "convert.spine": "  [排序] 按 OPF spine 顺序（{count} 张图片）",
         "convert.spine_empty": "  [排序] spine 提取为空，兜底按文件名排序（{count} 张）",
+        "convert.dedup_physical": "  [去重] 跳过 {count} 个物理重复文件（同一文件重复出现，未写入 CBZ）",
         "convert.no_opf": "  [排序] 未找到 OPF，兜底按文件名排序（{count} 张）",
         "convert.no_images": "  [失败] 未找到图片: {name}",
         "convert.drm_hint": "  [提示] 可能为 DRM 加密的 Kindle 漫画，mobi 库无法解密，请先去除 DRM 后再转换",
@@ -409,6 +441,7 @@ LANGUAGES = {
         "inspect_mode.all": "检查全部 {count} 个有效电子书文件...\n",
         "inspect_mode.random": "随机抽查 1/{total} 个文件...\n",
         "inspect_mode.timeout": "  [超时] {name}: 检查超过 {seconds} 秒，已跳过（计入失败）",
+        "inspect_mode.timeout_residue": "  [提示] 检查超时，解压临时目录可能残留，请手动清理",
         "inspect_mode.ctrl_c": "\n检测到 Ctrl+C，中断检查，输出当前进度汇总：",
         "inspect_mode.random_note": "[检查] 抽查 1/{total}（随机），全部查看请加 --inspect-all",
         "inspect_mode.summary": "[检查] 检查完成: 共 {total} 个, 正常 {ok}, 魔数非法 {invalid}, DRM标记 {drm}, 疑似DRM/无图 {noimg}, 解包超时 {timeout}, 共耗时 {elapsed}s",
@@ -423,6 +456,7 @@ LANGUAGES = {
         "run.none_convertible": "无有效电子书文件可转换（全部被预处理过滤或同名去重）",
         "run.found": "找到 {total} 个有效电子书文件（预处理过滤 {pre} 个，同名去重 {dedup} 个）\n",
         "run.dryrun_banner": "[试运行] --dry-run 模式：仅扫描与打印流程，不实际解压打包、不创建输出目录",
+        "dryrun.output_not_writable": "  [警告] 输出目录不可写: {path}，正式转换将失败",
         "run.plan_output_dir": "计划输出目录: {path}（仅正式转换时自动创建）",
         "run.dryrun_precheck": "试运行预处理跳过 {count} 个文件：",
         "run.dryrun_end": "试运行结束，未产生任何输出文件与文件夹",
@@ -438,6 +472,12 @@ LANGUAGES = {
         "run.skipped_header": "跳过文件（目标 cbz 已存在）: {count} 个",
         "run.failed_header": "失败文件: {count} 个",
         "run.total_elapsed": "总耗时: {seconds} 秒",
+    "output.mode_preserve": "输出模式: 保留相对子目录结构 -> {dir}",
+    "output.mode_flatten": "输出模式: 平铺（--flatten）-> {dir}",
+    "output.renamed_due_to_conflict": "  [提示] 目标 {name} 已存在，已自动重命名为 {new}",
+    "output.flatten_requires_dir": "--flatten 需配合 --output-dir 使用，请同时指定输出目录",
+    "error.flatten_without_output_dir": "--flatten 必须与 --output-dir 一起使用（无 --output-dir 时无法平铺）",
+    "rel_fallback": "  [警告] 无法计算 {name} 的相对子目录路径（可能跨盘符），回退输出到输出目录根下: {path}",
     },
     "zh-TW": {
         "error.missing_dependency": "【致命錯誤】缺少核心依賴 mobi，請執行安裝命令：",
@@ -455,7 +495,8 @@ LANGUAGES = {
         "help.overwrite": "目標 cbz 已存在時強制重新生成（預設跳過）",
         "help.timeout": "單檔轉換逾時秒數，逾時自動跳過並計入失敗（預設 600，0 表示不限制）",
         "help.min_size": "過濾小於指定位元組的電子書；不帶數字預設1000位元組，0關閉大小過濾，不傳則關閉",
-        "help.output_dir": "CBZ 輸出到指定目錄（自動建立），預設與來源電子書同目錄",
+        "help.output_dir": "CBZ 輸出到指定目錄（自動建立），預設保留相對輸入的子目錄結構（如 One Piece/001.mobi → DIR/One Piece/001.cbz），加 --flatten 可平鋪到目錄根下",
+    "help.flatten": "僅與 --output-dir 聯用：所有 CBZ 平鋪到輸出目錄根下，重名自動編號 (2)(3)…；單獨使用將報錯退出",
         "help.dry_run": "試運行：只掃描檔案並列印轉換流程，不實際解壓打包、不建立輸出目錄",
         "help.progress": "強制顯示檔案級進度條（預設 TTY 且檔案數≥2 時自動顯示；與 --no-progress 同傳時以最後出現的參數為準）",
         "help.no_progress": "強制關閉進度條（即使 TTY 且檔案數≥2）",
@@ -501,6 +542,7 @@ LANGUAGES = {
         "convert.overwrite": "  [覆寫] 已刪除舊檔，重新生成: {name}",
         "convert.spine": "  [排序] 按 OPF spine 順序（{count} 張圖片）",
         "convert.spine_empty": "  [排序] spine 提取為空，兜底按檔名排序（{count} 張）",
+        "convert.dedup_physical": "  [去重] 跳過 {count} 個物理重複檔案（同一檔案重複出現，未寫入 CBZ）",
         "convert.no_opf": "  [排序] 未找到 OPF，兜底按檔名排序（{count} 張）",
         "convert.no_images": "  [失敗] 未找到圖片: {name}",
         "convert.drm_hint": "  [提示] 可能為 DRM 加密的 Kindle 漫畫，mobi 函式庫無法解密，請先去除 DRM 後再轉換",
@@ -576,6 +618,7 @@ LANGUAGES = {
         "inspect_mode.all": "檢查全部 {count} 個有效電子書檔案...\n",
         "inspect_mode.random": "隨機抽查 1/{total} 個檔案...\n",
         "inspect_mode.timeout": "  [逾時] {name}: 檢查超過 {seconds} 秒，已跳過（計入失敗）",
+        "inspect_mode.timeout_residue": "  [提示] 檢查逾時，解壓臨時目錄可能殘留，請手動清理",
         "inspect_mode.ctrl_c": "\n偵測到 Ctrl+C，中斷檢查，輸出目前進度彙總：",
         "inspect_mode.random_note": "[檢查] 抽查 1/{total}（隨機），全部查看請加 --inspect-all",
         "inspect_mode.summary": "[檢查] 檢查完成: 共 {total} 個, 正常 {ok}, 魔數非法 {invalid}, DRM標記 {drm}, 疑似DRM/無圖 {noimg}, 解包逾時 {timeout}, 共耗時 {elapsed}s",
@@ -590,6 +633,7 @@ LANGUAGES = {
         "run.none_convertible": "無有效電子書檔案可轉換（全部被預處理過濾或同名去重）",
         "run.found": "找到 {total} 個有效電子書檔案（預處理過濾 {pre} 個，同名去重 {dedup} 個）\n",
         "run.dryrun_banner": "[試運行] --dry-run 模式：僅掃描與列印流程，不實際解壓打包、不建立輸出目錄",
+        "dryrun.output_not_writable": "  [警告] 輸出目錄不可寫: {path}，正式轉換將失敗",
         "run.plan_output_dir": "計畫輸出目錄: {path}（僅正式轉換時自動建立）",
         "run.dryrun_precheck": "試運行預處理跳過 {count} 個檔案：",
         "run.dryrun_end": "試運行結束，未產生任何輸出檔案與資料夾",
@@ -605,6 +649,12 @@ LANGUAGES = {
         "run.skipped_header": "跳過檔案（目標 cbz 已存在）: {count} 個",
         "run.failed_header": "失敗檔案: {count} 個",
         "run.total_elapsed": "總耗時: {seconds} 秒",
+    "output.mode_preserve": "輸出模式: 保留相對子目錄結構 -> {dir}",
+    "output.mode_flatten": "輸出模式: 平鋪（--flatten）-> {dir}",
+    "output.renamed_due_to_conflict": "  [提示] 目標 {name} 已存在，已自動重新命名為 {new}",
+    "output.flatten_requires_dir": "--flatten 需配合 --output-dir 使用，請同時指定輸出目錄",
+    "error.flatten_without_output_dir": "--flatten 必須與 --output-dir 一起使用（無 --output-dir 時無法平鋪）",
+    "rel_fallback": "  [警告] 無法計算 {name} 的相對子目錄路徑（可能跨磁碟），回退輸出到輸出目錄根下: {path}",
     },
     "en": {
         "error.missing_dependency": "[Fatal Error] Missing required dependency mobi. Install with:",
@@ -622,7 +672,8 @@ LANGUAGES = {
         "help.overwrite": "Force regenerate when the target cbz already exists (default: skip)",
         "help.timeout": "Per-file conversion timeout in seconds; on timeout the file is skipped and counted as failed (default 600, 0 = no limit)",
         "help.min_size": "Filter out ebooks smaller than the given bytes; without a number defaults to 1000 bytes, 0 disables size filtering, omitted disables it",
-        "help.output_dir": "Output CBZ to the given directory (auto-created); default is next to the source ebook",
+        "help.output_dir": "Output CBZ to the given directory (auto-created); by default keeps the relative subdirectory structure of the input (e.g. One Piece/001.mobi -> DIR/One Piece/001.cbz), add --flatten to flatten into the root",
+    "help.flatten": "Only with --output-dir: flatten all CBZ into the root of the output directory, auto-renaming conflicts as (2)(3)...; using it alone exits with an error",
         "help.dry_run": "Dry run: only scan files and print the conversion flow, without extracting, packing or creating output directories",
         "help.progress": "Force per-file progress bar (auto when TTY and >=2 files; when combined with --no-progress the last one wins)",
         "help.no_progress": "Force-disable the progress bar (even when TTY and >=2 files)",
@@ -668,6 +719,7 @@ LANGUAGES = {
         "convert.overwrite": "  [Overwrite] Deleted old file, regenerating: {name}",
         "convert.spine": "  [Sort] Using OPF spine order ({count} images)",
         "convert.spine_empty": "  [Sort] spine extraction empty, fell back to filename order ({count} images)",
+        "convert.dedup_physical": "  [Dedup] Skipped {count} physically duplicate file(s) (same file appeared more than once, not written to CBZ)",
         "convert.no_opf": "  [Sort] No OPF found, fell back to filename order ({count} images)",
         "convert.no_images": "  [Failed] No images found: {name}",
         "convert.drm_hint": "  [Info] Possibly a DRM-protected Kindle comic; the mobi library cannot decrypt it. Remove DRM first and retry",
@@ -743,6 +795,7 @@ LANGUAGES = {
         "inspect_mode.all": "Inspecting all {count} valid ebook files...\n",
         "inspect_mode.random": "Randomly inspecting 1/{total} file(s)...\n",
         "inspect_mode.timeout": "  [Timeout] {name}: inspection exceeded {seconds}s, skipped (counted as failed)",
+        "inspect_mode.timeout_residue": "  [Hint] Inspection timed out; the extracted temp directory may be left behind, please clean it up manually",
         "inspect_mode.ctrl_c": "\nCtrl+C detected, inspection interrupted; showing current progress summary:",
         "inspect_mode.random_note": "[Inspect] Sampled 1/{total} (random); add --inspect-all to check all",
         "inspect_mode.summary": "[Inspect] Done: {total} files, ok {ok}, invalid magic {invalid}, DRM-flagged {drm}, suspected DRM/no image {noimg}, extraction timeout {timeout}, total {elapsed}s",
@@ -757,6 +810,7 @@ LANGUAGES = {
         "run.none_convertible": "No valid ebook files to convert (all filtered by precheck or dedup)",
         "run.found": "Found {total} valid ebook files (precheck filtered {pre}, dedup removed {dedup})\n",
         "run.dryrun_banner": "[Dry Run] --dry-run mode: scan and print flow only; no extraction, packing or output directories",
+        "dryrun.output_not_writable": "  [Warning] Output directory is not writable: {path}; real conversion will fail",
         "run.plan_output_dir": "Planned output dir: {path} (auto-created only in real runs)",
         "run.dryrun_precheck": "Dry-run precheck skipped {count} files:",
         "run.dryrun_end": "Dry run finished, no output files or folders were created",
@@ -772,6 +826,12 @@ LANGUAGES = {
         "run.skipped_header": "Skipped files (target cbz exists): {count}",
         "run.failed_header": "Failed files: {count}",
         "run.total_elapsed": "Total time: {seconds} s",
+    "output.mode_preserve": "Output mode: preserving relative subdirectories -> {dir}",
+    "output.mode_flatten": "Output mode: flatten (--flatten) -> {dir}",
+    "output.renamed_due_to_conflict": "  [Info] Target {name} already exists, renamed to {new}",
+    "output.flatten_requires_dir": "--flatten requires --output-dir; please specify an output directory too",
+    "error.flatten_without_output_dir": "--flatten must be used together with --output-dir (cannot flatten without an output directory)",
+    "rel_fallback": "  [Warning] Cannot compute relative subdirectory path for {name} (possibly crossing drives), falling back to the root of the output directory: {path}",
     },
     "ja": {
         "error.missing_dependency": '【致命的エラー】必須依存ライブラリ mobi がありません。インストールを実行してください：',
@@ -789,7 +849,8 @@ LANGUAGES = {
         "help.overwrite": '対象 cbz が既に存在する場合に強制的に再生成（デフォルトはスキップ）',
         "help.timeout": 'ファイルごとの変換タイムアウト秒数。タイムアウトで自動スキップし失敗に計上（デフォルト 600、0 は制限なし）',
         "help.min_size": '指定バイト数未満の電子書籍を除外；数字なしでデフォルト 1000 バイト、0 でサイズフィルタ無効、未指定で無効',
-        "help.output_dir": 'CBZ を指定ディレクトリに出力（自動作成）、デフォルトは元の電子書籍と同じディレクトリ',
+        "help.output_dir": "CBZ を指定ディレクトリに出力（自動作成）、デフォルトでは入力の相対サブディレクトリ構造を保持（例: One Piece/001.mobi → DIR/One Piece/001.cbz）、--flatten でルートにフラット化",
+    "help.flatten": "--output-dir との併用時のみ：全 CBZ を出力ディレクトリのルートにフラット化、重複は自動で (2)(3)… にリネーム；単独使用はエラー終了",
         "help.dry_run": '試運転：ファイルをスキャンして変換フローを表示するだけで、解凍・パッキング・出力ディレクトリ作成は行わない',
         "help.progress": 'ファイル別プログレスバーを強制表示（デフォルトは TTY かつファイル数≥2 で自動表示；--no-progress と同時指定時は最後のパラメータが優先）',
         "help.no_progress": 'プログレスバーを強制オフ（TTY かつファイル数≥2 でも）',
@@ -835,6 +896,7 @@ LANGUAGES = {
         "convert.overwrite": '  [上書き] 古いファイルを削除し再生成: {name}',
         "convert.spine": '  [ソート] OPF spine 順に抽出（{count} 枚）',
         "convert.spine_empty": '  [ソート] spine 抽出が空のため、ファイル名順にフォールバック（{count} 枚）',
+        "convert.dedup_physical": '  [重複排除] 物理的に重複する {count} ファイルをスキップ（同一ファイルが重複出現、CBZ に書き込みません）',
         "convert.no_opf": '  [ソート] OPF が見つからないため、ファイル名順にフォールバック（{count} 枚）',
         "convert.no_images": '  [失敗] 画像が見つかりません: {name}',
         "convert.drm_hint": '  [情報] DRM 暗号化された Kindle 漫画の可能性があります。mobi ライブラリでは復号できないため、DRM を除去してから再変換してください',
@@ -910,6 +972,7 @@ LANGUAGES = {
         "inspect_mode.all": '全 {count} ファイルの有効な電子書籍を検査しています...\n',
         "inspect_mode.random": '1/{total} ファイルをランダムに検査しています...\n',
         "inspect_mode.timeout": '  [タイムアウト] {name}: 検査が {seconds} 秒を超えたためスキップ（失敗に計上）',
+        "inspect_mode.timeout_residue": '  [ヒント] 検査がタイムアウトしました。展開された一時ディレクトリが残っている可能性があります。手動でクリーンアップしてください',
         "inspect_mode.ctrl_c": '\nCtrl+C を検出、検査を中断し現在の進捗サマリーを表示：',
         "inspect_mode.random_note": '[検査] 1/{total} をサンプリング（ランダム）、全件は --inspect-all を追加',
         "inspect_mode.summary": '[検査] 検査完了: 計 {total} 件, 正常 {ok}, マジック不正 {invalid}, DRM マーク {drm}, DRM 疑い/画像なし {noimg}, 解凍タイムアウト {timeout}, 合計 {elapsed}s',
@@ -924,6 +987,7 @@ LANGUAGES = {
         "run.none_convertible": '変換できる有効な電子書籍ファイルがありません（すべてプリチェックまたは同名重複で除外）',
         "run.found": '有効な電子書籍 {total} ファイルを検出（プリチェックで {pre} 除外、同名重複で {dedup} 除外）\n',
         "run.dryrun_banner": '[試運転] --dry-run モード：スキャンしてフローを表示するのみ。解凍・パッキング・出力ディレクトリ作成は行いません',
+        "dryrun.output_not_writable": '  [警告] 出力ディレクトリが書き込み不可です: {path}。正式な変換は失敗します',
         "run.plan_output_dir": '出力予定ディレクトリ: {path}（正式変換時のみ自動作成）',
         "run.dryrun_precheck": '試運転でプリチェックにより {count} ファイルをスキップ：',
         "run.dryrun_end": '試運転終了。出力ファイルやフォルダは作成されませんでした',
@@ -939,6 +1003,12 @@ LANGUAGES = {
         "run.skipped_header": 'スキップファイル（対象 cbz が既に存在）: {count} 件',
         "run.failed_header": '失敗ファイル: {count} 件',
         "run.total_elapsed": '合計時間: {seconds} 秒',
+    "output.mode_preserve": "出力モード: 相対サブディレクトリ構造を保持 -> {dir}",
+    "output.mode_flatten": "出力モード: フラット化（--flatten）-> {dir}",
+    "output.renamed_due_to_conflict": "  [情報] 対象 {name} は既に存在するため {new} に自動リネームしました",
+    "output.flatten_requires_dir": "--flatten は --output-dir と併用してください。出力ディレクトリも指定してください",
+    "error.flatten_without_output_dir": "--flatten は --output-dir と一緒に使用する必要があります（出力ディレクトリなしではフラット化できません）",
+    "rel_fallback": "  [警告] {name} の相対サブディレクトリパスを計算できません（ドライブをまたいでいる可能性）。出力ディレクトリのルートにフォールバックします: {path}",
     },
 }
 
@@ -1055,9 +1125,11 @@ def norm_path(p: Path) -> str:
     return str(p.resolve()).lower()
 
 
-    # 输入：目标函数 func、超时秒数 timeout 及透传参数；输出：func 的返回值，超时返回 None（调用方按超时处理）
+    # 输入：目标函数 func、超时秒数 timeout 及透传参数；输出：(timed_out, result) 二元组：
+    # 超时 → (True, None)，正常 → (False, func 的返回值)
 def run_with_timeout(func, timeout: float, *args, **kwargs):
-    """在单线程池中执行 func，超过 timeout 秒返回 None（调用方按超时处理）。
+    """在单线程池中执行 func；返回 (timed_out, result) 二元组：
+    超时 → (True, None)，正常 → (False, func 的返回值)。
 
     timeout <= 0 时不限制，直接在当前线程执行。
 
@@ -1066,13 +1138,13 @@ def run_with_timeout(func, timeout: float, *args, **kwargs):
     无法真正终止。若需彻底隔离卡死任务，可改用 multiprocessing 实现可终止
     子进程，但会增加跨平台兼容复杂度，暂未采用。"""
     if timeout <= 0:
-        return func(*args, **kwargs)
+        return False, func(*args, **kwargs)
     executor = ThreadPoolExecutor(max_workers=1)
     future = executor.submit(func, *args, **kwargs)
     try:
-        return future.result(timeout=timeout)
+        return False, future.result(timeout=timeout)
     except TimeoutError:
-        return None
+        return True, None
     finally:
         # wait=False：不等待可能永久阻塞的工作线程
         executor.shutdown(wait=False)
@@ -1301,12 +1373,67 @@ def dedupe_ebook_files(files: list[Path], ext_priority: list[str]) -> tuple[list
     return kept, skipped
 
 
-    # 输入：源电子书路径与输出目录（可为 None）；输出：目标 cbz 绝对路径（指定 output_dir 时平铺文件名）
-def target_cbz_path(ebook_path: Path, output_dir: Path | None) -> Path:
-    """计算目标 cbz 路径：指定 --output-dir 时输出到该目录（平铺文件名），
-    否则与源电子书同目录"""
+    # 输入：源电子书路径、输出目录、是否平铺、相对基准与已占用名集合；输出：目标 cbz 绝对路径
+def sanitize_filename_component(name: str) -> str:
+    """替换 Windows 文件名非法字符（<>:"/\|?*）为下划线，保证平铺文件名可写"""
+    return re.sub(r'[<>:"/\\|?*]', "_", name)
+
+
+def flat_base_name(ebook_path: Path, input_root: Path | None) -> str:
+    """平铺基础文件名：relative 仅一层 → stem；两层及以上 → 「父目录名 - stem」。
+
+    非法文件名字符替换为 _；input_root 为 None 或相对计算失败时回退仅用 stem。"""
+    stem = ebook_path.stem
+    if input_root is not None:
+        try:
+            rel = ebook_path.relative_to(input_root)
+            parts = list(rel.parts)
+            if len(parts) >= 2:
+                return sanitize_filename_component(f"{parts[-2]} - {stem}")
+        except ValueError:
+            pass
+    return sanitize_filename_component(stem)
+
+
+def unique_path(output_dir: Path, base: str, used: set) -> Path:
+    """平铺唯一化：base.cbz 已被占用时依次尝试 base (2).cbz、base (3).cbz…
+
+    used 记录本次任务已占用的字符串路径（按处理顺序），与磁盘 exists 检查
+    配合，保证 dry-run 模拟与正式运行一致。"""
+    candidate = output_dir / (base + ".cbz")
+    n = 2
+    while candidate.exists() or str(candidate) in used:
+        candidate = output_dir / f"{base} ({n}).cbz"
+        n += 1
+    return candidate
+
+
+def target_cbz_path(ebook_path: Path, output_dir: Path | None, flatten: bool = False, input_root: Path | None = None, used_names: set | None = None) -> Path:
+    """计算目标 cbz 路径。
+
+    - output_dir 为 None：与源电子书同目录（历史行为）
+    - output_dir + flatten=False：保留相对 input_root 的子目录结构；
+      相对路径计算失败（跨盘符等）时回退 output_dir/stem.cbz 并输出 warning
+    - output_dir + flatten=True：平铺到 output_dir 根下，重名自动唯一化
+      base.cbz → base (2).cbz → …
+    """
     if output_dir is None:
         return ebook_path.with_suffix(".cbz")
+    if flatten:
+        base = flat_base_name(ebook_path, input_root)
+        used = used_names if used_names is not None else set()
+        cbz = unique_path(output_dir, base, used)
+        if used_names is not None:
+            used_names.add(str(cbz))
+        return cbz
+    if input_root is not None:
+        try:
+            rel = ebook_path.relative_to(input_root)
+            return output_dir / rel.with_suffix(".cbz")
+        except ValueError:
+            cbz = output_dir / (ebook_path.stem + ".cbz")
+            emit(t("rel_fallback", name=ebook_path.name, path=cbz), level="warning")
+            return cbz
     return output_dir / (ebook_path.stem + ".cbz")
 
 
@@ -1317,11 +1444,52 @@ def find_opf(base_dir: Path) -> Path | None:
     return None
 
 
+class HtmlImgParser(HTMLParser):
+    """HTMLParser 子类：收集 <img> 标签的 src 属性。
+
+    convert_charrefs=True 时 HTML 实体由 HTMLParser 自动解码
+    （如 &amp; → &、&#x20; → 空格），收集后再统一用
+    urllib.parse.unquote 处理 %XX 百分号编码。"""
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.srcs: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag.lower() == "img":
+            for k, v in attrs:
+                if k.lower() == "src" and v:
+                    self.srcs.append(v)
+
+
+def extract_img_srcs_with_parser(content: str) -> list[str]:
+    """HTMLParser 兜底提取 img src：实体自动解码 + unquote 处理 %XX。
+
+    与正则提取互补：覆盖属性顺序/换行/大小写、实体编码、%XX 等
+    正则难以稳定的场景；任何异常返回 []，不影响调用方主流程。"""
+    try:
+        parser = HtmlImgParser()
+        parser.feed(content)
+        parser.close()
+        out: list[str] = []
+        for s in parser.srcs:
+            try:
+                out.append(unquote(s))
+            except Exception:
+                out.append(s)
+        return out
+    except Exception:
+        return []
+
+
 def extract_images_from_html(html_path: Path) -> list[Path]:
     """从 HTML 文件中提取所有 <img> 引用的本地图片路径"""
     try:
         content = html_path.read_text(encoding="utf-8", errors="ignore")
         srcs = re.findall(r'<img[^>]+src=["\']([^"\']+)["\']', content, re.IGNORECASE)
+        if not srcs:
+            # 兜底：HtmlImgParser（实体自动解码 + unquote 处理 %XX），
+            # 覆盖正则难以处理的属性顺序/换行/实体编码场景
+            srcs = extract_img_srcs_with_parser(content)
         base_dir = html_path.parent
         result = []
         for src in srcs:
@@ -1473,13 +1641,16 @@ def select_mobi_dir(tempdir: Path, prefer: str) -> Path:
 
 
     # 输入：电子书路径与转换选项（delete/prefer/drop_extra/overwrite/output_dir/compress）；输出：(cbz 路径或 None, ConvStatus)
-def ebook_to_cbz(ebook_path: Path, delete_original: bool = False, prefer: str = "mobi8", drop_extra: bool = False, overwrite: bool = False, output_dir: Path | None = None, compress: int = 0) -> tuple[Path | None, ConvStatus]:
+def ebook_to_cbz(ebook_path: Path, delete_original: bool = False, prefer: str = "mobi8", drop_extra: bool = False, overwrite: bool = False, output_dir: Path | None = None, compress: int = 0, flatten: bool = False, input_root: Path | None = None, used_names: set | None = None) -> tuple[Path | None, ConvStatus]:
     """将单个 mobi 文件转换为 cbz
 
     prefer: 双目录 mobi（mobi7/mobi8）时保留哪份，默认 "mobi8"
     drop_extra: 目录中有未被收集的多余图片时放弃追加，默认追加到末尾
     overwrite: 目标 cbz 已存在时强制重新生成（默认跳过）
     output_dir: 指定 CBZ 输出目录（自动创建），默认与源 mobi 同目录
+    flatten: 与 output_dir 联用时平铺到输出目录根下（默认保留相对子目录结构）
+    input_root: target 为目录时作为相对子目录结构计算的基准
+    used_names: 平铺唯一化已占用名集合（按处理顺序维护，保证 dry-run 与实跑一致）
 
     返回 (结果, 状态)：状态为 ConvStatus 枚举，
     - OK: 转换成功，结果为 cbz 路径
@@ -1488,7 +1659,8 @@ def ebook_to_cbz(ebook_path: Path, delete_original: bool = False, prefer: str = 
     """
     if output_dir is not None:
         output_dir.mkdir(parents=True, exist_ok=True)
-    cbz_path = target_cbz_path(ebook_path, output_dir)
+    cbz_path = target_cbz_path(ebook_path, output_dir, flatten=flatten, input_root=input_root, used_names=used_names)
+    cbz_path.parent.mkdir(parents=True, exist_ok=True)
     if cbz_path.exists() and not overwrite:
         emit(t("convert.skip_exists", name=cbz_path.name))
         return None, ConvStatus.SKIP
@@ -1538,12 +1710,20 @@ def ebook_to_cbz(ebook_path: Path, delete_original: bool = False, prefer: str = 
 
         # Step 4: 打包为 cbz（默认 ZIP 无压缩，图片本身已压缩；--compress 1-9 启用 deflate）
         seen = {}
+        seen_paths = set()  # 归一化路径集合：判物理重复（同一物理文件重复出现则跳过不写入）
+        skipped_dup = 0
         if compress > 0:
             zf_obj = zipfile.ZipFile(str(cbz_path), "w", zipfile.ZIP_DEFLATED, compresslevel=compress)
         else:
             zf_obj = zipfile.ZipFile(str(cbz_path), "w", zipfile.ZIP_STORED)
         with zf_obj as zf:
             for idx, img in enumerate(images, 1):
+                norm = norm_path(img)
+                if norm in seen_paths:
+                    # 物理重复：同一物理文件（含大小写差异等归一化后相同）再次出现，跳过不写入
+                    skipped_dup += 1
+                    continue
+                seen_paths.add(norm)
                 if img.name in seen:
                     # 重名：用序号前缀 + 原文件名，保证顺序且不冲突
                     arcname = f"{idx:04d}_{img.name}"
@@ -1551,6 +1731,8 @@ def ebook_to_cbz(ebook_path: Path, delete_original: bool = False, prefer: str = 
                     arcname = img.name
                     seen[img.name] = arcname
                 zf.write(str(img), arcname)
+        if skipped_dup:
+            emit(t("convert.dedup_physical", count=skipped_dup))
 
         size_mb = cbz_path.stat().st_size / (1024 * 1024)
         emit(t("convert.done", name=cbz_path.name, count=len(images), size=f"{size_mb:.1f}"))
@@ -1949,9 +2131,10 @@ def inspect_mode(ebook_files: list[Path], precheck_skipped: list, args) -> None:
         for mf in targets:
             if pbar is not None:
                 pbar.set_postfix_str(truncate_name(mf.name))
-            result = run_with_timeout(inspect_ebook, args.timeout, mf, args.min_size, args.prefer)
-            if result is None:
+            timed_out, result = run_with_timeout(inspect_ebook, args.timeout, mf, args.min_size, args.prefer)
+            if timed_out:
                 emit(t("inspect_mode.timeout", name=mf.name, seconds=args.timeout), level="error")
+                emit(t("inspect_mode.timeout_residue"), level="warning")
                 timeout_n += 1
             elif result == "invalid":
                 invalid += 1
@@ -2068,6 +2251,12 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="DIR",
         help=t("help.output_dir"),
     )
+    # 输入：是否平铺输出；输出：所有 CBZ 放到输出目录根下（仅与 --output-dir 联用）
+    parser.add_argument(
+        "--flatten",
+        action="store_true",
+        help=t("help.flatten"),
+    )
     # 输入：是否试运行；输出：只扫描打印流程，不做任何磁盘写入
     parser.add_argument(
         "--dry-run",
@@ -2171,6 +2360,16 @@ def _main():
 
     output_dir = Path(args.output_dir) if args.output_dir else None
 
+    # 启动校验：--flatten 必须与 --output-dir 联用，否则报错退出
+    if args.flatten and output_dir is None:
+        emit(t("error.flatten_without_output_dir"), level="error")
+        emit(t("output.flatten_requires_dir"), level="error")
+        sys.exit(2)
+
+    # input_root：target 为目录时作为相对子目录结构的基准；
+    # target 为文件时不计算相对路径，直接输出 DIR/stem.cbz
+    input_root = target if target.is_dir() else None
+
     ebook_files = collect_ebook_files(target)
     if not ebook_files:
         emit(t("run.no_ebooks", path=args.target), level="error")
@@ -2208,9 +2407,22 @@ def _main():
     for mf in ebook_files:
         emit(f"  {t('tag.file')} {mf}")
     emit("")
+    if output_dir is not None:
+        if args.flatten:
+            emit(t("output.mode_flatten", dir=output_dir), level="summary")
+        else:
+            emit(t("output.mode_preserve", dir=output_dir), level="summary")
 
     if args.dry_run:
         emit(t("run.dryrun_banner"), level="summary")
+        # dry-run 输出目录可写性检查：--output-dir 指定目录，或各源文件所在目录（默认输出位置）
+        if output_dir is not None:
+            check_dirs = [str(output_dir)]
+        else:
+            check_dirs = sorted({str(mf.parent) for mf in ebook_files})
+        for d in check_dirs:
+            if not os.access(d, os.W_OK):
+                emit(t("dryrun.output_not_writable", path=d), level="warning")
         if output_dir is not None:
             emit(t("run.plan_output_dir", path=output_dir.resolve()), level="summary")
         # 打印预处理过滤列表，和真实运行保持一致
@@ -2218,12 +2430,13 @@ def _main():
             emit(t("run.dryrun_precheck", count=len(precheck_skipped)), level="summary")
             for mf, reason in precheck_skipped:
                 emit("  " + t("skip_entry", path=str(mf), reason=reason), level="summary")
+        used_names: set = set()
         pbar = create_progress_if_needed(args, ebook_files, t("progress.desc.dry_run"))
         try:
             for mf in ebook_files:
                 if pbar is not None:
                     pbar.set_postfix_str(truncate_name(mf.name))
-                out = target_cbz_path(mf, output_dir)
+                out = target_cbz_path(mf, output_dir, flatten=args.flatten, input_root=input_root, used_names=used_names)
                 state_tag = t("tag.will_skip") if out.exists() and not args.overwrite else t("tag.pending")
                 emit(f"  {state_tag} {mf} -> {out}", level="summary")
                 if pbar is not None:
@@ -2242,20 +2455,22 @@ def _main():
     skipped_files = []
     failed_files = []
     interrupted = False
+    used_names: set = set()
     pbar = create_progress_if_needed(args, ebook_files, t("progress.desc.convert"))
     try:
         for mf in ebook_files:
             if pbar is not None:
                 pbar.set_postfix_str(truncate_name(mf.name))
             file_start = time.perf_counter()
-            converted = run_with_timeout(
+            timed_out, converted = run_with_timeout(
                 ebook_to_cbz, args.timeout,
                 mf, delete_original=args.delete, prefer=args.prefer,
                 drop_extra=args.drop_extra, overwrite=args.overwrite,
                 output_dir=output_dir, compress=_compress_level,
+                flatten=args.flatten, input_root=input_root, used_names=used_names,
             )
             file_elapsed = time.perf_counter() - file_start
-            if converted is None:
+            if timed_out:
                 emit(t("run.timeout", name=mf.name, seconds=args.timeout), level="error")
                 failed_files.append(mf)
             else:
