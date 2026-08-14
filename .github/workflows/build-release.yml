@@ -94,7 +94,7 @@ jobs:
 
       # Windows：创建打包目录，移入exe与三份md，整体压缩
       - name: Organize & archive (Windows)
-        if: matrix.build.platform == win
+        if: matrix.build.platform == 'win'
         run: |
           New-Item -ItemType Directory -Path $env:PACKAGE_FOLDER -Force
           Move-Item dist\manga-mobi2cbz.exe $env:PACKAGE_FOLDER\
@@ -105,7 +105,7 @@ jobs:
 
       # Linux/macOS：创建打包目录，移入二进制与三份md，打包tar.gz
       - name: Organize & archive (Linux/macOS)
-        if: matrix.build.platform != win
+        if: matrix.build.platform != 'win'
         run: |
           mkdir -p $PACKAGE_FOLDER
           mv dist/manga-mobi2cbz $PACKAGE_FOLDER/
