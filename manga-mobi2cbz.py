@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
 """
-manga-mobi2cbz — 将 mobi 漫画文件批量转换为 cbz 格式（OPF spine 排序 + 封面兜底增强版）
+manga-mobi2cbz — 将 mobi/azw/azw3 电子书漫画文件批量转换为 cbz 格式（OPF spine 排序 + 封面兜底增强版）
 
 用法:
-    python manga-mobi2cbz.py <目录或文件路径> [--delete] [--prefer mobi7|mobi8] [--drop-extra] [--overwrite] [--timeout SECONDS] [--output-dir DIR] [--dry-run] [--quiet] [--short-summary] [--compress LEVEL] [--inspect] [--inspect-all] [--log FILE]
+    python manga-mobi2cbz.py <目录或文件路径> [--language auto|zh-CN|zh-TW|ja|en] [--delete] [--prefer mobi7|mobi8] [--ext-priority EXTS] [--drop-extra] [--overwrite] [--timeout SECONDS] [--output-dir DIR] [--dry-run] [--progress|--no-progress] [--quiet] [--short-summary] [--compress LEVEL] [--inspect] [--inspect-all] [--log FILE]
 
 示例:
-    # 转换整个文件夹（递归搜索所有 .mobi）
+    # 转换整个文件夹（递归搜索所有 .mobi/.azw/.azw3）
     python manga-mobi2cbz.py "D:\\Manga\\"
 
     # 转换单个文件
     python manga-mobi2cbz.py "D:\\Manga\\Vol1.mobi"
 
-    # 转换后自动删除原始 mobi
+    # 转换后自动删除原始电子书
     python manga-mobi2cbz.py "D:\\Manga" --delete
 
     # 双目录 mobi 时保留 mobi7
@@ -24,14 +24,17 @@ manga-mobi2cbz — 将 mobi 漫画文件批量转换为 cbz 格式（OPF spine �
     # 已存在 cbz 时强制重新生成（覆盖旧文件）
     python manga-mobi2cbz.py "D:\\Manga\\Vol1.mobi" --overwrite
 
-    # 单文件转换超过 300 秒自动跳过（防止损坏/加密 mobi 卡死批量任务）
+    # 单文件转换超过 300 秒自动跳过（防止损坏/加密电子书卡死批量任务）
     python manga-mobi2cbz.py "D:\\Manga" --timeout 300
 
-    # CBZ 输出到自定义目录（不放在源 mobi 旁边，目录自动创建）
+    # CBZ 输出到自定义目录（不放在源电子书旁边，目录自动创建）
     python manga-mobi2cbz.py "D:\\Manga" --output-dir "E:\\CBZ"
 
     # 试运行：只扫描文件并打印转换流程，不实际解压打包、不创建输出目录
     python manga-mobi2cbz.py "D:\\Manga" --dry-run
+
+    # 强制显示文件级进度条（批量转换时默认在 TTY 下自动显示）
+    python manga-mobi2cbz.py "D:\\Manga" --progress
 
     # 静默模式批量转换，只显示错误与汇总；完整输出写入日志文件
     python manga-mobi2cbz.py "D:\\Manga" --quiet --log "D:\\Manga\\convert.log"
@@ -39,29 +42,39 @@ manga-mobi2cbz — 将 mobi 漫画文件批量转换为 cbz 格式（OPF spine �
     # 以 deflate 压缩级别 9 打包（PNG 源收益明显，JPEG 源没必要）
     python manga-mobi2cbz.py "D:\\Manga" --compress 9
 
-    # 检查模式：随机抽查 1 个 mobi 内部信息（元数据/结构/图片/分辨率/DRM），不生成 CBZ
+    # 检查模式：随机抽查 1 个电子书内部信息（元数据/结构/图片/分辨率/DRM），不生成 CBZ
     python manga-mobi2cbz.py "D:\\Manga" --inspect
 
-    # 检查全部 mobi 内部信息
+    # 检查全部电子书内部信息
     python manga-mobi2cbz.py "D:\\Manga" --inspect --inspect-all
 
 参数:
-    --delete         转换成功后删除原始 mobi 文件
+    --language LANG  输出语言：auto 按系统语言自动选择（zh 前缀→中文，
+                     zh-TW/zh-Hant→繁体中文，ja/Japanese→日文，
+                     否则→英文），或指定 zh-CN/zh-TW/ja/en
+    --delete         转换成功后删除原始电子书文件
     --prefer         双目录 mobi（mobi7/mobi8）时保留哪份，默认 mobi8
+    --ext-priority EXTS 同目录同名（仅扩展名不同）时保留哪种格式，
+                     逗号分隔、顺序即优先级从高到低，仅接受
+                     mobi/azw/azw3，默认 azw3；优先级未覆盖时
+                     回退兜底顺序 azw3→mobi→azw；与 --prefer（双目录）无关
     --drop-extra     目录中有未被收集的多余图片时放弃追加，默认追加到末尾
     --overwrite      目标 cbz 已存在时强制重新生成（默认跳过）
     --timeout SECONDS 单文件转换超时秒数，超时自动跳过并计入失败（默认 600，0 表示不限制）
-    --min-size BYTES  过滤小于指定字节的 mobi（不带数字默认 1000，0 关闭，不传则关闭）
-    --output-dir DIR CBZ 输出到指定目录（自动创建），默认与源 mobi 同目录
+    --min-size BYTES  过滤小于指定字节的电子书（不带数字默认 1000，0 关闭，不传则关闭）
+    --output-dir DIR CBZ 输出到指定目录（自动创建），默认与源电子书同目录
     --dry-run        试运行：只扫描文件并打印转换流程，不实际解压打包、不创建输出目录
+    --progress       强制显示文件级进度条（默认 TTY 且文件数≥2 时自动显示；
+                     与 --no-progress 同传时以最后出现的参数为准）
+    --no-progress    强制关闭进度条（即使 TTY 且文件数≥2）
     --quiet          静默模式：只显示错误与最终汇总（日志文件不受影响）
     --short-summary  精简汇总：成功/跳过文件只显示数量不列出路径，失败始终全路径
     --compress LEVEL zip 压缩级别 0-9：0=不压缩（默认，图片本身已压缩），
                      1-9=deflate 压缩（PNG 源有收益，级别越高越小但越慢）
-    --inspect       检查模式：随机抽查 1 个 mobi，只解包读取内部信息
+    --inspect       检查模式：随机抽查 1 个电子书，只解包读取内部信息
                      （元数据/结构/图片/分辨率/DRM），不生成 CBZ，
                      结束自动清理临时目录
-    --inspect-all   检查全部 mobi（需配合 --inspect 使用）
+    --inspect-all   检查全部电子书（需配合 --inspect 使用）
     --log FILE       将全部输出追加写入指定日志文件
     --version        显示版本号
 
@@ -69,6 +82,43 @@ manga-mobi2cbz — 将 mobi 漫画文件批量转换为 cbz 格式（OPF spine �
 要求: Python 3.10+
 
 更新日志:
+    v1.8.0 (2026-08-14)
+        - 新增轻量多语言支持：--language auto|zh-CN|zh-TW|ja|en（默认
+          auto 按系统 locale 自动判定：简体中文归 zh-CN、繁体中文归
+          zh-TW、日文（ja/Japanese）归 ja、其余归 en）；全量输出文案与
+          --help 随语言翻译，缺键回退 en→键名不抛异常；业务代码不写
+          if lang 分支，参数名/枚举/书籍 metadata/OPF/DRM/spine 等
+          专有词不翻译
+        - 新增 AZW / AZW3 输入支持：输入扩展名扩展为 .mobi/.azw/.azw3，
+          统一走 extract → OPF/spine → 封面 → 打包 → 校验链路
+        - 新增 --ext-priority EXTS：同目录同主文件名（仅扩展名不同）时
+          保留哪种格式，逗号分隔、顺序即优先级从高到低，仅接受
+          mobi/azw/azw3，默认 azw3；优先级未覆盖时回退兜底顺序
+          azw3→mobi→azw 并输出提示；与 --prefer（双目录选择）无关
+        - 收集/预检查/去重/转换/检查函数统一支持三种格式：
+          collect_ebook_files / precheck_ebook / dedupe_ebook_files /
+          ebook_to_cbz / inspect_ebook；三种格式统一偏移 60 BOOKMOBI
+          魔数校验，不命中时输出 warning 并仍尝试解包（降级策略，
+          mobi.extract 自带二次校验，解包失败计入失败列表）
+        - --delete 与 --inspect/--inspect-all 同步支持三种格式；
+          文案统一：mobi 文件 → 电子书文件
+        - 新增文件级进度条：--progress/--no-progress 开关（同传时以最后
+          出现的参数为准）；默认 TTY 且文件数≥2 自动显示；--quiet 下
+          进度条保留；写 stderr、不进 emit/--log；tqdm 为可选依赖，
+          缺失时降级为简单文本进度不崩溃；覆盖转换/试运行/检查（全量）
+          三种模式；显示 当前/总数、百分比、ETA、平均耗时、当前文件名
+          （截断 40 字符）；Ctrl+C/超时正常 close 并输出汇总
+        - 代码卫生与体验优化（并入 v1.8.0）：
+          - 删除重复的 from concurrent.futures import ThreadPoolExecutor
+          - LANGUAGES 字典按功能分区补充中文注释（【预处理】【转换】
+            【检查】【汇总】，含 help/progress/tag 等分区）
+          - --language auto 时 INFO 级打印"识别语种为 X"（quiet 时抑制）
+          - 魔数校验降级：precheck 魔数失败由"判损坏跳过"改为 warning
+            提示 + 仍尝试解包（extract 自带二次校验）
+          - --ext-priority 非法值报错文案多语言化（四语言表新增
+            error.ext_priority_empty / error.ext_priority_invalid 键）
+          - argparse 参数定义与主要函数输入参数补充中文注释
+
     v1.7.0 (2026-08-13)
         - 新增 --inspect 检查模式：随机抽查 1 个 mobi（--inspect-all 全量），
           只解包读取内部信息不生成 CBZ，结束后自动清理临时目录；
@@ -193,10 +243,11 @@ manga-mobi2cbz — 将 mobi 漫画文件批量转换为 cbz 格式（OPF spine �
           EOCD + testzip 完整性校验、失败清理半成品
 """
 
-__version__ = "1.7.0"
+__version__ = "1.8.0"
 
 SCRIPT_NAME = "manga-mobi2cbz"
 
+import locale
 import os
 import re
 import sys
@@ -214,11 +265,751 @@ from datetime import datetime
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 
+# =========================
+# 多语言（轻量 i18n：zh-CN / zh-TW / en，单文件内完成）
+# 业务只引用消息键 t("key", **kwargs)，不写 if lang == 分支；
+# 参数名、内部枚举、书籍 metadata、OPF/DRM/spine 等专有词不翻译。
+# =========================
+
+LANGUAGES = {
+    "zh-CN": {
+        "error.missing_dependency": "【致命错误】缺少核心依赖 mobi，请执行安装命令：",
+        "error.log_write_failed": "【警告】日志写入失败（{err}），日志文件: {path}，后续日志不再写入",
+        "error.ext_priority_empty": "--ext-priority 不能为空",
+        "error.ext_priority_invalid": "--ext-priority 仅接受 mobi/azw/azw3，收到: {p}",
+        # ---- --help 文案 ----
+        "help.description": "mobi/azw/azw3 漫画批量转 cbz",
+        "help.language": "输出语言：auto 按系统语言自动选择（zh 前缀→中文，zh-TW/zh-Hant→繁体中文，ja/Japanese→日文，否则→英文），或指定 zh-CN/zh-TW/ja/en",
+        "help.target": "电子书文件路径或包含电子书（.mobi/.azw/.azw3）的目录",
+        "help.delete": "转换成功后删除原始电子书文件",
+        "help.prefer": "双目录 mobi（mobi7/mobi8）时保留哪份，默认 mobi8",
+        "help.ext_priority": "同目录同名（仅扩展名不同）时保留哪种格式：逗号分隔、顺序即优先级从高到低，仅接受 mobi/azw/azw3，默认 azw3；优先级未覆盖时回退兜底顺序 azw3→mobi→azw；与 --prefer（双目录选择）无关",
+        "help.drop_extra": "目录中有未被收集的多余图片时放弃追加（默认追加到 cbz 末尾）",
+        "help.overwrite": "目标 cbz 已存在时强制重新生成（默认跳过）",
+        "help.timeout": "单文件转换超时秒数，超时自动跳过并计入失败（默认 600，0 表示不限制）",
+        "help.min_size": "过滤小于指定字节的电子书；不带数字默认1000字节，0关闭大小过滤，不传则关闭",
+        "help.output_dir": "CBZ 输出到指定目录（自动创建），默认与源电子书同目录",
+        "help.dry_run": "试运行：只扫描文件并打印转换流程，不实际解压打包、不创建输出目录",
+        "help.progress": "强制显示文件级进度条（默认 TTY 且文件数≥2 时自动显示；与 --no-progress 同传时以最后出现的参数为准）",
+        "help.no_progress": "强制关闭进度条（即使 TTY 且文件数≥2）",
+        "help.quiet": "静默模式：只显示错误与最终汇总（日志文件不受影响）",
+        "help.short_summary": "精简汇总：成功/跳过文件只显示数量不列出路径，失败文件始终全路径列出",
+        "help.compress": "zip 压缩级别 0-9：0=不压缩（默认，图片本身已压缩），1-9=deflate 压缩（PNG 源有收益，级别越高越小但越慢）",
+        "help.inspect": "检查模式：随机抽查 1 个电子书，只解包读取内部信息（元数据/结构/图片/分辨率/DRM），不生成 CBZ，结束自动清理临时目录",
+        "help.inspect_all": "检查全部电子书（需配合 --inspect 使用，单独使用无效果）",
+        "help.log": "将全部输出追加写入指定日志文件",
+        # ---- 输出标签 ----
+        "tag.info": "[提示]",
+        "tag.fail": "[失败]",
+        "tag.error": "[错误]",
+        "tag.skip": "[跳过]",
+        "skip_entry": "[跳过] {path}（{reason}）",
+        "tag.overwrite": "[覆盖]",
+        "tag.clean": "[清理]",
+        "tag.sort": "[排序]",
+        "tag.dedup": "[去重]",
+        "tag.done": "[完成]",
+        "tag.verify": "[校验]",
+        "tag.verify_fail": "[校验失败]",
+        "tag.timeout": "[超时]",
+        "tag.elapsed": "[耗时]",
+        "tag.file": "[文件]",
+        "tag.pending": "[待转换]",
+        "tag.will_skip": "[将跳过]",
+        "tag.dryrun": "[试运行]",
+        # ---- 进度条 ----
+        "progress.desc.convert": "转换中",
+        "progress.desc.dry_run": "试运行",
+        "progress.desc.inspect": "检查中",
+        "progress.done": "{desc}: [{n}/{total}] 完成",
+        # ---- 去重 ----
+        "dedupe.fallback": "  [去重] 同名扩展名优先级 [{priority}] 未覆盖该组，回退兜底顺序: {order}",
+        "dedupe.reason": "同目录同名，按 --ext-priority {priority} 保留 {name}",
+        "dedupe.both_dirs": "  [去重] 检测到双目录，保留 {dir}",
+        # ---- 目录对齐 ----
+        "align.drop": "  [提示] 目录中 {count} 张图片未被收集，已按 --drop-extra 放弃",
+        "align.append": "  [提示] 目录中 {count} 张图片未被收集，已追加到末尾",
+        # ---- 【转换】转换流程 ----
+        "convert.skip_exists": "  [跳过] 目标已存在: {name}",
+        "convert.overwrite": "  [覆盖] 已删除旧文件，重新生成: {name}",
+        "convert.spine": "  [排序] 按 OPF spine 顺序（{count} 张图片）",
+        "convert.spine_empty": "  [排序] spine 提取为空，兜底按文件名排序（{count} 张）",
+        "convert.no_opf": "  [排序] 未找到 OPF，兜底按文件名排序（{count} 张）",
+        "convert.no_images": "  [失败] 未找到图片: {name}",
+        "convert.drm_hint": "  [提示] 可能为 DRM 加密的 Kindle 漫画，mobi 库无法解密，请先去除 DRM 后再转换",
+        "convert.count_mismatch": "  [提示] 目录共 {total} 张图片，收集 {collected} 张，数量不一致",
+        "convert.done": "  [完成] {name} ({count} 张图片, {size} MB)",
+        "convert.verify_fail": "  [校验失败] {name}: {msg}，已删除坏文件",
+        "convert.verify_ok": "  [校验] {msg}",
+        "convert.deleted_original": "  [清理] 已删除原始文件: {name}",
+        "convert.error": "  [错误] {name}: {err}",
+        "convert.error_drm_hint": "  [提示] 该文件可能为 DRM 加密的 Kindle 漫画，mobi 库无法解密，请先去除 DRM 后再转换",
+        # ---- 【检查】校验（CBZ 完整性）----
+        "verify.no_eocd": "缺少 EOCD 记录（文件不完整，可能被中断）",
+        "verify.bad_entry": "条目损坏: {name}",
+        "verify.ok": "校验通过（{count} 个条目）",
+        "verify.badzip": "BadZipFile: {err}",
+        "verify.exception": "校验异常: {err}",
+        # ---- 【预处理】预处理检查（大小/0字节/魔数）----
+        "precheck.small": "文件{size}字节，低于最小限制{min}字节",
+        "precheck.zero": "文件大小为 0 字节",
+        "precheck.too_small": "文件过小（<68 字节），疑似损坏或非电子书文件",
+        "precheck.magic": "文件头校验失败（偏移 60 处无 BOOKMOBI 魔数），疑似损坏或非电子书文件",
+        "precheck.magic_warning": "  [警告] {name}: 文件头校验失败（偏移 60 处无 BOOKMOBI 魔数），仍尝试解包，解包失败将计入失败列表",
+        "precheck.oserror": "无法读取文件（{err}）",
+        # ---- 【检查】inspect 检查 ----
+        "inspect.file_line": "[文件] {name} ({size} MB)",
+        "inspect.base_invalid_magic": " 基础: 魔数非法（偏移 60 处无 BOOKMOBI） | --min-size 不会过滤",
+        "inspect.base_reason": " 基础: {reason}",
+        "inspect.invalid_hint": " 提示: 疑似损坏或非电子书文件，跳过解包",
+        "inspect.base_magic_ok": "魔数合法",
+        "inspect.drm_marked": "DRM: 有(头部标记)",
+        "inspect.drm_unmarked": "DRM: 头部标记无",
+        "inspect.below_min_size": "低于 --min-size({min})",
+        "inspect.min_size_not_filter": "--min-size 不会过滤",
+        "inspect.base_line": " 基础: {parts}",
+        "inspect.drm_hint": " 提示: 头部已标记 DRM 加密，跳过解包，转换会失败需先去除 DRM",
+        "inspect.meta_title": "标题 {value}",
+        "inspect.meta_author": "作者 {value}",
+        "inspect.meta_language": "语言 {value}",
+        "inspect.meta_publish_date": "出版日期 {value}",
+        "inspect.meta_publisher": "出版社 {value}",
+        "inspect.meta_isbn": "ISBN {value}",
+        "inspect.meta_asin": "ASIN {value}",
+        "inspect.meta_copyright": "版权 {value}",
+        "inspect.meta_line": " 元数据: {parts}",
+        "inspect.both_dirs": "  双目录标记: mobi7={mobi7} mobi8={mobi8}",
+        "inspect.opf_exists": "  OPF文件: 存在",
+        "inspect.opf_missing": "  OPF文件: 不存在",
+        "inspect.spine_count": "  Spine提取图片: {count} 张",
+        "inspect.ncx_count": "  目录(NCX): {count} 个条目 | 预览: {preview}",
+        "inspect.ncx_missing": "  目录(NCX): 未找到或解析失败",
+        "inspect.dir_images": "  目录全部图片: {count} 张",
+        "inspect.drm_suspected": "  DRM: 疑似(头部标记无但图片0张)",
+        "inspect.cover_missing": "  封面文件未找到",
+        "inspect.fmt_none": "  图片格式统计: 无图片可统计",
+        "inspect.drm_bad_hint": "  提示: 疑似 DRM 加密或内容损坏，转换会失败，需先去除 DRM",
+        "inspect.drm_none": "  DRM: 无(头部标记无+图片{count}张)",
+        "inspect.cover_src_guide": "OPF guide 官方引用",
+        "inspect.cover_src_filename": "文件名匹配",
+        "inspect.cover_found": "  封面文件已找到: {name}（{src}）",
+        "inspect.fmt_stats": "  图片格式统计: {parts}",
+        "inspect.res_main_h": "主流高 {height} ({count}张, {pct}%)",
+        "inspect.res_w_range": "宽 {min}~{max}",
+        "inspect.res_main_w": "主流宽 {width} ({count}张, {pct}%)",
+        "inspect.res_h_range": "高 {min}~{max}",
+        "inspect.res_line": "  分辨率: {parts}",
+        "inspect.adv_png": "  建议: PNG 为主，建议 --compress 6~9，可显著减小体积",
+        "inspect.adv_jpeg": "  建议: JPEG 为主，--compress 收益有限，不建议开启",
+        "inspect.adv_mixed": "  建议: 混合格式，可试 --compress 6 对比体积",
+        "inspect.unpack_fail": " 提示: 解包失败（{err}）",
+        # ---- 【检查】inspect 模式 ----
+        "inspect_mode.precheck_header": "预处理跳过 {count} 个文件（魔数非法/过小，不进入检查）：",
+        "inspect_mode.none": "无有效电子书文件可检查（全部被预处理过滤）",
+        "inspect_mode.all": "检查全部 {count} 个有效电子书文件...\n",
+        "inspect_mode.random": "随机抽查 1/{total} 个文件...\n",
+        "inspect_mode.timeout": "  [超时] {name}: 检查超过 {seconds} 秒，已跳过（计入失败）",
+        "inspect_mode.ctrl_c": "\n检测到 Ctrl+C，中断检查，输出当前进度汇总：",
+        "inspect_mode.random_note": "[检查] 抽查 1/{total}（随机），全部查看请加 --inspect-all",
+        "inspect_mode.summary": "[检查] 检查完成: 共 {total} 个, 正常 {ok}, 魔数非法 {invalid}, DRM标记 {drm}, 疑似DRM/无图 {noimg}, 解包超时 {timeout}, 共耗时 {elapsed}s",
+        # ---- 【汇总】主入口 ----
+        "main.ctrl_c": "[提示] 用户中断（Ctrl+C），程序退出",
+        "main.crash": "程序崩溃，堆栈信息如下：",
+        # ---- 【汇总】运行主流程（汇总统计）----
+        "run.auto_language": "已自动识别语种为 {lang}",
+        "run.path_not_found": "路径不存在: {path}",
+        "run.no_ebooks": "未找到电子书文件（.mobi/.azw/.azw3）: {path}",
+        "run.precheck_header": "预处理跳过 {count} 个文件：",
+        "run.none_convertible": "无有效电子书文件可转换（全部被预处理过滤或同名去重）",
+        "run.found": "找到 {total} 个有效电子书文件（预处理过滤 {pre} 个，同名去重 {dedup} 个）\n",
+        "run.dryrun_banner": "[试运行] --dry-run 模式：仅扫描与打印流程，不实际解压打包、不创建输出目录",
+        "run.plan_output_dir": "计划输出目录: {path}（仅正式转换时自动创建）",
+        "run.dryrun_precheck": "试运行预处理跳过 {count} 个文件：",
+        "run.dryrun_end": "试运行结束，未产生任何输出文件与文件夹",
+        "run.start": "开始转换 {count} 个文件...\n",
+        "run.timeout": "  [超时] {name}: 转换超过 {seconds} 秒，已跳过（计入失败）",
+        "run.elapsed": "  [耗时] {name}: {seconds} 秒",
+        "run.ctrl_c": "\n检测到 Ctrl+C，中断转换，输出当前进度汇总：",
+        "run.done": "\n转换完成: {success}/{total} 成功",
+        "run.interrupted_note": "（任务被中断，以上为已处理部分的汇总，剩余文件未处理）",
+        "run.stats": "转换统计: 成功 {success} 个, 跳过 {skip} 个, 失败 {fail} 个",
+        "run.output_short": "输出文件: {count} 个（精简汇总，不列出路径）",
+        "run.output_header": "输出文件:",
+        "run.skipped_header": "跳过文件（目标 cbz 已存在）: {count} 个",
+        "run.failed_header": "失败文件: {count} 个",
+        "run.total_elapsed": "总耗时: {seconds} 秒",
+    },
+    "zh-TW": {
+        "error.missing_dependency": "【致命錯誤】缺少核心依賴 mobi，請執行安裝命令：",
+        "error.log_write_failed": "【警告】日誌寫入失敗（{err}），日誌檔案: {path}，後續日誌不再寫入",
+        "error.ext_priority_empty": "--ext-priority 不能為空",
+        "error.ext_priority_invalid": "--ext-priority 僅接受 mobi/azw/azw3，收到: {p}",
+        # ---- --help 文案 ----
+        "help.description": "mobi/azw/azw3 漫畫批量轉 cbz",
+        "help.language": "輸出語言：auto 按系統語言自動選擇（zh 前綴→中文，zh-TW/zh-Hant→繁體中文，ja/Japanese→日文，否則→英文），或指定 zh-CN/zh-TW/ja/en",
+        "help.target": "電子書檔案路徑或包含電子書（.mobi/.azw/.azw3）的目錄",
+        "help.delete": "轉換成功後刪除原始電子書檔案",
+        "help.prefer": "雙目錄 mobi（mobi7/mobi8）時保留哪份，預設 mobi8",
+        "help.ext_priority": "同目錄同名（僅副檔名不同）時保留哪種格式：逗號分隔、順序即優先級從高到低，僅接受 mobi/azw/azw3，預設 azw3；優先級未覆蓋時回退兜底順序 azw3→mobi→azw；與 --prefer（雙目錄選擇）無關",
+        "help.drop_extra": "目錄中有未被收集的多餘圖片時放棄追加（預設追加到 cbz 末尾）",
+        "help.overwrite": "目標 cbz 已存在時強制重新生成（預設跳過）",
+        "help.timeout": "單檔轉換逾時秒數，逾時自動跳過並計入失敗（預設 600，0 表示不限制）",
+        "help.min_size": "過濾小於指定位元組的電子書；不帶數字預設1000位元組，0關閉大小過濾，不傳則關閉",
+        "help.output_dir": "CBZ 輸出到指定目錄（自動建立），預設與來源電子書同目錄",
+        "help.dry_run": "試運行：只掃描檔案並列印轉換流程，不實際解壓打包、不建立輸出目錄",
+        "help.progress": "強制顯示檔案級進度條（預設 TTY 且檔案數≥2 時自動顯示；與 --no-progress 同傳時以最後出現的參數為準）",
+        "help.no_progress": "強制關閉進度條（即使 TTY 且檔案數≥2）",
+        "help.quiet": "靜默模式：只顯示錯誤與最終彙總（日誌檔案不受影響）",
+        "help.short_summary": "精簡彙總：成功/跳過檔案只顯示數量不列出路徑，失敗檔案始終全路徑列出",
+        "help.compress": "zip 壓縮級別 0-9：0=不壓縮（預設，圖片本身已壓縮），1-9=deflate 壓縮（PNG 來源有收益，級別越高越小但越慢）",
+        "help.inspect": "檢查模式：隨機抽查 1 個電子書，只解包讀取內部資訊（中繼資料/結構/圖片/解析度/DRM），不生成 CBZ，結束自動清理臨時目錄",
+        "help.inspect_all": "檢查全部電子書（需配合 --inspect 使用，單獨使用無效果）",
+        "help.log": "將全部輸出追加寫入指定日誌檔案",
+        # ---- 输出标签 ----
+        "tag.info": "[提示]",
+        "tag.fail": "[失敗]",
+        "tag.error": "[錯誤]",
+        "tag.skip": "[跳過]",
+        "skip_entry": "[跳過] {path}（{reason}）",
+        "tag.overwrite": "[覆寫]",
+        "tag.clean": "[清理]",
+        "tag.sort": "[排序]",
+        "tag.dedup": "[去重]",
+        "tag.done": "[完成]",
+        "tag.verify": "[校驗]",
+        "tag.verify_fail": "[校驗失敗]",
+        "tag.timeout": "[逾時]",
+        "tag.elapsed": "[耗時]",
+        "tag.file": "[檔案]",
+        "tag.pending": "[待轉換]",
+        "tag.will_skip": "[將跳過]",
+        "tag.dryrun": "[試運行]",
+        # ---- 进度条 ----
+        "progress.desc.convert": "轉換中",
+        "progress.desc.dry_run": "試運行",
+        "progress.desc.inspect": "檢查中",
+        "progress.done": "{desc}: [{n}/{total}] 完成",
+        # ---- 去重 ----
+        "dedupe.fallback": "  [去重] 同名副檔名優先級 [{priority}] 未覆蓋該組，回退兜底順序: {order}",
+        "dedupe.reason": "同目錄同名，按 --ext-priority {priority} 保留 {name}",
+        "dedupe.both_dirs": "  [去重] 偵測到雙目錄，保留 {dir}",
+        # ---- 目录对齐 ----
+        "align.drop": "  [提示] 目錄中 {count} 張圖片未被收集，已按 --drop-extra 放棄",
+        "align.append": "  [提示] 目錄中 {count} 張圖片未被收集，已追加到末尾",
+        # ---- 【转换】转换流程 ----
+        "convert.skip_exists": "  [跳過] 目標已存在: {name}",
+        "convert.overwrite": "  [覆寫] 已刪除舊檔，重新生成: {name}",
+        "convert.spine": "  [排序] 按 OPF spine 順序（{count} 張圖片）",
+        "convert.spine_empty": "  [排序] spine 提取為空，兜底按檔名排序（{count} 張）",
+        "convert.no_opf": "  [排序] 未找到 OPF，兜底按檔名排序（{count} 張）",
+        "convert.no_images": "  [失敗] 未找到圖片: {name}",
+        "convert.drm_hint": "  [提示] 可能為 DRM 加密的 Kindle 漫畫，mobi 函式庫無法解密，請先去除 DRM 後再轉換",
+        "convert.count_mismatch": "  [提示] 目錄共 {total} 張圖片，收集 {collected} 張，數量不一致",
+        "convert.done": "  [完成] {name} ({count} 張圖片, {size} MB)",
+        "convert.verify_fail": "  [校驗失敗] {name}: {msg}，已刪除壞檔",
+        "convert.verify_ok": "  [校驗] {msg}",
+        "convert.deleted_original": "  [清理] 已刪除原始檔案: {name}",
+        "convert.error": "  [錯誤] {name}: {err}",
+        "convert.error_drm_hint": "  [提示] 該檔案可能為 DRM 加密的 Kindle 漫畫，mobi 函式庫無法解密，請先去除 DRM 後再轉換",
+        # ---- 【检查】校验（CBZ 完整性）----
+        "verify.no_eocd": "缺少 EOCD 記錄（檔案不完整，可能被中斷）",
+        "verify.bad_entry": "條目損壞: {name}",
+        "verify.ok": "校驗通過（{count} 個條目）",
+        "verify.badzip": "BadZipFile: {err}",
+        "verify.exception": "校驗異常: {err}",
+        # ---- 【预处理】预处理检查（大小/0字节/魔数）----
+        "precheck.small": "檔案{size}位元組，低於最小限制{min}位元組",
+        "precheck.zero": "檔案大小為 0 位元組",
+        "precheck.too_small": "檔案過小（<68 位元組），疑似損壞或非電子書檔案",
+        "precheck.magic": "檔頭校驗失敗（偏移 60 處無 BOOKMOBI 魔數），疑似損壞或非電子書檔案",
+        "precheck.magic_warning": "  [警告] {name}: 檔頭校驗失敗（偏移 60 處無 BOOKMOBI 魔數），仍嘗試解包，解包失敗將計入失敗清單",
+        "precheck.oserror": "無法讀取檔案（{err}）",
+        # ---- 【检查】inspect 检查 ----
+        "inspect.file_line": "[檔案] {name} ({size} MB)",
+        "inspect.base_invalid_magic": "  基礎: 魔數非法（偏移 60 處無 BOOKMOBI） | --min-size 不會過濾",
+        "inspect.base_reason": "  基礎: {reason}",
+        "inspect.invalid_hint": "  提示: 疑似損壞或非電子書檔案，跳過解包",
+        "inspect.base_magic_ok": "魔數合法",
+        "inspect.drm_marked": "DRM: 有(檔頭標記)",
+        "inspect.drm_unmarked": "DRM: 檔頭標記無",
+        "inspect.below_min_size": "低於 --min-size({min})",
+        "inspect.min_size_not_filter": "--min-size 不會過濾",
+        "inspect.base_line": "  基礎: {parts}",
+        "inspect.drm_hint": "  提示: 檔頭已標記 DRM 加密，跳過解包，轉換會失敗需先去除 DRM",
+        "inspect.meta_title": "標題 {value}",
+        "inspect.meta_author": "作者 {value}",
+        "inspect.meta_language": "語言 {value}",
+        "inspect.meta_publish_date": "出版日期 {value}",
+        "inspect.meta_publisher": "出版社 {value}",
+        "inspect.meta_isbn": "ISBN {value}",
+        "inspect.meta_asin": "ASIN {value}",
+        "inspect.meta_copyright": "版權 {value}",
+        "inspect.meta_line": "  中繼資料: {parts}",
+        "inspect.both_dirs": "  雙目錄標記: mobi7={mobi7} mobi8={mobi8}",
+        "inspect.opf_exists": "  OPF檔案: 存在",
+        "inspect.opf_missing": "  OPF檔案: 不存在",
+        "inspect.spine_count": "  Spine 提取圖片: {count} 張",
+        "inspect.ncx_count": "  目錄(NCX): {count} 個條目 | 預覽: {preview}",
+        "inspect.ncx_missing": "  目錄(NCX): 未找到或解析失敗",
+        "inspect.dir_images": "  目錄全部圖片: {count} 張",
+        "inspect.drm_suspected": "  DRM: 疑似(檔頭標記無但圖片0張)",
+        "inspect.cover_missing": "  封面檔案未找到",
+        "inspect.fmt_none": "  圖片格式統計: 無圖片可統計",
+        "inspect.drm_bad_hint": "  提示: 疑似 DRM 加密或內容損壞，轉換會失敗，需先去除 DRM",
+        "inspect.drm_none": "  DRM: 無(檔頭標記無+圖片{count}張)",
+        "inspect.cover_src_guide": "OPF guide 官方引用",
+        "inspect.cover_src_filename": "檔名匹配",
+        "inspect.cover_found": "  封面檔案已找到: {name}（{src}）",
+        "inspect.fmt_stats": "  圖片格式統計: {parts}",
+        "inspect.res_main_h": "主流高 {height} ({count}張, {pct}%)",
+        "inspect.res_w_range": "寬 {min}~{max}",
+        "inspect.res_main_w": "主流寬 {width} ({count}張, {pct}%)",
+        "inspect.res_h_range": "高 {min}~{max}",
+        "inspect.res_line": "  解析度: {parts}",
+        "inspect.adv_png": "  建議: PNG 為主，建議 --compress 6~9，可顯著減小體積",
+        "inspect.adv_jpeg": "  建議: JPEG 為主，--compress 收益有限，不建議開啟",
+        "inspect.adv_mixed": "  建議: 混合格式，可試 --compress 6 對比體積",
+        "inspect.unpack_fail": "  提示: 解包失敗（{err}）",
+        "inspect_mode.precheck_header": "預處理跳過 {count} 個檔案（魔數非法/過小，不進入檢查）：",
+        # ---- 【检查】inspect 模式 ----
+        "inspect_mode.none": "無有效電子書檔案可檢查（全部被預處理過濾）",
+        "inspect_mode.all": "檢查全部 {count} 個有效電子書檔案...\n",
+        "inspect_mode.random": "隨機抽查 1/{total} 個檔案...\n",
+        "inspect_mode.timeout": "  [逾時] {name}: 檢查超過 {seconds} 秒，已跳過（計入失敗）",
+        "inspect_mode.ctrl_c": "\n偵測到 Ctrl+C，中斷檢查，輸出目前進度彙總：",
+        "inspect_mode.random_note": "[檢查] 抽查 1/{total}（隨機），全部查看請加 --inspect-all",
+        "inspect_mode.summary": "[檢查] 檢查完成: 共 {total} 個, 正常 {ok}, 魔數非法 {invalid}, DRM標記 {drm}, 疑似DRM/無圖 {noimg}, 解包逾時 {timeout}, 共耗時 {elapsed}s",
+        # ---- 【汇总】主入口 ----
+        "main.ctrl_c": "[提示] 使用者中斷（Ctrl+C），程式退出",
+        "main.crash": "程式崩潰，堆疊資訊如下：",
+        "run.auto_language": "已自動辨識語種為 {lang}",
+        # ---- 【汇总】运行主流程（汇总统计）----
+        "run.path_not_found": "路徑不存在: {path}",
+        "run.no_ebooks": "未找到電子書檔案（.mobi/.azw/.azw3）: {path}",
+        "run.precheck_header": "預處理跳過 {count} 個檔案：",
+        "run.none_convertible": "無有效電子書檔案可轉換（全部被預處理過濾或同名去重）",
+        "run.found": "找到 {total} 個有效電子書檔案（預處理過濾 {pre} 個，同名去重 {dedup} 個）\n",
+        "run.dryrun_banner": "[試運行] --dry-run 模式：僅掃描與列印流程，不實際解壓打包、不建立輸出目錄",
+        "run.plan_output_dir": "計畫輸出目錄: {path}（僅正式轉換時自動建立）",
+        "run.dryrun_precheck": "試運行預處理跳過 {count} 個檔案：",
+        "run.dryrun_end": "試運行結束，未產生任何輸出檔案與資料夾",
+        "run.start": "開始轉換 {count} 個檔案...\n",
+        "run.timeout": "  [逾時] {name}: 轉換超過 {seconds} 秒，已跳過（計入失敗）",
+        "run.elapsed": "  [耗時] {name}: {seconds} 秒",
+        "run.ctrl_c": "\n偵測到 Ctrl+C，中斷轉換，輸出目前進度彙總：",
+        "run.done": "\n轉換完成: {success}/{total} 成功",
+        "run.interrupted_note": "（任務被中斷，以上為已處理部分的彙總，剩餘檔案未處理）",
+        "run.stats": "轉換統計: 成功 {success} 個, 跳過 {skip} 個, 失敗 {fail} 個",
+        "run.output_short": "輸出檔案: {count} 個（精簡彙總，不列出路徑）",
+        "run.output_header": "輸出檔案:",
+        "run.skipped_header": "跳過檔案（目標 cbz 已存在）: {count} 個",
+        "run.failed_header": "失敗檔案: {count} 個",
+        "run.total_elapsed": "總耗時: {seconds} 秒",
+    },
+    "en": {
+        "error.missing_dependency": "[Fatal Error] Missing required dependency mobi. Install with:",
+        "error.log_write_failed": "[Warning] Failed to write log ({err}), log file: {path}, further log entries will be skipped",
+        "error.ext_priority_empty": "--ext-priority must not be empty",
+        "error.ext_priority_invalid": "--ext-priority accepts only mobi/azw/azw3, got: {p}",
+        # ---- --help 文案 ----
+        "help.description": "Batch convert mobi/azw/azw3 ebooks to cbz",
+        "help.language": "Output language: auto picks by system locale (zh prefix->Chinese, zh-TW/zh-Hant->Traditional Chinese, ja/Japanese->Japanese, otherwise->English), or choose zh-CN/zh-TW/ja/en explicitly",
+        "help.target": "Path to an ebook file or a directory containing ebooks (.mobi/.azw/.azw3)",
+        "help.delete": "Delete the original ebook file after successful conversion",
+        "help.prefer": "Which directory to keep when both mobi7/mobi8 exist, default mobi8",
+        "help.ext_priority": "When same-name files differ only by extension in the same directory, which format to keep: comma-separated, order is priority high->low, only mobi/azw/azw3 accepted, default azw3; falls back to azw3->mobi->azw when not covered; unrelated to --prefer (mobi7/mobi8 selection)",
+        "help.drop_extra": "Drop extra images not collected from the directory (default: append them to the end of the cbz)",
+        "help.overwrite": "Force regenerate when the target cbz already exists (default: skip)",
+        "help.timeout": "Per-file conversion timeout in seconds; on timeout the file is skipped and counted as failed (default 600, 0 = no limit)",
+        "help.min_size": "Filter out ebooks smaller than the given bytes; without a number defaults to 1000 bytes, 0 disables size filtering, omitted disables it",
+        "help.output_dir": "Output CBZ to the given directory (auto-created); default is next to the source ebook",
+        "help.dry_run": "Dry run: only scan files and print the conversion flow, without extracting, packing or creating output directories",
+        "help.progress": "Force per-file progress bar (auto when TTY and >=2 files; when combined with --no-progress the last one wins)",
+        "help.no_progress": "Force-disable the progress bar (even when TTY and >=2 files)",
+        "help.quiet": "Quiet mode: only show errors and the final summary (log file unaffected)",
+        "help.short_summary": "Compact summary: list counts instead of paths for succeeded/skipped files; failed files always show full paths",
+        "help.compress": "zip compression level 0-9: 0=none (default, images already compressed), 1-9=deflate (helps for PNG sources, higher is smaller but slower)",
+        "help.inspect": "Inspect mode: randomly check 1 ebook, unpack and read internal info (metadata/structure/images/resolution/DRM) without generating CBZ, then auto-clean temp dirs",
+        "help.inspect_all": "Inspect all ebooks (requires --inspect; no effect alone)",
+        "help.log": "Append all output to the given log file",
+        # ---- 输出标签 ----
+        "tag.info": "[Info]",
+        "tag.fail": "[Failed]",
+        "tag.error": "[Error]",
+        "tag.skip": "[Skip]",
+        "skip_entry": "[Skip] {path} ({reason})",
+        "tag.overwrite": "[Overwrite]",
+        "tag.clean": "[Clean]",
+        "tag.sort": "[Sort]",
+        "tag.dedup": "[Dedup]",
+        "tag.done": "[Done]",
+        "tag.verify": "[Verify]",
+        "tag.verify_fail": "[Verify Failed]",
+        "tag.timeout": "[Timeout]",
+        "tag.elapsed": "[Elapsed]",
+        "tag.file": "[File]",
+        "tag.pending": "[Pending]",
+        "tag.will_skip": "[Will Skip]",
+        "tag.dryrun": "[Dry Run]",
+        # ---- 进度条 ----
+        "progress.desc.convert": "Converting",
+        "progress.desc.dry_run": "Dry run",
+        "progress.desc.inspect": "Inspecting",
+        "progress.done": "{desc}: [{n}/{total}] done",
+        # ---- 去重 ----
+        "dedupe.fallback": "  [Dedup] Priority [{priority}] did not cover this group, falling back to default order: {order}",
+        "dedupe.reason": "Same name in same directory, kept {name} per --ext-priority {priority}",
+        "dedupe.both_dirs": "  [Dedup] Both directories detected, keeping {dir}",
+        # ---- 目录对齐 ----
+        "align.drop": "  [Info] {count} images in the directory were not collected, dropped per --drop-extra",
+        "align.append": "  [Info] {count} images in the directory were not collected, appended to the end",
+        # ---- 【转换】转换流程 ----
+        "convert.skip_exists": "  [Skip] Target already exists: {name}",
+        "convert.overwrite": "  [Overwrite] Deleted old file, regenerating: {name}",
+        "convert.spine": "  [Sort] Using OPF spine order ({count} images)",
+        "convert.spine_empty": "  [Sort] spine extraction empty, fell back to filename order ({count} images)",
+        "convert.no_opf": "  [Sort] No OPF found, fell back to filename order ({count} images)",
+        "convert.no_images": "  [Failed] No images found: {name}",
+        "convert.drm_hint": "  [Info] Possibly a DRM-protected Kindle comic; the mobi library cannot decrypt it. Remove DRM first and retry",
+        "convert.count_mismatch": "  [Info] Directory has {total} images but {collected} were collected; count mismatch",
+        "convert.done": "  [Done] {name} ({count} images, {size} MB)",
+        "convert.verify_fail": "  [Verify Failed] {name}: {msg}; corrupted file deleted",
+        "convert.verify_ok": "  [Verify] {msg}",
+        "convert.deleted_original": "  [Clean] Deleted original file: {name}",
+        "convert.error": "  [Error] {name}: {err}",
+        "convert.error_drm_hint": "  [Info] This file may be a DRM-protected Kindle comic; the mobi library cannot decrypt it. Remove DRM first and retry",
+        # ---- 【检查】校验（CBZ 完整性）----
+        "verify.no_eocd": "Missing EOCD record (file incomplete, possibly interrupted)",
+        "verify.bad_entry": "Corrupted entry: {name}",
+        "verify.ok": "Verification passed ({count} entries)",
+        "verify.badzip": "BadZipFile: {err}",
+        "verify.exception": "Verification error: {err}",
+        # ---- 【预处理】预处理检查（大小/0字节/魔数）----
+        "precheck.small": "{size} bytes, below the minimum of {min} bytes",
+        "precheck.zero": "File size is 0 bytes",
+        "precheck.too_small": "File too small (<68 bytes), possibly corrupted or not an ebook",
+        "precheck.magic": "Header check failed (no BOOKMOBI magic at offset 60), possibly corrupted or not an ebook",
+        "precheck.magic_warning": "  [Warning] {name}: header check failed (no BOOKMOBI magic at offset 60), still attempting extraction; will count as failure if it fails",
+        "precheck.oserror": "Cannot read file ({err})",
+        # ---- 【检查】inspect 检查 ----
+        "inspect.file_line": "[File] {name} ({size} MB)",
+        "inspect.base_invalid_magic": "  Base: invalid magic (no BOOKMOBI at offset 60) | --min-size does not filter",
+        "inspect.base_reason": "  Base: {reason}",
+        "inspect.invalid_hint": "  Hint: possibly corrupted or not an ebook, skipping extraction",
+        "inspect.base_magic_ok": "magic OK",
+        "inspect.drm_marked": "DRM: yes (header flag)",
+        "inspect.drm_unmarked": "DRM: no header flag",
+        "inspect.below_min_size": "below --min-size({min})",
+        "inspect.min_size_not_filter": "--min-size does not filter",
+        "inspect.base_line": "  Base: {parts}",
+        "inspect.drm_hint": "  Hint: header marks DRM encryption, skipping extraction; conversion would fail, remove DRM first",
+        "inspect.meta_title": "Title {value}",
+        "inspect.meta_author": "Author {value}",
+        "inspect.meta_language": "Language {value}",
+        "inspect.meta_publish_date": "Publish date {value}",
+        "inspect.meta_publisher": "Publisher {value}",
+        "inspect.meta_isbn": "ISBN {value}",
+        "inspect.meta_asin": "ASIN {value}",
+        "inspect.meta_copyright": "Copyright {value}",
+        "inspect.meta_line": "  Metadata: {parts}",
+        "inspect.both_dirs": "  Both-dir flags: mobi7={mobi7} mobi8={mobi8}",
+        "inspect.opf_exists": "  OPF file: exists",
+        "inspect.opf_missing": "  OPF file: missing",
+        "inspect.spine_count": "  Spine images: {count}",
+        "inspect.ncx_count": "  TOC (NCX): {count} entries | preview: {preview}",
+        "inspect.ncx_missing": "  TOC (NCX): not found or parse failed",
+        "inspect.dir_images": "  All images in directory: {count}",
+        "inspect.drm_suspected": "  DRM: suspected (no header flag but 0 images)",
+        "inspect.cover_missing": "  Cover image not found",
+        "inspect.fmt_none": "  Image format stats: no images to count",
+        "inspect.drm_bad_hint": "  Hint: suspected DRM encryption or corrupted content; conversion would fail, remove DRM first",
+        "inspect.drm_none": "  DRM: none (no header flag, {count} images)",
+        "inspect.cover_src_guide": "OPF guide reference",
+        "inspect.cover_src_filename": "filename match",
+        "inspect.cover_found": "  Cover image found: {name} ({src})",
+        "inspect.fmt_stats": "  Image format stats: {parts}",
+        "inspect.res_main_h": "main height {height} ({count} images, {pct}%)",
+        "inspect.res_w_range": "width {min}~{max}",
+        "inspect.res_main_w": "main width {width} ({count} images, {pct}%)",
+        "inspect.res_h_range": "height {min}~{max}",
+        "inspect.res_line": "  Resolution: {parts}",
+        "inspect.adv_png": "  Advice: PNG-dominant, use --compress 6~9 to shrink significantly",
+        "inspect.adv_jpeg": "  Advice: JPEG-dominant, --compress gains little, not recommended",
+        "inspect.adv_mixed": "  Advice: mixed formats, try --compress 6 to compare sizes",
+        "inspect.unpack_fail": "  Hint: extraction failed ({err})",
+        "inspect_mode.precheck_header": "Precheck skipped {count} files (invalid magic/too small, not inspected):",
+        # ---- 【检查】inspect 模式 ----
+        "inspect_mode.none": "No valid ebook files to inspect (all filtered by precheck)",
+        "inspect_mode.all": "Inspecting all {count} valid ebook files...\n",
+        "inspect_mode.random": "Randomly inspecting 1/{total} file(s)...\n",
+        "inspect_mode.timeout": "  [Timeout] {name}: inspection exceeded {seconds}s, skipped (counted as failed)",
+        "inspect_mode.ctrl_c": "\nCtrl+C detected, inspection interrupted; showing current progress summary:",
+        "inspect_mode.random_note": "[Inspect] Sampled 1/{total} (random); add --inspect-all to check all",
+        "inspect_mode.summary": "[Inspect] Done: {total} files, ok {ok}, invalid magic {invalid}, DRM-flagged {drm}, suspected DRM/no image {noimg}, extraction timeout {timeout}, total {elapsed}s",
+        # ---- 【汇总】主入口 ----
+        "main.ctrl_c": "[Info] Interrupted by user (Ctrl+C), exiting",
+        "main.crash": "Program crashed, stack trace:",
+        "run.auto_language": "Auto-detected language: {lang}",
+        # ---- 【汇总】运行主流程（汇总统计）----
+        "run.path_not_found": "Path does not exist: {path}",
+        "run.no_ebooks": "No ebook files (.mobi/.azw/.azw3) found: {path}",
+        "run.precheck_header": "Precheck skipped {count} files:",
+        "run.none_convertible": "No valid ebook files to convert (all filtered by precheck or dedup)",
+        "run.found": "Found {total} valid ebook files (precheck filtered {pre}, dedup removed {dedup})\n",
+        "run.dryrun_banner": "[Dry Run] --dry-run mode: scan and print flow only; no extraction, packing or output directories",
+        "run.plan_output_dir": "Planned output dir: {path} (auto-created only in real runs)",
+        "run.dryrun_precheck": "Dry-run precheck skipped {count} files:",
+        "run.dryrun_end": "Dry run finished, no output files or folders were created",
+        "run.start": "Converting {count} files...\n",
+        "run.timeout": "  [Timeout] {name}: conversion exceeded {seconds}s, skipped (counted as failed)",
+        "run.elapsed": "  [Elapsed] {name}: {seconds} s",
+        "run.ctrl_c": "\nCtrl+C detected, conversion interrupted; showing current progress summary:",
+        "run.done": "\nConversion complete: {success}/{total} succeeded",
+        "run.interrupted_note": "(Task interrupted; summary above covers processed files only, the rest were not handled)",
+        "run.stats": "Statistics: {success} succeeded, {skip} skipped, {fail} failed",
+        "run.output_short": "Output files: {count} (compact summary, paths omitted)",
+        "run.output_header": "Output files:",
+        "run.skipped_header": "Skipped files (target cbz exists): {count}",
+        "run.failed_header": "Failed files: {count}",
+        "run.total_elapsed": "Total time: {seconds} s",
+    },
+    "ja": {
+        "error.missing_dependency": '【致命的エラー】必須依存ライブラリ mobi がありません。インストールを実行してください：',
+        "error.log_write_failed": '【警告】ログの書き込みに失敗しました（{err}）、ログファイル: {path}、以降のログは書き込みません',
+        "error.ext_priority_empty": "--ext-priority を空にすることはできません",
+        "error.ext_priority_invalid": "--ext-priority は mobi/azw/azw3 のみ受け付けます。受信: {p}",
+        # ---- --help 文案 ----
+        "help.description": 'mobi/azw/azw3 漫画を一括で cbz に変換',
+        "help.language": '出力言語：auto はシステム言語で自動判定（zh プレフィックス→中国語、zh-TW/zh-Hant→繁体字中国語、ja/Japanese→日本語、それ以外→英語）、または zh-CN/zh-TW/ja/en を指定',
+        "help.target": '電子書籍ファイルのパス、または電子書籍（.mobi/.azw/.azw3）を含むディレクトリ',
+        "help.delete": '変換成功後に元の電子書籍ファイルを削除',
+        "help.prefer": '二重ディレクトリ mobi（mobi7/mobi8）がある場合にどちらを残すか、デフォルトは mobi8',
+        "help.ext_priority": '同じディレクトリで同名（拡張子のみ異なる）の場合にどの形式を残すか：カンマ区切り、順序が優先度（高→低）、mobi/azw/azw3 のみ指定可能、デフォルト azw3；優先度がカバーしない場合は azw3→mobi→azw にフォールバック；--prefer（二重ディレクトリ選択）とは無関係',
+        "help.drop_extra": 'ディレクトリ内で収集されなかった余分な画像を追加しない（デフォルトは cbz 末尾に追加）',
+        "help.overwrite": '対象 cbz が既に存在する場合に強制的に再生成（デフォルトはスキップ）',
+        "help.timeout": 'ファイルごとの変換タイムアウト秒数。タイムアウトで自動スキップし失敗に計上（デフォルト 600、0 は制限なし）',
+        "help.min_size": '指定バイト数未満の電子書籍を除外；数字なしでデフォルト 1000 バイト、0 でサイズフィルタ無効、未指定で無効',
+        "help.output_dir": 'CBZ を指定ディレクトリに出力（自動作成）、デフォルトは元の電子書籍と同じディレクトリ',
+        "help.dry_run": '試運転：ファイルをスキャンして変換フローを表示するだけで、解凍・パッキング・出力ディレクトリ作成は行わない',
+        "help.progress": 'ファイル別プログレスバーを強制表示（デフォルトは TTY かつファイル数≥2 で自動表示；--no-progress と同時指定時は最後のパラメータが優先）',
+        "help.no_progress": 'プログレスバーを強制オフ（TTY かつファイル数≥2 でも）',
+        "help.quiet": '静音モード：エラーと最終サマリーのみ表示（ログファイルには影響なし）',
+        "help.short_summary": '簡潔サマリー：成功/スキップのファイルはパスを列挙せず数のみ表示、失敗ファイルは常にフルパス表示',
+        "help.compress": 'zip 圧縮レベル 0-9：0=無圧縮（デフォルト、画像は既に圧縮済み）、1-9=deflate 圧縮（PNG 元で効果あり、レベルが高いほど小さく遅い）',
+        "help.inspect": '検査モード：ランダムに 1 冊の電子書籍を検査し、解凍して内部情報（メタデータ/構造/画像/解像度/DRM）を読み取るだけで、CBZ は生成せず、終了後に一時ディレクトリを自動削除',
+        "help.inspect_all": '全電子書籍を検査（--inspect と併用必須、単独では無効）',
+        "help.log": 'すべての出力を指定ログファイルに追記',
+        # ---- 输出标签 ----
+        "tag.info": '[情報]',
+        "tag.fail": '[失敗]',
+        "tag.error": '[エラー]',
+        "tag.skip": '[スキップ]',
+        "skip_entry": '[スキップ] {path}（{reason}）',
+        "tag.overwrite": '[上書き]',
+        "tag.clean": '[クリーンアップ]',
+        "tag.sort": '[ソート]',
+        "tag.dedup": '[重複除去]',
+        "tag.done": '[完了]',
+        "tag.verify": '[検証]',
+        "tag.verify_fail": '[検証失敗]',
+        "tag.timeout": '[タイムアウト]',
+        "tag.elapsed": '[経過時間]',
+        "tag.file": '[ファイル]',
+        "tag.pending": '[変換待ち]',
+        "tag.will_skip": '[スキップ予定]',
+        "tag.dryrun": '[試運転]',
+        # ---- 进度条 ----
+        "progress.desc.convert": '変換中',
+        "progress.desc.dry_run": '試運転',
+        "progress.desc.inspect": '検査中',
+        "progress.done": '{desc}: [{n}/{total}] 完了',
+        # ---- 去重 ----
+        "dedupe.fallback": '  [重複除去] 拡張子優先度 [{priority}] がこのグループをカバーしていないため、フォールバック順に戻ります: {order}',
+        "dedupe.reason": '同じディレクトリで同名のため、--ext-priority {priority} に従い {name} を保持',
+        "dedupe.both_dirs": '  [重複除去] 二重ディレクトリを検出、{dir} を保持',
+        # ---- 目录对齐 ----
+        "align.drop": '  [情報] ディレクトリ内の未収集画像 {count} 枚を --drop-extra により破棄',
+        "align.append": '  [情報] ディレクトリ内の未収集画像 {count} 枚を末尾に追加',
+        # ---- 【转换】转换流程 ----
+        "convert.skip_exists": '  [スキップ] 対象は既に存在: {name}',
+        "convert.overwrite": '  [上書き] 古いファイルを削除し再生成: {name}',
+        "convert.spine": '  [ソート] OPF spine 順に抽出（{count} 枚）',
+        "convert.spine_empty": '  [ソート] spine 抽出が空のため、ファイル名順にフォールバック（{count} 枚）',
+        "convert.no_opf": '  [ソート] OPF が見つからないため、ファイル名順にフォールバック（{count} 枚）',
+        "convert.no_images": '  [失敗] 画像が見つかりません: {name}',
+        "convert.drm_hint": '  [情報] DRM 暗号化された Kindle 漫画の可能性があります。mobi ライブラリでは復号できないため、DRM を除去してから再変換してください',
+        "convert.count_mismatch": '  [情報] ディレクトリ内の画像は {total} 枚、収集は {collected} 枚で不一致',
+        "convert.done": '  [完了] {name} ({count} 枚の画像, {size} MB)',
+        "convert.verify_fail": '  [検証失敗] {name}: {msg}、壊れたファイルを削除しました',
+        "convert.verify_ok": '  [検証] {msg}',
+        "convert.deleted_original": '  [クリーンアップ] 元ファイルを削除しました: {name}',
+        "convert.error": '  [エラー] {name}: {err}',
+        "convert.error_drm_hint": '  [情報] このファイルは DRM 暗号化された Kindle 漫画の可能性があります。mobi ライブラリでは復号できないため、DRM を除去してから再変換してください',
+        # ---- 【检查】校验（CBZ 完整性）----
+        "verify.no_eocd": 'EOCD レコードがありません（ファイルが不完全、中断された可能性）',
+        "verify.bad_entry": 'エントリが破損: {name}',
+        "verify.ok": '検証パス（{count} エントリ）',
+        "verify.badzip": 'BadZipFile: {err}',
+        "verify.exception": '検証エラー: {err}',
+        # ---- 【预处理】预处理检查（大小/0字节/魔数）----
+        "precheck.small": 'ファイルは {size} バイトで、最小制限 {min} バイト未満',
+        "precheck.zero": 'ファイルサイズが 0 バイト',
+        "precheck.too_small": 'ファイルが小さすぎます（<68 バイト）、破損または電子書籍以外の可能性',
+        "precheck.magic": 'ファイルヘッダー検証に失敗（オフセット 60 に BOOKMOBI マジックなし）、破損または電子書籍以外の可能性',
+        "precheck.magic_warning": "  [警告] {name}: ファイルヘッダー検証に失敗（オフセット 60 に BOOKMOBI マジックなし）、それでも解包を試みます。解包に失敗した場合は失敗リストに計上されます",
+        "precheck.oserror": 'ファイルを読み取れません（{err}）',
+        # ---- 【检查】inspect 检查 ----
+        "inspect.file_line": '[ファイル] {name} ({size} MB)',
+        "inspect.base_invalid_magic": '  基本: マジック不正（オフセット 60 に BOOKMOBI なし） | --min-size では除外されません',
+        "inspect.base_reason": '  基本: {reason}',
+        "inspect.invalid_hint": '  ヒント: 破損または電子書籍以外の可能性があるため、解凍をスキップ',
+        "inspect.base_magic_ok": 'マジック正常',
+        "inspect.drm_marked": 'DRM: あり（ヘッダーフラグ）',
+        "inspect.drm_unmarked": 'DRM: ヘッダーフラグなし',
+        "inspect.below_min_size": '--min-size({min}) 未満',
+        "inspect.min_size_not_filter": '--min-size では除外されません',
+        "inspect.base_line": '  基本: {parts}',
+        "inspect.drm_hint": '  ヒント: ヘッダーに DRM 暗号化のマークあり、解凍をスキップ。変換は失敗するため先に DRM を除去してください',
+        "inspect.meta_title": 'タイトル {value}',
+        "inspect.meta_author": '著者 {value}',
+        "inspect.meta_language": '言語 {value}',
+        "inspect.meta_publish_date": '出版日 {value}',
+        "inspect.meta_publisher": '出版社 {value}',
+        "inspect.meta_isbn": 'ISBN {value}',
+        "inspect.meta_asin": 'ASIN {value}',
+        "inspect.meta_copyright": '著作権 {value}',
+        "inspect.meta_line": '  メタデータ: {parts}',
+        "inspect.both_dirs": '  二重ディレクトリフラグ: mobi7={mobi7} mobi8={mobi8}',
+        "inspect.opf_exists": '  OPF ファイル: あり',
+        "inspect.opf_missing": '  OPF ファイル: なし',
+        "inspect.spine_count": '  Spine 抽出画像: {count} 枚',
+        "inspect.ncx_count": '  目次(NCX): {count} エントリ | プレビュー: {preview}',
+        "inspect.ncx_missing": '  目次(NCX): 見つからないか解析失敗',
+        "inspect.dir_images": '  ディレクトリ内の全画像: {count} 枚',
+        "inspect.drm_suspected": '  DRM: 疑いあり（ヘッダーフラグなし、画像 0 枚）',
+        "inspect.cover_missing": '  カバー画像が見つかりません',
+        "inspect.fmt_none": '  画像形式統計: 集計できる画像なし',
+        "inspect.drm_bad_hint": '  ヒント: DRM 暗号化または内容破損の疑い。変換は失敗するため先に DRM を除去してください',
+        "inspect.drm_none": '  DRM: なし（ヘッダーフラグなし、画像 {count} 枚）',
+        "inspect.cover_src_guide": 'OPF guide 公式参照',
+        "inspect.cover_src_filename": 'ファイル名一致',
+        "inspect.cover_found": '  カバー画像が見つかりました: {name}（{src}）',
+        "inspect.fmt_stats": '  画像形式統計: {parts}',
+        "inspect.res_main_h": '主な高さ {height} ({count}枚, {pct}%)',
+        "inspect.res_w_range": '幅 {min}~{max}',
+        "inspect.res_main_w": '主な幅 {width} ({count}枚, {pct}%)',
+        "inspect.res_h_range": '高さ {min}~{max}',
+        "inspect.res_line": '  解像度: {parts}',
+        "inspect.adv_png": '  提案: PNG が中心なので --compress 6~9 で大幅に縮小できます',
+        "inspect.adv_jpeg": '  提案: JPEG が中心なので --compress の効果は限定的、非推奨',
+        "inspect.adv_mixed": '  提案: 混在形式、--compress 6 でサイズを比較してみてください',
+        "inspect.unpack_fail": '  ヒント: 解凍に失敗しました（{err}）',
+        "inspect_mode.precheck_header": 'プリチェックで {count} ファイルをスキップ（マジック不正/小さすぎ、検査対象外）：',
+        # ---- 【检查】inspect 模式 ----
+        "inspect_mode.none": '検査できる有効な電子書籍ファイルがありません（すべてプリチェックで除外）',
+        "inspect_mode.all": '全 {count} ファイルの有効な電子書籍を検査しています...\n',
+        "inspect_mode.random": '1/{total} ファイルをランダムに検査しています...\n',
+        "inspect_mode.timeout": '  [タイムアウト] {name}: 検査が {seconds} 秒を超えたためスキップ（失敗に計上）',
+        "inspect_mode.ctrl_c": '\nCtrl+C を検出、検査を中断し現在の進捗サマリーを表示：',
+        "inspect_mode.random_note": '[検査] 1/{total} をサンプリング（ランダム）、全件は --inspect-all を追加',
+        "inspect_mode.summary": '[検査] 検査完了: 計 {total} 件, 正常 {ok}, マジック不正 {invalid}, DRM マーク {drm}, DRM 疑い/画像なし {noimg}, 解凍タイムアウト {timeout}, 合計 {elapsed}s',
+        # ---- 【汇总】主入口 ----
+        "main.ctrl_c": '[情報] ユーザーによる中断（Ctrl+C）、終了します',
+        "main.crash": 'プログラムがクラッシュしました。スタックトレース：',
+        "run.auto_language": "言語を自動検出しました: {lang}",
+        # ---- 【汇总】运行主流程（汇总统计）----
+        "run.path_not_found": 'パスが存在しません: {path}',
+        "run.no_ebooks": '電子書籍ファイル（.mobi/.azw/.azw3）が見つかりません: {path}',
+        "run.precheck_header": 'プリチェックで {count} ファイルをスキップ：',
+        "run.none_convertible": '変換できる有効な電子書籍ファイルがありません（すべてプリチェックまたは同名重複で除外）',
+        "run.found": '有効な電子書籍 {total} ファイルを検出（プリチェックで {pre} 除外、同名重複で {dedup} 除外）\n',
+        "run.dryrun_banner": '[試運転] --dry-run モード：スキャンしてフローを表示するのみ。解凍・パッキング・出力ディレクトリ作成は行いません',
+        "run.plan_output_dir": '出力予定ディレクトリ: {path}（正式変換時のみ自動作成）',
+        "run.dryrun_precheck": '試運転でプリチェックにより {count} ファイルをスキップ：',
+        "run.dryrun_end": '試運転終了。出力ファイルやフォルダは作成されませんでした',
+        "run.start": '{count} ファイルの変換を開始...\n',
+        "run.timeout": '  [タイムアウト] {name}: 変換が {seconds} 秒を超えたためスキップ（失敗に計上）',
+        "run.elapsed": '  [経過時間] {name}: {seconds} 秒',
+        "run.ctrl_c": '\nCtrl+C を検出、変換を中断し現在の進捗サマリーを表示：',
+        "run.done": '\n変換完了: {success}/{total} 成功',
+        "run.interrupted_note": '（タスクは中断されました。上記は処理済み部分のサマリーで、残りは未処理です）',
+        "run.stats": '変換統計: 成功 {success} 件, スキップ {skip} 件, 失敗 {fail} 件',
+        "run.output_short": '出力ファイル: {count} 件（簡潔サマリー、パスは省略）',
+        "run.output_header": '出力ファイル:',
+        "run.skipped_header": 'スキップファイル（対象 cbz が既に存在）: {count} 件',
+        "run.failed_header": '失敗ファイル: {count} 件',
+        "run.total_elapsed": '合計時間: {seconds} 秒',
+    },
+}
+
+CURRENT_LANGUAGE = "zh-CN"
+
+
+def _auto_language() -> str:
+    """按系统 locale 判定语言：简体中文归 zh-CN、繁体中文归 zh-TW、日文归 ja、其余归 en"""
+    code = None
+    try:
+        locale.setlocale(locale.LC_ALL, "")
+        code, _ = locale.getlocale()
+    except Exception:
+        code = None
+    if not code:
+        try:
+            code = locale.getdefaultlocale()[0]
+        except Exception:
+            code = None
+    if not code:
+        return "en"
+    lc = code.replace("-", "_").lower()
+    # Windows 上 locale 名称常为英文（如 Chinese (Simplified)_China.936）
+    if "chinese" in lc:
+        if any(m in lc for m in ("traditional", "taiwan", "hong", "macau")):
+            return "zh-TW"
+        return "zh-CN"
+    if "japanese" in lc:
+        return "ja"
+    if not lc.startswith("zh") and not lc.startswith("ja"):
+        return "en"
+    if lc.startswith("zh"):
+        for marker in ("tw", "hk", "mo", "hant"):
+            if marker in lc:
+                return "zh-TW"
+        return "zh-CN"
+    return "ja"
+
+
+def set_language(lang: str) -> None:
+    """设置当前语言；auto 按系统 locale 判定，未知语言回退 en"""
+    global CURRENT_LANGUAGE
+    if lang == "auto":
+        lang = _auto_language()
+    if lang not in LANGUAGES:
+        lang = "en"
+    CURRENT_LANGUAGE = lang
+
+
+def t(key: str, **kwargs) -> str:
+    """取当前语言文案：缺键回退 en，再缺失回退 [{key}]，不抛异常中断转换"""
+    table = LANGUAGES.get(CURRENT_LANGUAGE, {})
+    if key not in table:
+        table = LANGUAGES.get("en", {})
+    if key not in table:
+        return "[%s]" % key
+    tmpl = table[key]
+    if not kwargs:
+        return tmpl
+    try:
+        return tmpl.format(**kwargs)
+    except (KeyError, IndexError, ValueError):
+        return tmpl
+
+
 # 全局前置依赖检测，启动即校验，无需等到循环文件
 try:
     import mobi
 except ImportError:
-    print("【致命错误】缺少核心依赖 mobi，请执行安装命令：")
+    set_language("auto")
+    print(t("error.missing_dependency"))
     print("    pip install mobi")
     sys.exit(1)
 
@@ -226,32 +1017,36 @@ IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".tiff", "
 EOCD_SIGNATURE = b"\x50\x4b\x05\x06"  # End of Central Directory 签名
 OPF_NS = {"opf": "http://www.idpf.org/2007/opf"}
 
+# 支持的电子书输入扩展名（大小写不敏感）；同名去重未覆盖时的兜底优先级
+SUPPORTED_INPUT_EXTENSIONS = {".mobi", ".azw", ".azw3"}
+KEEP_EXT_ORDER = (".azw3", ".mobi", ".azw")  # --ext-priority 未覆盖时的兜底顺序
+
+
+def parse_ext_priority(value: str) -> list[str]:
+    """解析 --ext-priority：逗号分隔、仅接受 mobi/azw/azw3、顺序即优先级（高→低）。
+
+    输入：命令行传入的原始字符串（如 "azw3,mobi"）。
+    输出：规范化后的扩展名优先级列表（如 ["azw3", "mobi"]）；
+    为空或含非法扩展名时抛 argparse.ArgumentTypeError（文案经 t() 多语言化）。
+    """
+    parts = [p.strip().lower() for p in value.split(",") if p.strip()]
+    if not parts:
+        raise argparse.ArgumentTypeError(t("error.ext_priority_empty"))
+    for p in parts:
+        if p not in ("mobi", "azw", "azw3"):
+            raise argparse.ArgumentTypeError(t("error.ext_priority_invalid", p=p))
+    return parts
+
+
 
 class ConvStatus(str, Enum):
-    """mobi_to_cbz 返回状态枚举，替代魔法字符串 ok/skip/fail，减少拼写错误"""
+    """ebook_to_cbz 返回状态枚举，替代魔法字符串 ok/skip/fail，减少拼写错误"""
     OK = "ok"
     SKIP = "skip"
     FAIL = "fail"
 
 
-# 输出标签常量：统一管理，方便后期统一修改输出样式
-TAG_INFO = "[提示]"
-TAG_FAIL = "[失败]"
-TAG_ERROR = "[错误]"
-TAG_SKIP = "[跳过]"
-TAG_OVERWRITE = "[覆盖]"
-TAG_CLEAN = "[清理]"
-TAG_SORT = "[排序]"
-TAG_DEDUP = "[去重]"
-TAG_DONE = "[完成]"
-TAG_VERIFY = "[校验]"
-TAG_VERIFY_FAIL = "[校验失败]"
-TAG_TIMEOUT = "[超时]"
-TAG_ELAPSED = "[耗时]"
-TAG_FILE = "[文件]"
-TAG_PENDING = "[待转换]"
-TAG_WILL_SKIP = "[将跳过]"
-TAG_DRYRUN = "[试运行]"
+# 输出标签不再定义常量，统一经 t("tag.xxx") 获取（多语言文案表在顶部 LANGUAGES）
 
 
 def norm_path(p: Path) -> str:
@@ -260,6 +1055,7 @@ def norm_path(p: Path) -> str:
     return str(p.resolve()).lower()
 
 
+    # 输入：目标函数 func、超时秒数 timeout 及透传参数；输出：func 的返回值，超时返回 None（调用方按超时处理）
 def run_with_timeout(func, timeout: float, *args, **kwargs):
     """在单线程池中执行 func，超过 timeout 秒返回 None（调用方按超时处理）。
 
@@ -316,9 +1112,68 @@ def emit(msg: str, level: str = "info") -> None:
         except Exception as e:
             if not _log_write_failed:
                 _log_write_failed = True
-                print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 【警告】日志写入失败（{e}），日志文件: {_log_path}，后续日志不再写入")
+                print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] " + t("error.log_write_failed", err=e, path=_log_path))
     if not _quiet_mode or level in ("summary", "error"):
         print(line)
+
+
+def truncate_name(name: str, max_len: int = 40) -> str:
+    """截断文件名用于进度条展示：超过 max_len 时保留尾部、前缀省略号"""
+    if len(name) <= max_len:
+        return name
+    return "..." + name[-(max_len - 3):]
+
+
+def should_show_progress(args, final_files: list) -> bool:
+    """进度条显示策略：
+    --no-progress 强制关闭（与 --progress 同传时已在主流程按最后出现者修正）；
+    --progress 强制开启（非 TTY 也显示）；
+    否则自动判断：stderr 为 TTY 且有效文件数 >= 2。
+    """
+    if args.no_progress:
+        return False
+    if args.progress:
+        return True
+    return sys.stderr.isatty() and len(final_files) >= 2
+
+
+class _SimpleProgress:
+    """tqdm 缺失时的降级进度：简单文本 [i/N] 输出到 stderr，不崩溃"""
+
+    def __init__(self, total: int, desc: str):
+        self.total = total
+        self.n = 0
+        self.desc = desc
+        self._name = ""
+
+    def set_postfix_str(self, s: str) -> None:
+        self._name = s
+
+    def update(self, n: int = 1) -> None:
+        self.n += n
+        sys.stderr.write(f"{self.desc}: [{self.n}/{self.total}] {self._name}\n")
+
+    def close(self) -> None:
+        sys.stderr.write(t("progress.done", desc=self.desc, n=self.n, total=self.total) + "\n")
+
+
+def create_progress(total: int, desc: str):
+    """创建进度条对象：优先 tqdm（可选依赖），缺失时降级为简单文本进度"""
+    try:
+        from tqdm import tqdm
+        return tqdm(
+            total=total, desc=desc, file=sys.stderr, disable=False,
+            bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}{postfix}]",
+        )
+    except Exception:
+        return _SimpleProgress(total, desc)
+
+
+def create_progress_if_needed(args, final_files: list, desc: str):
+    """按策略创建进度条；不需要时返回 None（total 严格等于去重后最终列表长度）"""
+    if not should_show_progress(args, final_files):
+        return None
+    return create_progress(len(final_files), desc)
 
 
 def natural_key(p: Path) -> list:
@@ -326,75 +1181,133 @@ def natural_key(p: Path) -> list:
     return [int(s) if s.isdigit() else s.lower() for s in re.split(r"(\d+)", p.name)]
 
 
+    # 输入：cbz 文件路径；输出：(是否通过完整性校验, 校验结果消息)
 def validate_cbz(cbz_path: Path) -> tuple[bool, str]:
     """校验 cbz 文件完整性：检查 EOCD 记录存在且所有条目可正常读取"""
     try:
         data = cbz_path.read_bytes()[-70000:]  # EOCD 在文件末尾，读尾部足够
         if EOCD_SIGNATURE not in data:
-            return False, "缺少 EOCD 记录（文件不完整，可能被中断）"
+            return False, t("verify.no_eocd")
         with zipfile.ZipFile(str(cbz_path)) as zf:
             bad = zf.testzip()
             if bad is not None:
-                return False, f"条目损坏: {bad}"
+                return False, t("verify.bad_entry", name=bad)
             count = len(zf.namelist())
-            return True, f"校验通过（{count} 个条目）"
+            return True, t("verify.ok", count=count)
     except zipfile.BadZipFile as e:
-        return False, f"BadZipFile: {e}"
+        return False, t("verify.badzip", err=e)
     except Exception as e:
-        return False, f"校验异常: {e}"
+        return False, t("verify.exception", err=e)
 
 
-def collect_mobi_files(target: Path) -> list[Path]:
-    """收集所有待转换的 mobi 文件，按路径排序保证处理顺序可预测"""
+    # 输入：目录或文件路径 target；输出：待转换的电子书文件路径列表（按路径排序保证顺序可预测）
+def collect_ebook_files(target: Path) -> list[Path]:
+    """收集所有待转换的电子书文件（.mobi/.azw/.azw3），按路径排序保证处理顺序可预测"""
     if target.is_file():
-        if target.suffix.lower() == ".mobi":
+        if target.suffix.lower() in SUPPORTED_INPUT_EXTENSIONS:
             return [target]
         return []
-    mobi_files = []
+    ebook_files = []
     for root, dirs, files in os.walk(target):
         dirs[:] = [d for d in dirs if not d.startswith(".")]
         for f in files:
-            if f.lower().endswith(".mobi"):
-                mobi_files.append(Path(root) / f)
-    return sorted(mobi_files)
+            if Path(f).suffix.lower() in SUPPORTED_INPUT_EXTENSIONS:
+                ebook_files.append(Path(root) / f)
+    return sorted(ebook_files)
 
 
-def precheck_mobi(p: Path, min_bytes: int) -> str | None:
-    """预处理检查 mobi 文件，返回跳过原因；正常返回 None。
+def precheck_ebook(p: Path, min_bytes: int) -> str | None:
+    """预处理检查电子书文件（.mobi/.azw/.azw3），返回跳过原因；正常返回 None。
 
     检查项：
     - 大小下限：min_bytes > 0 时，小于该字节数的文件直接跳过
-      （默认 1000 字节；合法 mobi 体积远大于此，可兜住头部恰好完整
+      （默认 1000 字节；合法电子书体积远大于此，可兜住头部恰好完整
       但内容被截断的边缘损坏样本；0 表示关闭大小过滤）
     - 文件大小为 0 字节：直接跳过
-    - 文件头校验：标准 MOBI 文件在偏移 60 处有 8 字节魔数 "BOOKMOBI"，
-      文件过小或魔数不匹配视为损坏/非 mobi 文件，直接跳过
+    - 文件头校验：标准电子书（MOBI/AZW/AZW3 均基于 PalmDB 容器）在偏移
+      60 处有 8 字节魔数 "BOOKMOBI"。文件过小或魔数不匹配时仅输出
+      warning 提示、不再直接判为损坏跳过，仍交给转换阶段尝试解包
+      （mobi.extract 内部自带二次校验，解包失败会正常计入失败列表）
     （文件头正常但内容深层损坏的，仍会在转换阶段解压失败并计入失败列表）
     """
     try:
         size = p.stat().st_size
         if min_bytes > 0 and size < min_bytes:
-            return f"文件{size}字节，低于最小限制{min_bytes}字节"
+            return t("precheck.small", size=size, min=min_bytes)
         if size == 0:
-            return "文件大小为 0 字节"
+            return t("precheck.zero")
         if size < 68:
-            return "文件过小（<68 字节），疑似损坏或非 mobi 文件"
+            return t("precheck.too_small")
         with open(p, "rb") as f:
             f.seek(60)
             magic = f.read(8)
         if magic != b"BOOKMOBI":
-            return "文件头校验失败（偏移 60 处无 BOOKMOBI 魔数），疑似损坏或非 mobi 文件"
+            # 降级策略：魔数失败不再判损坏跳过，warning 提示后仍尝试解包
+            emit(t("precheck.magic_warning", name=p.name), level="warning")
         return None
     except OSError as e:
-        return f"无法读取文件（{e}）"
+        return t("precheck.oserror", err=e)
 
 
-def target_cbz_path(mobi_path: Path, output_dir: Path | None) -> Path:
+    # 输入：文件路径列表与扩展名优先级（高→低）；输出：(保留列表, [(被跳过的路径, 原因)])
+def dedupe_ebook_files(files: list[Path], ext_priority: list[str]) -> tuple[list[Path], list[tuple[Path, str]]]:
+    """同目录同主文件名（仅扩展名不同）去重：按 --ext-priority 保留一份。
+
+    分组键：(parent.resolve(), stem.lower())，不同目录的同名文件不去重。
+    ext_priority: 用户指定优先级（高→低），如 ["azw3"] 或 ["azw3", "mobi"]；
+      组内按此顺序取第一个命中；全部未命中时输出提示并回退兜底顺序
+      KEEP_EXT_ORDER（azw3→mobi→azw）。
+    返回 (kept, skipped)：skipped 为 [(path, reason)]。
+    """
+    groups: dict[tuple, list[Path]] = {}
+    for p in files:
+        groups.setdefault((p.parent.resolve(), p.stem.lower()), []).append(p)
+
+    priority_exts = [f".{e.lstrip('.')}" for e in ext_priority]
+    priority_desc = " > ".join(ext_priority)
+    kept: list[Path] = []
+    skipped: list[tuple[Path, str]] = []
+
+    for key, group in groups.items():
+        if len(group) == 1:
+            kept.append(group[0])
+            continue
+        chosen = None
+        for ext in priority_exts:
+            for p in group:
+                if p.suffix.lower() == ext:
+                    chosen = p
+                    break
+            if chosen is not None:
+                break
+        if chosen is None:
+            emit(t("dedupe.fallback", priority=priority_desc, order=" > ".join(e.lstrip(".") for e in KEEP_EXT_ORDER)), level="summary")
+            for ext in KEEP_EXT_ORDER:
+                for p in group:
+                    if p.suffix.lower() == ext:
+                        chosen = p
+                        break
+                if chosen is not None:
+                    break
+        if chosen is None:
+            chosen = group[0]
+        for p in group:
+            if p == chosen:
+                continue
+            reason = t("dedupe.reason", priority=priority_desc, name=chosen.name)
+            skipped.append((p, reason))
+            emit("  " + t("skip_entry", path=str(p), reason=reason), level="summary")
+        kept.append(chosen)
+    return kept, skipped
+
+
+    # 输入：源电子书路径与输出目录（可为 None）；输出：目标 cbz 绝对路径（指定 output_dir 时平铺文件名）
+def target_cbz_path(ebook_path: Path, output_dir: Path | None) -> Path:
     """计算目标 cbz 路径：指定 --output-dir 时输出到该目录（平铺文件名），
-    否则与源 mobi 同目录"""
+    否则与源电子书同目录"""
     if output_dir is None:
-        return mobi_path.with_suffix(".cbz")
-    return output_dir / (mobi_path.stem + ".cbz")
+        return ebook_path.with_suffix(".cbz")
+    return output_dir / (ebook_path.stem + ".cbz")
 
 
 def find_opf(base_dir: Path) -> Path | None:
@@ -522,8 +1435,8 @@ def align_images_with_dir(images: list[Path], base_dir: Path, drop_extra: bool) 
     if not extras:
         return images, None
     if drop_extra:
-        return images, f"{TAG_INFO} 目录中 {len(extras)} 张图片未被收集，已按 --drop-extra 放弃"
-    return images + extras, f"{TAG_INFO} 目录中 {len(extras)} 张图片未被收集，已追加到末尾"
+        return images, t("align.drop", count=len(extras))
+    return images + extras, t("align.append", count=len(extras))
 
 
 def collect_images_fallback(base_dir: Path) -> list[Path]:
@@ -538,6 +1451,7 @@ def collect_images_fallback(base_dir: Path) -> list[Path]:
     return images
 
 
+    # 输入：mobi.extract 解包出的临时目录与 prefer（mobi7/mobi8）；输出：实际使用的子目录路径
 def select_mobi_dir(tempdir: Path, prefer: str) -> Path:
     """根据 prefer 参数选择 mobi7 或 mobi8 目录；如果只有一份则返回那一份"""
     mobi7_dir = tempdir / "mobi7"
@@ -548,7 +1462,7 @@ def select_mobi_dir(tempdir: Path, prefer: str) -> Path:
 
     if has7 and has8:
         chosen = mobi7_dir if prefer == "mobi7" else mobi8_dir
-        emit(f"  {TAG_DEDUP} 检测到双目录，保留 {'mobi7' if prefer == 'mobi7' else 'mobi8'}")
+        emit(t("dedupe.both_dirs", dir="mobi7" if prefer == "mobi7" else "mobi8"))
         return chosen
     if has8:
         return mobi8_dir
@@ -558,7 +1472,8 @@ def select_mobi_dir(tempdir: Path, prefer: str) -> Path:
     return tempdir
 
 
-def mobi_to_cbz(mobi_path: Path, delete_original: bool = False, prefer: str = "mobi8", drop_extra: bool = False, overwrite: bool = False, output_dir: Path | None = None, compress: int = 0) -> tuple[Path | None, ConvStatus]:
+    # 输入：电子书路径与转换选项（delete/prefer/drop_extra/overwrite/output_dir/compress）；输出：(cbz 路径或 None, ConvStatus)
+def ebook_to_cbz(ebook_path: Path, delete_original: bool = False, prefer: str = "mobi8", drop_extra: bool = False, overwrite: bool = False, output_dir: Path | None = None, compress: int = 0) -> tuple[Path | None, ConvStatus]:
     """将单个 mobi 文件转换为 cbz
 
     prefer: 双目录 mobi（mobi7/mobi8）时保留哪份，默认 "mobi8"
@@ -573,19 +1488,19 @@ def mobi_to_cbz(mobi_path: Path, delete_original: bool = False, prefer: str = "m
     """
     if output_dir is not None:
         output_dir.mkdir(parents=True, exist_ok=True)
-    cbz_path = target_cbz_path(mobi_path, output_dir)
+    cbz_path = target_cbz_path(ebook_path, output_dir)
     if cbz_path.exists() and not overwrite:
-        emit(f"  {TAG_SKIP} 目标已存在: {cbz_path.name}")
+        emit(t("convert.skip_exists", name=cbz_path.name))
         return None, ConvStatus.SKIP
     if cbz_path.exists():
         cbz_path.unlink()
-        emit(f"  {TAG_OVERWRITE} 已删除旧文件，重新生成: {cbz_path.name}")
+        emit(t("convert.overwrite", name=cbz_path.name))
 
     extract_temp_paths = []  # 记录mobi库自动生成的临时文件夹
 
     try:
         # mobi.extract 不支持 output_dir，仅传输入文件
-        tempdir_raw, _ = mobi.extract(str(mobi_path))
+        tempdir_raw, _ = mobi.extract(str(ebook_path))
         tempdir = Path(tempdir_raw)
         extract_temp_paths.append(tempdir)
 
@@ -597,17 +1512,17 @@ def mobi_to_cbz(mobi_path: Path, delete_original: bool = False, prefer: str = "m
         if opf_path:
             images = extract_images_by_spine(opf_path)
             if images:
-                emit(f"  {TAG_SORT} 按 OPF spine 顺序（{len(images)} 张图片）")
+                emit(t("convert.spine", count=len(images)))
             else:
                 images = collect_images_fallback(base_dir)
-                emit(f"  {TAG_SORT} spine 提取为空，兜底按文件名排序（{len(images)} 张）")
+                emit(t("convert.spine_empty", count=len(images)))
         else:
             images = collect_images_fallback(base_dir)
-            emit(f"  {TAG_SORT} 未找到 OPF，兜底按文件名排序（{len(images)} 张）")
+            emit(t("convert.no_opf", count=len(images)))
 
         if not images:
-            emit(f"  {TAG_FAIL} 未找到图片: {mobi_path.name}", level="error")
-            emit(f"  {TAG_INFO} 可能为 DRM 加密的 Kindle 漫画，mobi 库无法解密，请先去除 DRM 后再转换", level="error")
+            emit(t("convert.no_images", name=ebook_path.name), level="error")
+            emit(t("convert.drm_hint"), level="error")
             return None, ConvStatus.FAIL
 
         # 确保封面在第一位（兼容 cover/front 命名，封面可能未被 spine 引用）
@@ -619,7 +1534,7 @@ def mobi_to_cbz(mobi_path: Path, delete_original: bool = False, prefer: str = "m
         if align_msg:
             emit(f"  {align_msg}")
         elif total_in_dir != len(images):
-            emit(f"  {TAG_INFO} 目录共 {total_in_dir} 张图片，收集 {len(images)} 张，数量不一致")
+            emit(t("convert.count_mismatch", total=total_in_dir, collected=len(images)))
 
         # Step 4: 打包为 cbz（默认 ZIP 无压缩，图片本身已压缩；--compress 1-9 启用 deflate）
         seen = {}
@@ -638,30 +1553,30 @@ def mobi_to_cbz(mobi_path: Path, delete_original: bool = False, prefer: str = "m
                 zf.write(str(img), arcname)
 
         size_mb = cbz_path.stat().st_size / (1024 * 1024)
-        emit(f"  {TAG_DONE} {cbz_path.name} ({len(images)} 张图片, {size_mb:.1f} MB)")
+        emit(t("convert.done", name=cbz_path.name, count=len(images), size=f"{size_mb:.1f}"))
 
         # 完整性校验
         ok, msg = validate_cbz(cbz_path)
         if not ok:
             cbz_path.unlink(missing_ok=True)
-            emit(f"  {TAG_VERIFY_FAIL} {cbz_path.name}: {msg}，已删除坏文件", level="error")
+            emit(t("convert.verify_fail", name=cbz_path.name, msg=msg), level="error")
             return None, ConvStatus.FAIL
-        emit(f"  {TAG_VERIFY} {msg}")
+        emit(t("convert.verify_ok", msg=msg))
 
         # Step 5: 可选删除原始 mobi
         if delete_original:
-            mobi_path.unlink()
-            emit(f"  {TAG_CLEAN} 已删除原始文件: {mobi_path.name}")
+            ebook_path.unlink()
+            emit(t("convert.deleted_original", name=ebook_path.name))
 
         return cbz_path, ConvStatus.OK
     except Exception as e:
         # 转换失败仅清理半成品cbz
         if cbz_path.exists():
             cbz_path.unlink(missing_ok=True)
-        emit(f"  {TAG_ERROR} {mobi_path.name}: {e}", level="error")
+        emit(t("convert.error", name=ebook_path.name, err=e), level="error")
         err = str(e).lower()
         if any(k in err for k in ("drm", "encrypt", "decrypt", "protected", "kfx")):
-            emit(f"  {TAG_INFO} 该文件可能为 DRM 加密的 Kindle 漫画，mobi 库无法解密，请先去除 DRM 后再转换", level="error")
+            emit(t("convert.error_drm_hint"), level="error")
         return None, ConvStatus.FAIL
     finally:
         # 无论正常/异常，强制删除 mobi 解压出来的临时目录，解决 Ctrl+C 残留
@@ -814,8 +1729,9 @@ def parse_ncx_toc(base_dir: Path) -> tuple[int, list[str]]:
         return 0, []
 
 
-def inspect_mobi(p: Path, min_bytes: int, prefer: str = "mobi8") -> str:
-    """检查单个 mobi 内部信息（--inspect 模式核心）。
+    # 输入：电子书文件路径、最小字节数过滤与 prefer；输出：状态字符串 ok/invalid/noimg/drm/fail（供汇总计数）
+def inspect_ebook(p: Path, min_bytes: int, prefer: str = "mobi8") -> str:
+    """检查单个电子书内部信息（--inspect 模式核心）。
 
     流程：头部基础检查（魔数/大小/DRM）→ EXTH 元数据 → 解包 →
     目录结构/OPF/spine/NCX/图片数/封面/格式分布/分辨率统计 → 压缩建议。
@@ -826,53 +1742,53 @@ def inspect_mobi(p: Path, min_bytes: int, prefer: str = "mobi8") -> str:
     """
     size = p.stat().st_size
     size_mb = size / (1024 * 1024)
-    emit(f"{TAG_FILE} {p.name} ({size_mb:.1f} MB)", level="summary")
+    emit(t("inspect.file_line", name=p.name, size=f"{size_mb:.1f}"), level="summary")
 
-    reason = precheck_mobi(p, min_bytes)
+    reason = precheck_ebook(p, min_bytes)
     if reason:
         if "BOOKMOBI" in reason:
-            emit(f" 基础: 魔数非法（偏移 60 处无 BOOKMOBI） | --min-size 不会过滤")
+            emit(t("inspect.base_invalid_magic"))
         else:
-            emit(f" 基础: {reason}")
-        emit(f" 提示: 疑似损坏或非 mobi 文件，跳过解包")
+            emit(t("inspect.base_reason", reason=reason))
+        emit(t("inspect.invalid_hint"))
         return "invalid"
 
     drm = get_drm_flag(p)
     meta = read_exth_metadata(p)
 
-    base_parts = ["魔数合法"]
+    base_parts = [t("inspect.base_magic_ok")]
     if drm:
-        base_parts.append("DRM: 有(头部标记)")
+        base_parts.append(t("inspect.drm_marked"))
     else:
-        base_parts.append("DRM: 头部标记无")
+        base_parts.append(t("inspect.drm_unmarked"))
     if min_bytes > 0 and size < min_bytes:
-        base_parts.append(f"低于 --min-size({min_bytes})")
+        base_parts.append(t("inspect.below_min_size", min=min_bytes))
     else:
-        base_parts.append("--min-size 不会过滤")
-    emit(f" 基础: {' | '.join(base_parts)}")
+        base_parts.append(t("inspect.min_size_not_filter"))
+    emit(t("inspect.base_line", parts=" | ".join(base_parts)))
     if drm:
-        emit(f" 提示: 头部已标记 DRM 加密，跳过解包，转换会失败需先去除 DRM", level="summary")
+        emit(t("inspect.drm_hint"), level="summary")
         return "drm"
 
     meta_parts = []
     if meta.get("title"):
-        meta_parts.append(f"标题 {meta['title']}")
+        meta_parts.append(t("inspect.meta_title", value=meta["title"]))
     if meta.get("author"):
-        meta_parts.append(f"作者 {meta['author']}")
+        meta_parts.append(t("inspect.meta_author", value=meta["author"]))
     if meta.get("language"):
-        meta_parts.append(f"语言 {meta['language']}")
+        meta_parts.append(t("inspect.meta_language", value=meta["language"]))
     if meta.get("publish_date"):
-        meta_parts.append(f"出版日期 {meta['publish_date']}")
+        meta_parts.append(t("inspect.meta_publish_date", value=meta["publish_date"]))
     if meta.get("publisher"):
-        meta_parts.append(f"出版社 {meta['publisher']}")
+        meta_parts.append(t("inspect.meta_publisher", value=meta["publisher"]))
     if meta.get("isbn"):
-        meta_parts.append(f"ISBN {meta['isbn']}")
+        meta_parts.append(t("inspect.meta_isbn", value=meta["isbn"]))
     if meta.get("asin"):
-        meta_parts.append(f"ASIN {meta['asin']}")
+        meta_parts.append(t("inspect.meta_asin", value=meta["asin"]))
     if meta.get("copyright"):
-        meta_parts.append(f"版权 {meta['copyright']}")
+        meta_parts.append(t("inspect.meta_copyright", value=meta["copyright"]))
     if meta_parts:
-        emit(f" 元数据: {' | '.join(meta_parts)}")
+        emit(t("inspect.meta_line", parts=" | ".join(meta_parts)))
 
     extract_temp_paths = []
     try:
@@ -882,36 +1798,36 @@ def inspect_mobi(p: Path, min_bytes: int, prefer: str = "mobi8") -> str:
 
         has7 = (tempdir / "mobi7").is_dir()
         has8 = (tempdir / "mobi8").is_dir()
-        emit(f"  双目录标记: mobi7={has7} mobi8={has8}")
+        emit(t("inspect.both_dirs", mobi7=has7, mobi8=has8))
         base_dir = select_mobi_dir(tempdir, prefer)
 
         opf_path = find_opf(base_dir)
-        emit(f"  OPF文件: {'存在' if opf_path else '不存在'}")
+        emit(t("inspect.opf_exists") if opf_path else t("inspect.opf_missing"))
         spine_count = 0
         spine_images = []
         if opf_path:
             spine_images = extract_images_by_spine(opf_path) or []
             spine_count = len(spine_images)
-        emit(f"  Spine提取图片: {spine_count} 张")
+        emit(t("inspect.spine_count", count=spine_count))
         for s_img in spine_images[:5]:
             emit(f"    {s_img.name}")
 
         ncx_count, ncx_preview = parse_ncx_toc(base_dir)
         if ncx_count:
-            emit(f"  目录(NCX): {ncx_count} 个条目 | 预览: {' | '.join(ncx_preview)}")
+            emit(t("inspect.ncx_count", count=ncx_count, preview=" | ".join(ncx_preview)))
         else:
-            emit(f"  目录(NCX): 未找到或解析失败")
+            emit(t("inspect.ncx_missing"))
 
         total_in_dir = count_images_in_dir(base_dir)
-        emit(f"  目录全部图片: {total_in_dir} 张")
+        emit(t("inspect.dir_images", count=total_in_dir))
 
         if total_in_dir == 0:
-            emit(f"  DRM: 疑似(头部标记无但图片0张)")
-            emit(f"  封面文件未找到")
-            emit(f"  图片格式统计: 无图片可统计")
-            emit(f"  提示: 疑似 DRM 加密或内容损坏，转换会失败，需先去除 DRM", level="summary")
+            emit(t("inspect.drm_suspected"))
+            emit(t("inspect.cover_missing"))
+            emit(t("inspect.fmt_none"))
+            emit(t("inspect.drm_bad_hint"), level="summary")
             return "noimg"
-        emit(f"  DRM: 无(头部标记无+图片{total_in_dir}张)")
+        emit(t("inspect.drm_none", count=total_in_dir))
 
         # 封面检测：OPF guide type=cover 引用优先，未命中回退文件名扫描
         cover = None
@@ -922,25 +1838,25 @@ def inspect_mobi(p: Path, min_bytes: int, prefer: str = "mobi8") -> str:
                 cand = (base_dir / href).resolve()
                 if cand.is_file() and cand.suffix.lower() in IMAGE_EXTENSIONS:
                     cover = cand
-                    cover_src = "OPF guide 官方引用"
+                    cover_src = t("inspect.cover_src_guide")
                 else:
                     fname = href.replace("\\", "/").rsplit("/", 1)[-1]
                     for cp in base_dir.rglob(fname):
                         if cp.is_file() and cp.suffix.lower() in IMAGE_EXTENSIONS:
                             cover = cp
-                            cover_src = "OPF guide 官方引用"
+                            cover_src = t("inspect.cover_src_guide")
                             break
         if cover is None:
             for cp in base_dir.rglob("*"):
                 if (cp.is_file() and cp.suffix.lower() in IMAGE_EXTENSIONS
                         and any(k in cp.name.lower() for k in COVER_KEYWORDS)):
                     cover = cp
-                    cover_src = "文件名匹配"
+                    cover_src = t("inspect.cover_src_filename")
                     break
         if cover:
-            emit(f"  封面文件已找到: {cover.name}（{cover_src}）")
+            emit(t("inspect.cover_found", name=cover.name, src=cover_src))
         else:
-            emit(f"  封面文件未找到")
+            emit(t("inspect.cover_missing"))
 
         # 格式分布 + 分辨率统计
         fmt_counter = {}
@@ -965,7 +1881,7 @@ def inspect_mobi(p: Path, min_bytes: int, prefer: str = "mobi8") -> str:
             f"{k} {v} ({v / total_fmt * 100:.1f}%)"
             for k, v in sorted(fmt_counter.items(), key=lambda x: -x[1])
         ]
-        emit(f"  图片格式统计: {' | '.join(fmt_parts)}")
+        emit(t("inspect.fmt_stats", parts=" | ".join(fmt_parts)))
 
         if res_list:
             total_res = len(res_list)
@@ -977,30 +1893,30 @@ def inspect_mobi(p: Path, min_bytes: int, prefer: str = "mobi8") -> str:
                 # 主流高度明确时：显示主流高 + 该高度下的宽度范围
                 w_sub = [d[0] for d in res_list if d[1] == main_h]
                 res_parts = [
-                    f"主流高 {main_h} ({main_hc}张, {main_hc / total_res * 100:.0f}%)",
-                    f"宽 {min(w_sub)}~{max(w_sub)}",
+                    t("inspect.res_main_h", height=main_h, count=main_hc, pct=f"{main_hc / total_res * 100:.0f}"),
+                    t("inspect.res_w_range", min=min(w_sub), max=max(w_sub)),
                 ]
             else:
                 # 主流宽度明确时：显示主流宽 + 该宽度下的高度范围
                 h_sub = [d[1] for d in res_list if d[0] == main_w]
                 res_parts = [
-                    f"主流宽 {main_w} ({main_wc}张, {main_wc / total_res * 100:.0f}%)",
-                    f"高 {min(h_sub)}~{max(h_sub)}",
+                    t("inspect.res_main_w", width=main_w, count=main_wc, pct=f"{main_wc / total_res * 100:.0f}"),
+                    t("inspect.res_h_range", min=min(h_sub), max=max(h_sub)),
                 ]
-            emit(f"  分辨率: {' | '.join(res_parts)}")
+            emit(t("inspect.res_line", parts=" | ".join(res_parts)))
 
         # 压缩建议
         jpeg_ratio = (fmt_counter.get("jpg", 0) + fmt_counter.get("jpeg", 0)) / total_fmt
         png_ratio = fmt_counter.get("png", 0) / total_fmt
         if png_ratio >= 0.5:
-            emit(f"  建议: PNG 为主，建议 --compress 6~9，可显著减小体积")
+            emit(t("inspect.adv_png"))
         elif jpeg_ratio >= 0.8:
-            emit(f"  建议: JPEG 为主，--compress 收益有限，不建议开启")
+            emit(t("inspect.adv_jpeg"))
         else:
-            emit(f"  建议: 混合格式，可试 --compress 6 对比体积")
+            emit(t("inspect.adv_mixed"))
         return "ok"
     except Exception as e:
-        emit(f" 提示: 解包失败（{e}）", level="summary")
+        emit(t("inspect.unpack_fail", err=e), level="summary")
         return "fail"
     finally:
         for tp in extract_temp_paths:
@@ -1008,31 +1924,34 @@ def inspect_mobi(p: Path, min_bytes: int, prefer: str = "mobi8") -> str:
                 shutil.rmtree(tp, ignore_errors=True)
 
 
-def inspect_mode(mobi_files: list[Path], precheck_skipped: list, args) -> None:
-    """--inspect 模式入口：随机抽查或全量检查 mobi 内部信息，不生成 CBZ"""
+def inspect_mode(ebook_files: list[Path], precheck_skipped: list, args) -> None:
+    """--inspect 模式入口：随机抽查或全量检查电子书内部信息，不生成 CBZ"""
     if precheck_skipped:
-        emit(f"预处理跳过 {len(precheck_skipped)} 个文件（魔数非法/过小，不进入检查）：", level="summary")
+        emit(t("inspect_mode.precheck_header", count=len(precheck_skipped)), level="summary")
         for mf, reason in precheck_skipped:
-            emit(f"  {TAG_SKIP} {mf}（{reason}）", level="summary")
+            emit("  " + t("skip_entry", path=str(mf), reason=reason), level="summary")
 
-    if not mobi_files:
-        emit("无有效 mobi 文件可检查（全部被预处理过滤）", level="error")
+    if not ebook_files:
+        emit(t("inspect_mode.none"), level="error")
         sys.exit(0)
 
     if args.inspect_all:
-        targets = mobi_files
-        emit(f"检查全部 {len(targets)} 个有效 mobi 文件...\n", level="summary")
+        targets = ebook_files
+        emit(t("inspect_mode.all", count=len(targets)), level="summary")
     else:
-        targets = [random.choice(mobi_files)]
-        emit(f"随机抽查 1/{len(mobi_files)} 个文件...\n", level="summary")
+        targets = [random.choice(ebook_files)]
+        emit(t("inspect_mode.random", total=len(ebook_files)), level="summary")
 
     total_start = time.perf_counter()
     ok = fail = invalid = noimg = drm_n = timeout_n = 0
+    pbar = create_progress_if_needed(args, targets, t("progress.desc.inspect"))
     try:
         for mf in targets:
-            result = run_with_timeout(inspect_mobi, args.timeout, mf, args.min_size, args.prefer)
+            if pbar is not None:
+                pbar.set_postfix_str(truncate_name(mf.name))
+            result = run_with_timeout(inspect_ebook, args.timeout, mf, args.min_size, args.prefer)
             if result is None:
-                emit(f"  {TAG_TIMEOUT} {mf.name}: 检查超过 {args.timeout} 秒，已跳过（计入失败）", level="error")
+                emit(t("inspect_mode.timeout", name=mf.name, seconds=args.timeout), level="error")
                 timeout_n += 1
             elif result == "invalid":
                 invalid += 1
@@ -1044,15 +1963,23 @@ def inspect_mode(mobi_files: list[Path], precheck_skipped: list, args) -> None:
                 ok += 1
             else:
                 fail += 1
+            if pbar is not None:
+                pbar.update(1)
     except KeyboardInterrupt:
-        emit("\n检测到 Ctrl+C，中断检查，输出当前进度汇总：", level="summary")
+        emit(t("inspect_mode.ctrl_c"), level="summary")
+    finally:
+        if pbar is not None:
+            pbar.close()
 
     total_elapsed = time.perf_counter() - total_start
     if not args.inspect_all:
-        emit(f"[检查] 抽查 1/{len(mobi_files)}（随机），全部查看请加 --inspect-all", level="summary")
+        emit(t("inspect_mode.random_note", total=len(ebook_files)), level="summary")
     emit(
-        f"[检查] 检查完成: 共 {len(targets)} 个, 正常 {ok}, 魔数非法 {invalid}, "
-        f"DRM标记 {drm_n}, 疑似DRM/无图 {noimg}, 解包超时 {timeout_n}, 共耗时 {total_elapsed:.1f}s",
+        t(
+            "inspect_mode.summary",
+            total=len(targets), ok=ok, invalid=invalid, drm=drm_n,
+            noimg=noimg, timeout=timeout_n, elapsed=f"{total_elapsed:.1f}",
+        ),
         level="summary",
     )
 
@@ -1063,46 +1990,69 @@ def main():
         _main()
     except KeyboardInterrupt:
         # 主循环内的中断已有兜底，此处兜底参数解析/收集阶段的中断
-        emit(f"{TAG_INFO} 用户中断（Ctrl+C），程序退出", level="summary")
+        emit(t("main.ctrl_c"), level="summary")
         sys.exit(130)
     except Exception:
-        emit("程序崩溃，堆栈信息如下：", level="error")
+        emit(t("main.crash"), level="error")
         emit(traceback.format_exc().rstrip(), level="error")
         sys.exit(1)
 
 
-def _main():
-    parser = argparse.ArgumentParser(description="mobi 漫画批量转 cbz")
+def build_parser() -> argparse.ArgumentParser:
+    """构建参数解析器：help 文案全部经 t() 生成，随 --language 切换"""
+    parser = argparse.ArgumentParser(description=t("help.description"))
     parser.add_argument(
         "--version", action="version", version=f"{SCRIPT_NAME} {__version__}"
     )
-    parser.add_argument("target", help="mobi 文件路径或包含 mobi 的目录")
+    # 输入：语言选择 auto/zh-CN/zh-TW/ja/en；输出：全部文案与 --help 随所选语言翻译
     parser.add_argument(
-        "--delete", action="store_true", help="转换成功后删除原始 mobi 文件"
+        "--language",
+        choices=["auto", "zh-CN", "zh-TW", "ja", "en"],
+        default="auto",
+        help=t("help.language"),
     )
+    # 输入：目标目录或文件路径（位置参数）；输出：作为扫描/转换的起点
+    parser.add_argument("target", help=t("help.target"))
+    # 输入：是否删除源文件；输出：转换成功后删除原始电子书
+    parser.add_argument(
+        "--delete", action="store_true", help=t("help.delete")
+    )
+    # 输入：双目录 mobi 保留哪份 mobi7/mobi8；输出：解包后选择目录的依据
     parser.add_argument(
         "--prefer",
         choices=["mobi7", "mobi8"],
         default="mobi8",
-        help="双目录 mobi（mobi7/mobi8）时保留哪份，默认 mobi8",
+        help=t("help.prefer"),
     )
+    # 输入：同名不同扩展名时的保留优先级（逗号分隔，如 azw3,mobi）；输出：去重时保留哪份
+    parser.add_argument(
+        "--ext-priority",
+        type=parse_ext_priority,
+        default=["azw3"],
+        metavar="EXTS",
+        help=t("help.ext_priority"),
+    )
+    # 输入：是否丢弃目录中多余图片；输出：对齐阶段是否放弃追加到末尾
     parser.add_argument(
         "--drop-extra",
         action="store_true",
-        help="目录中有未被收集的多余图片时放弃追加（默认追加到 cbz 末尾）",
+        help=t("help.drop_extra"),
     )
+    # 输入：目标 cbz 已存在时是否强制重生成；输出：覆盖旧 cbz 还是跳过
     parser.add_argument(
         "--overwrite",
         action="store_true",
-        help="目标 cbz 已存在时强制重新生成（默认跳过）",
+        help=t("help.overwrite"),
     )
+    # 输入：单文件转换超时秒数（0 不限制）；输出：超时文件跳过并计入失败
     parser.add_argument(
         "--timeout",
         type=int,
         default=600,
         metavar="SECONDS",
-        help="单文件转换超时秒数，超时自动跳过并计入失败（默认 600，0 表示不限制）",
+        help=t("help.timeout"),
     )
+    # 输入：最小字节数过滤（缺省值 1000，0 关闭）；输出：小于该值的文件预处理跳过
     parser.add_argument(
         "--min-size",
         type=int,
@@ -1110,52 +2060,99 @@ def _main():
         const=1000,
         default=0,
         metavar="BYTES",
-        help="过滤小于指定字节的mobi；不带数字默认1000字节，0关闭大小过滤，不传则关闭",
+        help=t("help.min_size"),
     )
+    # 输入：CBZ 输出目录；输出：转换结果写入该目录（默认与源同目录）
     parser.add_argument(
         "--output-dir",
         metavar="DIR",
-        help="CBZ 输出到指定目录（自动创建），默认与源 mobi 同目录",
+        help=t("help.output_dir"),
     )
+    # 输入：是否试运行；输出：只扫描打印流程，不做任何磁盘写入
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="试运行：只扫描文件并打印转换流程，不实际解压打包、不创建输出目录",
+        help=t("help.dry_run"),
     )
+    # 输入：是否强制显示进度条；输出：覆盖自动判断，始终显示
+    parser.add_argument(
+        "--progress",
+        action="store_true",
+        help=t("help.progress"),
+    )
+    # 输入：是否强制关闭进度条；输出：覆盖自动判断，始终不显示
+    parser.add_argument(
+        "--no-progress",
+        action="store_true",
+        help=t("help.no_progress"),
+    )
+    # 输入：是否静默；输出：抑制非 summary/error 级输出（仅写日志）
     parser.add_argument(
         "--quiet",
         action="store_true",
-        help="静默模式：只显示错误与最终汇总（日志文件不受影响）",
+        help=t("help.quiet"),
     )
+    # 输入：是否精简汇总；输出：成功/跳过/预处理跳过只显示数量
     parser.add_argument(
         "--short-summary",
         action="store_true",
-        help="精简汇总：成功/跳过文件只显示数量不列出路径，失败文件始终全路径列出",
+        help=t("help.short_summary"),
     )
+    # 输入：zip 压缩级别 0-9；输出：打包时使用 STORED 或 DEFLATED
     parser.add_argument(
         "--compress",
         type=int,
         default=0,
         choices=range(0, 10),
         metavar="LEVEL",
-        help="zip 压缩级别 0-9：0=不压缩（默认，图片本身已压缩），1-9=deflate 压缩（PNG 源有收益，级别越高越小但越慢）",
+        help=t("help.compress"),
     )
+    # 输入：是否随机抽查 1 个文件检查内部信息；输出：inspect 检查结果（不生成 cbz）
     parser.add_argument(
         "--inspect",
         action="store_true",
-        help="检查模式：随机抽查 1 个 mobi，只解包读取内部信息（元数据/结构/图片/分辨率/DRM），不生成 CBZ，结束自动清理临时目录",
+        help=t("help.inspect"),
     )
+    # 输入：是否全量检查；输出：对所有有效文件执行 inspect
     parser.add_argument(
         "--inspect-all",
         action="store_true",
-        help="检查全部 mobi（需配合 --inspect 使用，单独使用无效果）",
+        help=t("help.inspect_all"),
     )
+    # 输入：日志文件路径；输出：控制台输出同步写入该文件（UTF-8）
     parser.add_argument(
         "--log",
         metavar="FILE",
-        help="将全部输出追加写入指定日志文件",
+        help=t("help.log"),
     )
+    return parser
+
+
+def _main():
+    # 先解析 --language（不触发帮助），确定语言后再建正式 parser，使 --help 随语言翻译
+    pre_parser = argparse.ArgumentParser(add_help=False)
+    pre_parser.add_argument(
+        "--language",
+        choices=["auto", "zh-CN", "zh-TW", "ja", "en"],
+        default="auto",
+    )
+    known, _ = pre_parser.parse_known_args()
+    set_language(known.language)
+
+    parser = build_parser()
     args = parser.parse_args()
+
+    # --progress 与 --no-progress 同传时，以最后出现的参数为准（argparse 会把两者都置 True，需扫描 argv 修正）
+    last_progress_flag = None
+    for a in sys.argv[1:]:
+        if a == "--progress":
+            last_progress_flag = "progress"
+        elif a == "--no-progress":
+            last_progress_flag = "no_progress"
+    if last_progress_flag == "progress":
+        args.progress, args.no_progress = True, False
+    elif last_progress_flag == "no_progress":
+        args.progress, args.no_progress = False, True
 
     global _quiet_mode, _log_path, _short_summary, _compress_level
     _quiet_mode = args.quiet
@@ -1163,65 +2160,81 @@ def _main():
     _short_summary = args.short_summary
     _compress_level = args.compress
 
+    # 输入：--language auto（或未显式指定走默认 auto）；输出：提示实际识别的语种（quiet 时抑制）
+    if known.language == "auto":
+        emit(t("run.auto_language", lang=CURRENT_LANGUAGE))
+
     target = Path(args.target)
     if not target.exists():
-        emit(f"路径不存在: {args.target}", level="error")
+        emit(t("run.path_not_found", path=args.target), level="error")
         sys.exit(1)
 
     output_dir = Path(args.output_dir) if args.output_dir else None
 
-    mobi_files = collect_mobi_files(target)
-    if not mobi_files:
-        emit(f"未找到 .mobi 文件: {args.target}", level="error")
+    ebook_files = collect_ebook_files(target)
+    if not ebook_files:
+        emit(t("run.no_ebooks", path=args.target), level="error")
         sys.exit(0)
 
-    # 预处理：过滤 0 字节 / 文件头损坏的 mobi，直接跳过并记录原因
+    # 预处理：过滤 0 字节 / 文件头损坏的电子书，直接跳过并记录原因
     precheck_skipped = []  # (Path, reason)
-    valid_mobi_files = []
-    for mf in mobi_files:
-        reason = precheck_mobi(mf, args.min_size)
+    valid_ebook_files = []
+    for mf in ebook_files:
+        reason = precheck_ebook(mf, args.min_size)
         if reason:
             precheck_skipped.append((mf, reason))
         else:
-            valid_mobi_files.append(mf)
-    mobi_files = valid_mobi_files
+            valid_ebook_files.append(mf)
+    ebook_files = valid_ebook_files
+
+    # 同名去重：同目录同主文件名（仅扩展名不同）只保留一份
+    ebook_files, dedupe_skipped = dedupe_ebook_files(ebook_files, args.ext_priority)
 
     if precheck_skipped and not args.dry_run and not args.inspect:
-        emit(f"预处理跳过 {len(precheck_skipped)} 个文件：", level="summary")
+        emit(t("run.precheck_header", count=len(precheck_skipped)), level="summary")
         if not _short_summary:
             for mf, reason in precheck_skipped:
-                emit(f"  {TAG_SKIP} {mf}（{reason}）", level="summary")
+                emit("  " + t("skip_entry", path=str(mf), reason=reason), level="summary")
 
     if args.inspect:
-        inspect_mode(mobi_files, precheck_skipped, args)
+        inspect_mode(ebook_files, precheck_skipped, args)
         return
 
-    if not mobi_files:
-        emit("无有效 mobi 文件可转换（全部被预处理过滤）", level="error")
+    if not ebook_files:
+        emit(t("run.none_convertible"), level="error")
         sys.exit(0)
 
-    emit(f"找到 {len(mobi_files)} 个有效 mobi 文件（预处理过滤 {len(precheck_skipped)} 个）\n")
-    for mf in mobi_files:
-        emit(f"  {TAG_FILE} {mf}")
+    emit(t("run.found", total=len(ebook_files), pre=len(precheck_skipped), dedup=len(dedupe_skipped)))
+    for mf in ebook_files:
+        emit(f"  {t('tag.file')} {mf}")
     emit("")
 
     if args.dry_run:
-        emit(f"{TAG_DRYRUN} --dry-run 模式：仅扫描与打印流程，不实际解压打包、不创建输出目录", level="summary")
+        emit(t("run.dryrun_banner"), level="summary")
         if output_dir is not None:
-            emit(f"计划输出目录: {output_dir.resolve()}（仅正式转换时自动创建）", level="summary")
+            emit(t("run.plan_output_dir", path=output_dir.resolve()), level="summary")
         # 打印预处理过滤列表，和真实运行保持一致
         if precheck_skipped:
-            emit(f"试运行预处理跳过 {len(precheck_skipped)} 个文件：", level="summary")
+            emit(t("run.dryrun_precheck", count=len(precheck_skipped)), level="summary")
             for mf, reason in precheck_skipped:
-                emit(f"  {TAG_SKIP} {mf}（{reason}）", level="summary")
-        for mf in mobi_files:
-            out = target_cbz_path(mf, output_dir)
-            state_tag = TAG_WILL_SKIP if out.exists() and not args.overwrite else TAG_PENDING
-            emit(f"  {state_tag} {mf} -> {out}", level="summary")
-        emit("试运行结束，未产生任何输出文件与文件夹", level="summary")
+                emit("  " + t("skip_entry", path=str(mf), reason=reason), level="summary")
+        pbar = create_progress_if_needed(args, ebook_files, t("progress.desc.dry_run"))
+        try:
+            for mf in ebook_files:
+                if pbar is not None:
+                    pbar.set_postfix_str(truncate_name(mf.name))
+                out = target_cbz_path(mf, output_dir)
+                state_tag = t("tag.will_skip") if out.exists() and not args.overwrite else t("tag.pending")
+                emit(f"  {state_tag} {mf} -> {out}", level="summary")
+                if pbar is not None:
+                    pbar.update(1)
+        finally:
+            if pbar is not None:
+                pbar.close()
+        emit(t("run.dryrun_end"), level="summary")
         return
 
-    emit(f"开始转换 {len(mobi_files)} 个文件...\n")
+    emit(t("run.start", count=len(ebook_files)))
 
     total_start = time.perf_counter()
     success = 0
@@ -1229,18 +2242,21 @@ def _main():
     skipped_files = []
     failed_files = []
     interrupted = False
+    pbar = create_progress_if_needed(args, ebook_files, t("progress.desc.convert"))
     try:
-        for mf in mobi_files:
+        for mf in ebook_files:
+            if pbar is not None:
+                pbar.set_postfix_str(truncate_name(mf.name))
             file_start = time.perf_counter()
             converted = run_with_timeout(
-                mobi_to_cbz, args.timeout,
+                ebook_to_cbz, args.timeout,
                 mf, delete_original=args.delete, prefer=args.prefer,
                 drop_extra=args.drop_extra, overwrite=args.overwrite,
                 output_dir=output_dir, compress=_compress_level,
             )
             file_elapsed = time.perf_counter() - file_start
             if converted is None:
-                emit(f"  {TAG_TIMEOUT} {mf.name}: 转换超过 {args.timeout} 秒，已跳过（计入失败）", level="error")
+                emit(t("run.timeout", name=mf.name, seconds=args.timeout), level="error")
                 failed_files.append(mf)
             else:
                 result, status = converted
@@ -1251,35 +2267,40 @@ def _main():
                     skipped_files.append(mf)
                 elif status == ConvStatus.FAIL:
                     failed_files.append(mf)
-            emit(f"  {TAG_ELAPSED} {mf.name}: {file_elapsed:.2f} 秒")
+            emit(t("run.elapsed", name=mf.name, seconds=f"{file_elapsed:.2f}"))
+            if pbar is not None:
+                pbar.update(1)
     except KeyboardInterrupt:
-        # Ctrl+C：中断主循环，但仍输出已完成部分的汇总（临时目录由 mobi_to_cbz 的 finally 清理）
+        # Ctrl+C：中断主循环，但仍输出已完成部分的汇总（临时目录由 ebook_to_cbz 的 finally 清理）
         interrupted = True
-        emit("\n检测到 Ctrl+C，中断转换，输出当前进度汇总：", level="summary")
+        emit(t("run.ctrl_c"), level="summary")
+    finally:
+        if pbar is not None:
+            pbar.close()
 
     total_elapsed = time.perf_counter() - total_start
 
-    emit(f"\n转换完成: {success}/{len(mobi_files)} 成功", level="summary")
+    emit(t("run.done", success=success, total=len(ebook_files)), level="summary")
     if interrupted:
-        emit("（任务被中断，以上为已处理部分的汇总，剩余文件未处理）", level="summary")
-    emit(f"转换统计: 成功 {success} 个, 跳过 {len(skipped_files)} 个, 失败 {len(failed_files)} 个", level="summary")
+        emit(t("run.interrupted_note"), level="summary")
+    emit(t("run.stats", success=success, skip=len(skipped_files), fail=len(failed_files)), level="summary")
     if success_cbzs:
         if _short_summary:
-            emit(f"输出文件: {len(success_cbzs)} 个（精简汇总，不列出路径）", level="summary")
+            emit(t("run.output_short", count=len(success_cbzs)), level="summary")
         else:
-            emit("输出文件:")
+            emit(t("run.output_header"))
             for cbz in success_cbzs:
                 emit(f"  {cbz}")
     if skipped_files:
-        emit(f"跳过文件（目标 cbz 已存在）: {len(skipped_files)} 个", level="summary")
+        emit(t("run.skipped_header", count=len(skipped_files)), level="summary")
         if not _short_summary:
             for mf in skipped_files:
                 emit(f"  {mf}", level="summary")
     if failed_files:
-        emit(f"失败文件: {len(failed_files)} 个", level="summary")
+        emit(t("run.failed_header", count=len(failed_files)), level="summary")
         for mf in failed_files:
             emit(f"  {mf}", level="summary")
-    emit(f"总耗时: {total_elapsed:.2f} 秒", level="summary")
+    emit(t("run.total_elapsed", seconds=f"{total_elapsed:.2f}"), level="summary")
 
 
 if __name__ == "__main__":
