@@ -6,11 +6,15 @@
 A batch-conversion CLI tool built for Kindle manga: convert DRM-free MOBI / AZW / AZW3 ebooks into standard CBZ comic packages with one command.
 It natively follows the OPF spine reading order to extract images, and comes with a full set of practical capabilities: automatic cover repair, same-volume multi-format deduplication, batch timeout protection, file integrity verification, and multi-language auto output. It also includes an `--inspect` exploration mode that lets you inspect comic metadata, resolution, NCX table of contents, and DRM status without packing. Cross-platform, efficient and stable for batch organizing your manga library.
 
-> ⚠️ Important limitation: only supports Kindle manga after DRM removal; store-purchased encrypted ebooks cannot be parsed.
-> 
-> ⚠️ Risk notice: This project is AI-assisted; use at your own discretion.
-> 
-> 📝 Note: this project is for personal use, to save AI-generated scripts used for file conversion for later reuse.
+> ⚠️ Only supports DRM-free Kindle comics. Store-purchased DRM-protected eBooks cannot be parsed.
+>
+> ⚠️ The code is entirely AI-generated. I cannot audit it line by line; please evaluate the risks before use.
+>
+> 📝 Note: This project is for personal use, intended to preserve AI-generated scripts for future reuse.
+>
+> **Project Origin**: It began with converting my own Kindle comics, having AI generate scripts each time. To simplify reuse and avoid losing scripts, I uploaded them to GitHub.
+> Later usage revealed issues such as incorrect page order, missing covers, and batch processing hangs, prompting continuous modification requests to the AI. Unable to read code, I adopted a workflow of submitting the same code to different AIs for cross-validation to ensure reliability. What started as a one-off script evolved through iteration into its current form. The code is entirely AI-generated; I only define requirements and verify results. It is not professional, but significantly more complete than the initial version. If you have similar needs, feel free to use it; if you find issues, feedback is welcome—I will continue to have the AI fix them.
+
 
 ## Features
 
