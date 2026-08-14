@@ -23,6 +23,7 @@ OPF spine の標準的な読み順に従って画像を抽出し、表紙の自�
 - **同名拡張子の重複排除** — 同じディレクトリ内で拡張子だけ異なるファイル（例: `Vol1.mobi` + `Vol1.azw3`）は 1 つだけ保持します。`--ext-priority` で保持優先度を制御します（デフォルト azw3）
 - **自然順ソート** — ページ番号で自然順に並べ、`10.jpg` が `2.jpg` より前に来るのを防ぎます
 - **完全性検証** — 変換後に CBZ を自動検証し、破損時は削除して通知します
+- **ComicInfo.xml メタデータ** — デフォルトで CBZ ルートに ComicInfo.xml を生成（UTF-8、XML 宣言付き）し、Title / Series / Number / Writer / Publisher / Year / LanguageISO / PageCount / Summary を書き込みます。Series/Number はファイル名から高確度で推測（`001` / `01` / `1` / `Vol.01` / `Vol 01` / `Volume 01` / `第 01 卷` などの形式に対応）し、確度が足りない場合は省略します（見つからないより良い）。確かな情報源のないフィールドは空タグを生成しません。`--no-comicinfo` で無効化できます
 - **無圧縮パッケージ** — 画像は既に圧縮済みのため、ZIP はデフォルトで store のみです。高速でサイズも抑えられます
 - **任意圧縮** — `--compress LEVEL` で deflate 圧縮（1–9）を有効化できます。PNG ソースではサイズを大きく削減できることがあります。レベルが高いほど小さくなりますが遅くなります。JPEG ソースは効果が限定的で推奨しません（デフォルト `0` = 無圧縮）
 - **検査モード** — `--inspect` で電子書籍を 1 冊ランダム抽出（`--inspect-all` で全冊）します。CBZ は作らず解凍して内部情報のみ読み取り、終了後に一時ディレクトリを削除します
@@ -176,8 +177,9 @@ python manga-mobi2cbz.py --version
 | `--quiet` | エラーと最終集計のみ表示 |
 | `--short-summary` | 成功/スキップは件数のみ（失敗は常にフルパス） |
 | `--compress LEVEL` | zip 圧縮レベル 0–9。`0`=無圧縮（デフォルト）、`1–9`=deflate（PNG 向け。高いほど小さいが遅い） |
-| `--inspect` | 1 冊をランダム抽出し、内部情報のみ読取（CBZ 非生成、一時ディレクトリは終了時に削除） |
-| `--inspect-all` | 全冊を検査（`--inspect` と併用が必要） |
+| `--inspect` | 位置引数が単一ファイルの場合はそのファイルを直接検査、ディレクトリの場合は 1 冊をランダム抽出して内部情報のみ読取（CBZ 非生成、一時ディレクトリは終了時に削除） |
+| `--inspect-all` | 全冊を検査（`--inspect` と併用が必要、単独指定時は自動的に `--inspect` を有効化） |
+| `--no-comicinfo` | ComicInfo.xml を生成しない（デフォルト: CBZ ルートに Title / Series / Number / Writer / Publisher / Year / LanguageISO / PageCount / Summary を書き込み） |
 | `--log FILE` | 全出力を指定ログへ追記 |
 | `--version` | バージョン番号を表示 |
 
@@ -192,7 +194,6 @@ python manga-mobi2cbz.py --version
 ## 既知の制限
 
 - **DRM 暗号化ファイルには非対応** — 下層の mobi ライブラリは Kindle ストアの DRM 付き漫画を復号できません。該当ファイルは「DRM の可能性あり」と明示してスキップし、空の cbz を黙って作りません。変換前に DRM を解除してください
-- **ComicInfo.xml は生成しない** — 画像のパッケージ化のみ行い、シリーズ名・著者・タグ等の ComicInfo.xml は含みません。必要なら別途注入してください
 - **タイムアウト後のスレッドは強制終了できない** — `--timeout` 超過後、メイン処理はそのファイルをスキップして続行しますが、Python はブロック中の解凍スレッドを kill できません。残ったスレッドはプロセス終了までメモリ/IO を使うことがあり、破損ファイルが多いとバックグラウンドに積み上がる可能性があります。完全隔離には `multiprocessing` などが考えられますが、クロスプラットフォームの複雑さのため未採用です
 
 ## よくある質問
@@ -216,6 +217,26 @@ A: v1.9.0 以降、`--output-dir` はデフォルトで入力の相対サブデ�
 A: 対応しています。v1.8.0 以降、入力は `.mobi` / `.azw` / `.azw3` で、同じ変換パイプラインを使います。同一ディレクトリで同名・異拡張子のときはデフォルトで azw3 を残し、`--ext-priority` で変更できます。
 
 ## 更新履歴
+
+### [2.0.0] - 2026-08-14
+
+#### 追加
+
+- デフォルトで ComicInfo.xml を生成（CBZ ZIP ルートへ書き込み、UTF-8、XML 宣言付き）。`--no-comicinfo` で無効化
+- 4 つの関数を追加: `build_comicinfo`（`xml.etree.ElementTree` で生成、手動文字列連結は禁止）、`write_comicinfo`、`normalize_language`（言語コードを ISO 639-1 に正規化）、`infer_series_number`（ファイル名から Series/Number を高確度で推測、`001`/`01`/`1`/`Vol.01`/`Vol 01`/`Volume 01`/`第 01 卷` などの形式に対応、確度不足時は None を返す＝見つからないより良い）
+- フィールド対応: Title=OPF title→EXTH title→ファイル名 stem、Writer=OPF creator→EXTH author、Publisher=OPF publisher→EXTH publisher、Year=PublicationDate の年、LanguageISO=電子書籍自身の言語（ファイル名から推測しない）、PageCount=最終的に CBZ へ書き込む実際の画像数（必須）、Series/Number=ファイル名からの高確度推測、Summary=OPF description（取得時のみ）。確かな情報源のないフィールドは省略（空タグを生成しない）
+- フロー挿入: 最終的な画像集合の確定後に ComicInfo を構築し、CBZ 作成時に画像と ComicInfo.xml を同時に書き込み。完全性検証に 3 項目を追加（ComicInfo.xml の存在、標準 XML パーサーで解析可能、ルートノードが ComicInfo）。生成・検証の失敗＝変換全体の失敗とし、`--delete` によるソース削除を禁止
+- `--dry-run` は ComicInfo.xml を作成しないが、有効かどうかを 1 行表示
+- `--inspect` の出力に ComicInfo プレビューブロックを追加（Title/Series/Number/Writer/Publisher/Year/LanguageISO/PageCount/Summary は値がある場合のみ表示）。推測フィールドには `[inferred]` を明示
+- i18n: 4 言語に 6 キーを追加: `comicinfo.generating` / `comicinfo.created` / `comicinfo.disabled` / `comicinfo.invalid` / `comicinfo.inferred` / `help.no_comicinfo`
+
+### [1.9.1] - 2026-08-14
+
+#### 追加
+
+- `--inspect-all` を単独で使用（`--inspect` なし）した場合、自動的に `--inspect` を有効化し warning を出力（4 言語に `warn.inspect_all_auto_enable` キーを追加）
+- `--inspect` の説明を更新: 位置引数が単一ファイルの場合はそのファイルを直接検査、ディレクトリの場合はランダムに 1 冊抽出
+- `--inspect-all` の説明を更新: `--inspect` と併用必須、単独指定時は自動的に `--inspect` を有効化
 
 ### [1.9.0] - 2026-08-14
 
