@@ -13,7 +13,7 @@ permissions:
 env:
   APP_NAME: manga-mobi2cbz-cli
   VERSION: ${{ github.event.inputs.target_tag }}
-  PIP_REQUIREMENTS: mobi lxml Pillow pycryptodome tqdm
+  PIP_REQUIREMENTS: mobi lxml Pillow pyinstaller tqdm
   PACKAGE_FOLDER: manga-mobi2cbz-cli
 
 jobs:
@@ -64,6 +64,46 @@ jobs:
 
       - name: Set archive filename env
         run: echo "ARCHIVE_NAME=${{ env.APP_NAME }}-${{ env.VERSION }}-${{ matrix.build.platform }}-${{ matrix.build.arch }}.${{ matrix.build.archive_ext }}" >> $GITHUB_ENV
+
+      - name: Organize & archive (Windows)
+        if: matrix.build.platform == 'win'
+        run: |
+          New-Item -ItemType Directory -Path $env:PACKAGE_FOLDER -Force
+          Move-Item dist\manga-mobi2cbz.exe $env:PACKAGE_FOLDER\
+          Move-Item README.md $env:PACKAGE_FOLDER\
+          Move-Item README_en.md $env:PACKAGE_FOLDER\
+          Move-Item README_ja.md $env:PACKAGE_FOLDER\
+          Compress-Archive -Path $env:PACKAGE_FOLDER -DestinationPath dist\$env:ARCHIVE_NAME
+
+      - name: Organize & archive (Linux/macOS)
+        if: matrix.build.platform != 'win'
+        run: |
+          mkdir -p $PACKAGE_FOLDER
+          mv dist/manga-mobi2cbz $PACKAGE_FOLDER/
+          mv README.md README_en.md README_ja.md $PACKAGE_FOLDER/
+          tar -czf dist/$ARCHIVE_NAME $PACKAGE_FOLDER
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ARCHIVE_NAME }}
+          path: dist/${{ env.ARCHIVE_NAME }}
+
+  upload-to-release:
+    needs: build-binary
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: ./build_assets
+
+      - name: Attach packages to Release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ env.VERSION }}
+          files: ./build_assets/*/*
+          overwrite: true
 
       - name: Organize & archive (Windows)
         if: matrix.build.platform == 'win'
