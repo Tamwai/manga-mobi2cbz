@@ -1,6 +1,4 @@
-# .github/workflows/build-release.yml
 name: Build CLI Release Binaries
-# 仅手动运行，无自动tag触发
 on:
   workflow_dispatch:
     inputs:
@@ -9,20 +7,15 @@ on:
         required: true
         default: v2.0.0
 
-# 权限：允许修改Release附件
 permissions:
   contents: write
 
-# 全局变量统一管理
 env:
   APP_NAME: manga-mobi2cbz-cli
   VERSION: ${{ github.event.inputs.target_tag }}
-  # 程序全部依赖，含mobi解析库+tqdm进度条
   PIP_REQUIREMENTS: mobi lxml Pillow pycryptodome tqdm
-  # 压缩包内层文件夹名，解压后只出现这一个目录
   PACKAGE_FOLDER: manga-mobi2cbz-cli
 
-# 三平台并行打包，单个平台失败不中断其他
 strategy:
   fail-fast: false
   matrix:
@@ -49,32 +42,26 @@ jobs:
     defaults:
       run:
         shell: ${{ matrix.build.shell }}
-
     steps:
-      # 拉取仓库完整源码
       - name: Checkout source code
         uses: actions/checkout@v4
 
-      # 配置Python3.11，缓存pip依赖加速构建
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
           cache: pip
 
-      # 升级pip并安装所有依赖、打包工具
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install pyinstaller ${{ env.PIP_REQUIREMENTS }}
 
-      # 安装UPX压缩二进制，减小包体积
       - name: Install UPX
         uses: crazy-max/ghaction-upx@v3
         with:
           install-only: true
 
-      # PyInstaller打包纯控制台单文件，剔除全部GUI库瘦身
       - name: Compile single CLI binary
         run: |
           pyinstaller `
@@ -87,12 +74,10 @@ jobs:
             --exclude-module PyQt6 `
             manga-mobi2cbz.py
 
-      # 定义最终压缩包文件名
       - name: Set archive filename env
         run: |
           echo "ARCHIVE_NAME=${{ env.APP_NAME }}-${{ env.VERSION }}-${{ matrix.build.platform }}-${{ matrix.build.arch }}.${{ matrix.build.archive_ext }}" >> $GITHUB_ENV
 
-      # Windows：创建打包目录，移入exe与三份md，整体压缩
       - name: Organize & archive (Windows)
         if: matrix.build.platform == 'win'
         run: |
@@ -103,7 +88,6 @@ jobs:
           Move-Item README_ja.md $env:PACKAGE_FOLDER\
           Compress-Archive -Path $env:PACKAGE_FOLDER -DestinationPath dist\$env:ARCHIVE_NAME
 
-      # Linux/macOS：创建打包目录，移入二进制与三份md，打包tar.gz
       - name: Organize & archive (Linux/macOS)
         if: matrix.build.platform != 'win'
         run: |
@@ -112,25 +96,21 @@ jobs:
           mv README.md README_en.md README_ja.md $PACKAGE_FOLDER/
           tar -czf dist/$ARCHIVE_NAME $PACKAGE_FOLDER
 
-      # 上传当前平台压缩包作为缓存制品
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.ARCHIVE_NAME }}
           path: dist/${{ env.ARCHIVE_NAME }}
 
-  # 等待全部平台打包完成，统一上传至对应Release
   upload-to-release:
     needs: build-binary
     runs-on: ubuntu-latest
     steps:
-      # 下载所有平台的压缩包
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
           path: ./build_assets
 
-      # 批量附加到Release，同名文件自动覆盖
       - name: Attach packages to Release
         uses: softprops/action-gh-release@v3
         with:
