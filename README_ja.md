@@ -1,4 +1,4 @@
-**言語 / Languages:** [中文](README.md) | [English](README_en.md) | **日本語**
+**Languages:** [中文](README.md) | [English](README_en.md) | [日本語](README_ja.md)
 
 # manga-mobi2cbz
 
@@ -36,7 +36,7 @@ OPF spine の標準的な読み順に従って画像を抽出し、表紙の自�
 - **DRM 暗号化の検出** — DRM 付き Kindle 漫画に遭遇した場合、黙って失敗せず復号できない旨を明示します
 - **パスの大文字小文字対応** — 表紙比較とディレクトリ整合に正規化（小文字）パスを使い、大文字小文字を区別しない Windows 上でも誤判定しにくくします
 - **出力タイムスタンプ** — 各行に `[YYYY-MM-DD HH:MM:SS]` を付与し、コンソールとログで統一します
-- **カスタム出力ディレクトリ** — `--output-dir DIR` で CBZ を指定ディレクトリへ出力します（自動作成）。ソースと同じ場所に固定されません
+- **カスタム出力ディレクトリ** — `--output-dir DIR` で CBZ を指定ディレクトリへ出力します（自動作成）。デフォルトでは入力の相対サブディレクトリ構造を保持します（例: `One Piece/001.mobi` → `DIR/One Piece/001.cbz`）。`--flatten` を付けると出力ルートへフラット化し、衝突時は自動で `base (2).cbz` のように番号付けします
 - **事前チェックフィルタ** — 0 バイトやヘッダ破損（オフセット 60 に `BOOKMOBI` なし）のファイルは事前チェックでスキップし、フルパスと理由をログに出します
 - **最小サイズフィルタ** — `--min-size BYTES` で指定バイト未満を除外します（数値省略時デフォルト 1000、`0` で無効、未指定でサイズフィルタオフ）
 - **ドライラン** — `--dry-run` は変換フローの表示のみで、実際の解凍・パッケージ化は行いません
@@ -101,10 +101,16 @@ python manga-mobi2cbz.py "D:\Manga\Vol1.mobi" --overwrite
 python manga-mobi2cbz.py "D:\Manga" --timeout 300
 ```
 
-### カスタムディレクトリへ出力
+### カスタムディレクトリへ出力（デフォルトで相対サブディレクトリ構造を保持）
 
 ```bash
 python manga-mobi2cbz.py "D:\Manga" --output-dir "E:\CBZ"
+```
+
+### フラット出力（すべての CBZ を出力ディレクトリ直下へ）
+
+```bash
+python manga-mobi2cbz.py "D:\Manga" --output-dir "E:\CBZ" --flatten
 ```
 
 ### ドライラン: 変換フローを表示するのみ（実際には変換しない）
@@ -162,7 +168,8 @@ python manga-mobi2cbz.py --version
 | `--ext-priority EXTS` | 同一ディレクトリ・同名（拡張子のみ異なる）とき保持する形式。カンマ区切りで優先度が高い順。受け付ける値は `mobi` / `azw` / `azw3` のみ。デフォルト `azw3`。未指定分は azw3→mobi→azw にフォールバック。`--prefer`（mobi7/mobi8）とは無関係 |
 | `--timeout` | 1 ファイルあたりのタイムアウト秒数。超過分はスキップして失敗計上（デフォルト 600、`0` は無制限） |
 | `--min-size BYTES` | 指定バイト未満を除外。数値省略時は 1000、`0` で無効、オプション未指定でサイズフィルタオフ |
-| `--output-dir DIR` | CBZ の出力先（自動作成）。デフォルトはソースと同じディレクトリ |
+| `--output-dir DIR` | CBZ の出力先（自動作成）。デフォルトで入力の相対サブディレクトリ構造を保持（例: `One Piece/001.mobi` → `DIR/One Piece/001.cbz`）。`--flatten` でルート直下にフラット化 |
+| `--flatten` | `--output-dir` と併用時のみ有効。すべての CBZ を出力ルート直下へフラット化し、衝突時は `base (2).cbz` と自動番号。単独指定（`--output-dir` なし）はエラー終了 |
 | `--progress` | ファイル単位のプログレスバーを強制表示。デフォルトは stderr が TTY かつファイル数≥2 で自動表示。`--no-progress` と同時指定時は後に書いた方が有効。`--quiet` 下でもデフォルトは表示。stderr のみで `--log` には入らない |
 | `--no-progress` | プログレスバーを強制オフ |
 | `--dry-run` | スキャンと変換フロー表示のみ。解凍・パッケージ化・出力ディレクトリ作成はしない |
@@ -176,7 +183,7 @@ python manga-mobi2cbz.py --version
 
 ## 出力
 
-- デフォルトでは `.cbz` は元の電子書籍と同じディレクトリに置きます。`--output-dir` 指定時はそのディレクトリへ出力します（自動作成）
+- デフォルトでは `.cbz` は元の電子書籍と同じディレクトリに置きます。`--output-dir` 指定時はそのディレクトリへ出力します（自動作成）。デフォルトで入力の相対サブディレクトリ構造を保持し、`--flatten` でルート直下にフラット化します（衝突時は自動番号）
 - 既存の `.cbz` はデフォルトでスキップし、上書きしません。`--overwrite` で強制再生成できます
 - 0 バイト / ヘッダ破損は事前チェックでスキップし、フルパスと理由をログに出します
 - ファイルごとの所要時間をリアルタイム表示し、集計下部に合計を出します
@@ -202,10 +209,43 @@ A: mobi7+mobi8 の二重構成ではデフォルトで mobi8 のみ残し、内�
 **Q: 一括変換中に破損/暗号化ファイルで止まったように見える？**  
 A: 1 ファイルあたりデフォルト 600 秒のタイムアウトがあります（`--timeout` で変更可）。超過分はスキップして失敗計上し、残りを続行します。早く切りたいときは `--timeout 30` など短くするか、`--quiet` で出力を減らしてください。
 
+**Q: --output-dir でサブディレクトリが残るのはなぜ？**
+A: v1.9.0 以降、`--output-dir` はデフォルトで入力の相対サブディレクトリ構造を保持します（旧版の一律フラットから破壊的変更）。フラット化したい場合は `--flatten` を追加してください。旧コマンド `python manga-mobi2cbz.py Manga --output-dir CBZ` は `python manga-mobi2cbz.py Manga --output-dir CBZ --flatten` に変更すると旧動作を復元できます。
+
 **Q: .azw / .azw3 には対応していますか？**  
 A: 対応しています。v1.8.0 以降、入力は `.mobi` / `.azw` / `.azw3` で、同じ変換パイプラインを使います。同一ディレクトリで同名・異拡張子のときはデフォルトで azw3 を残し、`--ext-priority` で変更できます。
 
 ## 更新履歴
+
+### [1.9.0] - 2026-08-14
+
+#### 破壊的変更（Breaking Change）
+
+- `--output-dir DIR` を「DIR へ一律フラット」から「**デフォルトで入力の相対サブディレクトリ構造を保持**」に変更（例: `One Piece/001.mobi` → `DIR/One Piece/001.cbz`）
+- 移行方法: 旧コマンド `python manga-mobi2cbz.py Manga --output-dir CBZ` は `python manga-mobi2cbz.py Manga --output-dir CBZ --flatten` に変更すると「フラット」動作を復元できます
+
+#### 追加
+
+- `--flatten`: `--output-dir` と併用時のみ有効。すべての CBZ を出力ルート直下へフラット化。命名規則: 入力直下 → `stem`、サブディレクトリ → `親ディレクトリ名 - stem`。不正なファイル名文字（`<>:"/\|?*`）は `_` に置換
+- フラット時の衝突自動一意化: `base.cbz` → `base (2).cbz` → `base (3).cbz` …。黙って上書きせずスキップもせず、番号付け時に info を出力
+- `--flatten` 単独指定（`--output-dir` なし）はエラー終了（exit 2）。メッセージは多言語化
+- 実行ごとに出力モード（構造保持 / フラット）を 1 回表示。4 言語テーブルに `output.mode_preserve` / `output.mode_flatten` / `output.renamed_due_to_conflict` / `output.flatten_requires_dir` / `error.flatten_without_output_dir` / `rel_fallback` キーを追加
+- 相対パス計算に失敗した場合（ドライブ跨ぎなど）は `DIR/stem.cbz` にフォールバックし warning を出力
+- 単一ファイル入力 + `--output-dir` は `DIR/stem.cbz` へ出力（サブディレクトリなし）
+- 構造保持時の `--overwrite` は従来どおり。フラット時は一意化を優先し、`--overwrite` は最終的に選ばれたパスのみに作用
+
+#### リファクタリング
+
+- `target_cbz_path` に `flatten` / `input_root` / `used_names` 引数を追加。`sanitize_filename_component` / `flat_base_name` / `unique_path` を独立関数化
+- dry-run のフラット一意化は処理順に使用済み名を管理し、実実行と一致
+
+#### 修正と強化（v1.9.0 に統合、バージョン据え置き）
+
+- `run_with_timeout` の戻り値を `(timed_out, result)` タプルに変更: タイムアウト → `(True, None)`、正常 → `(False, 関数の戻り値)`。「タイムアウト」と「正常に None を返した」の曖昧さを解消
+- `--inspect` のタイムアウト時に「展開された一時ディレクトリが残っている可能性があるため、手動でクリーンアップしてください」というヒントを追加（4 言語テーブルに `inspect_mode.timeout_residue` キーを追加）
+- パッキング時に `seen` が正規化パスでも物理重複を判定: 同じ物理ファイルが複数回出現したらスキップ（同名別ファイルは従来どおり連番プレフィックス）、重複スキップ数を出力（4 言語に `convert.dedup_physical` キーを追加）
+- `HtmlImgParser`（HTMLParser のサブクラス）を追加し `<img src>` 抽出のフォールバックに: HTML エンティティは HTMLParser が自動デコード、`%XX` は `unquote` で処理。OPF/spine の HTML 画像抽出に接続し、正規表現がヒットしないときのみ使用。ElementTree のメインフローには影響なし
+- `--dry-run` で出力ディレクトリ（`--output-dir` または各ソースファイルの所在ディレクトリ）の書き込み可否を確認し、書き込み不可なら warning を出力（4 言語に `dryrun.output_not_writable` キーを追加）
 
 ### [1.8.0] - 2026-08-14
 
