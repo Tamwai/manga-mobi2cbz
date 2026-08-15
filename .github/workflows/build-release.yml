@@ -69,6 +69,11 @@ jobs:
           Copy-Item README*.md ${{ env.PACKAGE_FOLDER }} -ErrorAction SilentlyContinue
           Compress-Archive -Path ${{ env.PACKAGE_FOLDER }} -DestinationPath ${{ env.APP_NAME }}-${{ env.VERSION }}-${{ matrix.archive_suffix }}
 
+      - name: Package Windows exe only
+        if: matrix.os == 'windows-latest'
+        run: |
+          Copy-Item dist/${{ env.APP_NAME }}${{ matrix.bin_ext }} -Destination ${{ env.APP_NAME }}-${{ env.VERSION }}-windows-x64.exe
+
       - name: Package Linux / macOS
         if: matrix.os != 'windows-latest'
         run: |
@@ -78,11 +83,18 @@ jobs:
           cp README*.md ${{ env.PACKAGE_FOLDER }} 2>/dev/null || true
           tar -zcvf ${{ env.APP_NAME }}-${{ env.VERSION }}-${{ matrix.archive_suffix }} ${{ env.PACKAGE_FOLDER }}
 
-      - name: Upload artifact
+      - name: Upload artifact (compressed packages)
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.archive_suffix }}
           path: ${{ env.APP_NAME }}-${{ env.VERSION }}-${{ matrix.archive_suffix }}
+
+      - name: Upload artifact (Windows exe)
+        if: matrix.os == 'windows-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-x64-exe
+          path: ${{ env.APP_NAME }}-${{ env.VERSION }}-windows-x64.exe
 
   upload-to-release:
     needs: build-binary
