@@ -41,6 +41,12 @@
 - **预处理过滤** — 0 字节、文件头损坏（偏移 60 处无 `BOOKMOBI` 魔数）的电子书在预处理阶段直接跳过，日志输出跳过文件完整路径与原因
 - **大小下限过滤** — `--min-size BYTES` 过滤小于指定字节数的电子书（不带数字默认 1000，`0` 关闭，不传则关闭大小过滤），兜住头部恰好完整但内容被截断的边缘损坏样本
 - **试运行模式** — `--dry-run` 只扫描与打印转换流程，不实际解压打包，适合先确认转换结果
+- **断点续跑** — 目标 CBZ 已存在且完整性校验有效时直接跳过（SKIP），损坏/无效自动重新转换；`--overwrite` 无条件覆盖
+- **失败分类** — 转换失败按原因分类统计（timeout / drm / corrupt / no_images / comicinfo / verify / other），汇总输出各类失败数量
+- **检查模式支持 CBZ** — `--inspect` 可直接检查 `.cbz` 文件（纯 zipfile 读取不解压）；封面行加分辨率+大小、格式统计加总文件数、Spine 前 5 列表每行加宽高
+- **ComicInfo 字段覆盖** — `--setinfo FIELD=VALUE` 覆盖/新增 ComicInfo 字段（优先级最高），VALUE 支持固定值 / `%series` / `%number` / `%title` / `%filename` / `%leftN` / `%rightN` 占位符，可多次指定；CBZ 修改模式直接重写 zip
+- **日志自动命名** — `--log` 不带文件名时自动生成 `manga-mobi2cbz_YYYYMMDD_HHMMSS.log`（当前目录）
+- **解包查看** — `--unpack` 只解压不转换，输出到源文件同名子目录（已存在自动加序号避让），mobi 保留完整结构、cbz 直接解包
 - **耗时统计** — 每个文件转换耗时实时输出，汇总底部显示总耗时
 
 ## 支持的图片格式
@@ -150,6 +156,18 @@ python manga-mobi2cbz.py "D:\Manga" --inspect
 python manga-mobi2cbz.py "D:\Manga" --inspect --inspect-all
 ```
 
+### 覆盖/新增 ComicInfo 字段（可多次指定，优先级最高）
+
+```bash
+python manga-mobi2cbz.py "D:\Manga\Vol1.mobi" --setinfo "Title=天是紅河岸" --setinfo "Number=%number" --setinfo "Summary=hello, world"
+```
+
+### 解包查看（只解压不转换，输出到源文件同名子目录）
+
+```bash
+python manga-mobi2cbz.py "D:\Manga\Vol1.mobi" --unpack
+```
+
 ### 查看版本号
 
 ```bash
@@ -180,7 +198,9 @@ python manga-mobi2cbz.py --version
 | `--inspect`           | 检查模式：位置参数为单个文件时直接检查该文件，为目录时随机抽查 1 个，只解包读取内部信息（元数据/结构/图片/分辨率/DRM 双重判断/NCX 目录），不生成 CBZ，结束自动清理临时目录                                                                                  |
 | `--inspect-all`       | 检查全部电子书（需配合 `--inspect` 使用，单独使用将自动启用 `--inspect`）                                                                                                                                |
 | `--no-comicinfo`      | 不生成 ComicInfo.xml（默认生成：向 CBZ 根目录写入 Title / Series / Number / Writer / Publisher / Year / LanguageISO / PageCount / Summary 漫画元数据）                                                |
-| `--log FILE`          | 将全部输出追加写入指定日志文件                                                                                                                                                                  |
+| `--setinfo FIELD=VALUE` | 覆盖/新增 ComicInfo 字段（可多次指定，优先级最高）：`FIELD` 为 ComicInfo 字段名，`VALUE` 支持固定值 / `%series` / `%number` / `%title` / `%filename` / `%leftN` / `%rightN` 占位符（对应值缺失时该字段不写入）；智能拆分：仅当逗号后紧跟"字段名="时才拆分，否则逗号视为值的一部分（如 `Summary=hello, world` 不拆分） |
+| `--unpack`            | 解包查看：只解压不转换，输出到各源文件所在目录的同名子目录（已存在自动加序号避让）；mobi 走 extract 保留完整结构，cbz 走 extractall |
+| `--log FILE`          | 将全部输出追加写入指定日志文件；不带文件名时自动生成 `manga-mobi2cbz_YYYYMMDD_HHMMSS.log`（当前目录）                                                                                                  |
 | `--version`           | 显示版本号                                                                                                                                                                            |
 
 ## 输出
@@ -217,6 +237,19 @@ A: v1.9.0 起 `--output-dir` 默认保留相对输入的子目录结构（旧版
 A: 支持。v1.8.0 起输入扩展名扩展为 `.mobi` / `.azw` / `.azw3`，三种格式统一走同一转换链路；同目录同名不同扩展名时默认保留 azw3，可用 `--ext-priority` 调整。
 
 ## 更新日志
+
+### [2.1.0] - 2026-08-17
+
+#### 新增
+
+- **断点续跑（默认行为）** — 目标 CBZ 已存在且 `validate_cbz` 校验有效时直接 SKIP，损坏/无效自动重新转换；`--overwrite` 无条件覆盖
+- **失败分类** — `ebook_to_cbz` 返回三元组 `(result, status, reason)`，失败原因分类 `timeout` / `drm` / `corrupt` / `no_images` / `comicinfo` / `verify` / `other`，主流程新增 `failed_reasons` 统计并在汇总输出
+- **`--inspect` 支持 CBZ** — 合并进 `inspect_ebook`，CBZ 分支纯 zipfile 读取不解压；抽出 `image_dimensions_bytes(bytes)` 复用
+- **`--inspect` 输出增强** — 封面行加分辨率+大小，格式统计加总文件数，Spine 前 5 列表每行加宽高
+- **`--setinfo FIELD=VALUE`** — 覆盖/新增 ComicInfo 字段（可多次指定，优先级最高）；VALUE 支持固定值 / `%series` / `%number` / `%title` / `%filename` / `%leftN` / `%rightN`；智能拆分（逗号后紧跟字段名=才拆）；CBZ 修改模式直接重写 zip；`--inspect` 预览块同步应用
+- **ComicInfo 并入同一次 zip 写入** — 删除 `write_comicinfo` 函数，Step4 with 块内 `zf.writestr`
+- **`--log` 自动命名** — `nargs="?"` + `const="auto"`，auto 时生成 `manga-mobi2cbz_YYYYMMDD_HHMMSS.log`（当前目录）
+- **`--unpack` 解包查看** — 只解压不转换，mobi 走 extract 保留完整结构，cbz 走 extractall；默认解到文件名同名目录，已存在自动加序号避让 `(2)(3)`
 
 ### [2.0.2] - 2026-08-17
 
