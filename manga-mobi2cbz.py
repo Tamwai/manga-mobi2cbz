@@ -95,6 +95,22 @@ manga-mobi2cbz — 将 mobi/azw/azw3 电子书漫画文件批量转换为 cbz �
 要求: Python 3.10+
 
 更新日志:
+    v2.0.2 (2026-08-17)
+        - 修复 PageCount 一致性：物理去重提前到 ComicInfo 生成之前，
+          PageCount 与打包均用去重后实际写入数
+        - 修复 run_with_timeout 跨版本：except 同时捕获内置 TimeoutError
+          与 concurrent.futures.TimeoutError（Python 3.10 兼容）
+        - 修复 infer_series_number 点号失效：改用 path.name 手动去扩展名，
+          "One Piece Vol.01" 等点号卷号可正确推断
+        - LanguageISO 白名单 + alias：ISO 639-1 全量 184 个白名单校验，
+          新增 jp→ja / cn→zh / zhtw→zh 等常见别名
+        - Year 严格日期解析：优先完整日期字段，范围/多值（2001-2005）
+          宁缺勿错返回 None
+        - emit warning 在 --quiet 下可见
+        - EXTH 循环变量 t 改名 type_id，避免遮蔽全局 t()
+        - 正则 img src 提取补 unquote，与 HtmlImgParser 兜底路径一致
+        - --language 参数容错：支持 zh/cn/zhtw/jp 等常见写法，
+          新增 _normalize_lang 规范化（argparse 移除 choices 限制）
     v2.0.1 (2026-08-17)
         - 修复 infer_series_number 对无系列名卷标记文件名
           （Vol.01 / Volume 01 / 01巻 等）误推断系列名的问题，
@@ -314,7 +330,7 @@ manga-mobi2cbz — 将 mobi/azw/azw3 电子书漫画文件批量转换为 cbz �
           EOCD + testzip 完整性校验、失败清理半成品
 """
 
-__version__ = "2.0.1"
+__version__ = "2.0.2"
 
 SCRIPT_NAME = "manga-mobi2cbz"
 
@@ -336,6 +352,7 @@ from enum import Enum
 from pathlib import Path
 from datetime import datetime
 from collections import Counter
+import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
 
 # =========================
@@ -352,7 +369,7 @@ LANGUAGES = {
         "error.ext_priority_invalid": "--ext-priority 仅接受 mobi/azw/azw3，收到: {p}",
         # ---- --help 文案 ----
         "help.description": "mobi/azw/azw3 漫画批量转 cbz",
-        "help.language": "输出语言：auto 按系统语言自动选择（zh 前缀→中文，zh-TW/zh-Hant→繁体中文，ja/Japanese→日文，否则→英文），或指定 zh-CN/zh-TW/ja/en",
+        "help.language": "输出语言：auto 按系统语言自动选择（zh 前缀→中文，zh-TW/zh-Hant→繁体中文，ja/Japanese→日文，否则→英文），或指定 zh-CN/zh-TW/ja/en（兼容 zh/cn/zhtw/jp 等常见写法）",
         "help.target": "电子书文件路径或包含电子书（.mobi/.azw/.azw3）的目录",
         "help.delete": "转换成功后删除原始电子书文件",
         "help.prefer": "双目录 mobi（mobi7/mobi8）时保留哪份，默认 mobi8",
@@ -536,7 +553,7 @@ LANGUAGES = {
         "error.ext_priority_invalid": "--ext-priority 僅接受 mobi/azw/azw3，收到: {p}",
         # ---- --help 文案 ----
         "help.description": "mobi/azw/azw3 漫畫批量轉 cbz",
-        "help.language": "輸出語言：auto 按系統語言自動選擇（zh 前綴→中文，zh-TW/zh-Hant→繁體中文，ja/Japanese→日文，否則→英文），或指定 zh-CN/zh-TW/ja/en",
+        "help.language": "輸出語言：auto 按系統語言自動選擇（zh 前綴→中文，zh-TW/zh-Hant→繁體中文，ja/Japanese→日文，否則→英文），或指定 zh-CN/zh-TW/ja/en（相容 zh/cn/zhtw/jp 等常見寫法）",
         "help.target": "電子書檔案路徑或包含電子書（.mobi/.azw/.azw3）的目錄",
         "help.delete": "轉換成功後刪除原始電子書檔案",
         "help.prefer": "雙目錄 mobi（mobi7/mobi8）時保留哪份，預設 mobi8",
@@ -720,7 +737,7 @@ LANGUAGES = {
         "error.ext_priority_invalid": "--ext-priority accepts only mobi/azw/azw3, got: {p}",
         # ---- --help 文案 ----
         "help.description": "Batch convert mobi/azw/azw3 ebooks to cbz",
-        "help.language": "Output language: auto picks by system locale (zh prefix->Chinese, zh-TW/zh-Hant->Traditional Chinese, ja/Japanese->Japanese, otherwise->English), or choose zh-CN/zh-TW/ja/en explicitly",
+        "help.language": "Output language: auto picks by system locale (zh prefix->Chinese, zh-TW/zh-Hant->Traditional Chinese, ja/Japanese->Japanese, otherwise->English), or choose zh-CN/zh-TW/ja/en (tolerant of common variants like zh/cn/zhtw/jp)",
         "help.target": "Path to an ebook file or a directory containing ebooks (.mobi/.azw/.azw3)",
         "help.delete": "Delete the original ebook file after successful conversion",
         "help.prefer": "Which directory to keep when both mobi7/mobi8 exist, default mobi8",
@@ -904,7 +921,7 @@ LANGUAGES = {
         "error.ext_priority_invalid": "--ext-priority は mobi/azw/azw3 のみ受け付けます。受信: {p}",
         # ---- --help 文案 ----
         "help.description": 'mobi/azw/azw3 漫画を一括で cbz に変換',
-        "help.language": '出力言語：auto はシステム言語で自動判定（zh プレフィックス→中国語、zh-TW/zh-Hant→繁体字中国語、ja/Japanese→日本語、それ以外→英語）、または zh-CN/zh-TW/ja/en を指定',
+        "help.language": '出力言語：auto はシステム言語で自動判定（zh プレフィックス→中国語、zh-TW/zh-Hant→繁体字中国語、ja/Japanese→日本語、それ以外→英語）、または zh-CN/zh-TW/ja/en を指定（zh/cn/zhtw/jp などの一般的な表記も許容）',
         "help.target": '電子書籍ファイルのパス、または電子書籍（.mobi/.azw/.azw3）を含むディレクトリ',
         "help.delete": '変換成功後に元の電子書籍ファイルを削除',
         "help.prefer": '二重ディレクトリ mobi（mobi7/mobi8）がある場合にどちらを残すか、デフォルトは mobi8',
@@ -1119,11 +1136,45 @@ def _auto_language() -> str:
     return "ja"
 
 
+# --language 参数容错：常见写法 → LANGUAGES 合法键（zh-CN/zh-TW/ja/en）
+_UI_LANG_ALIASES = {
+    "zh": "zh-CN", "cn": "zh-CN", "zhcn": "zh-CN", "chinese": "zh-CN", "zh-hans": "zh-CN",
+    "zhtw": "zh-TW", "tw": "zh-TW", "hant": "zh-TW", "zh-hant": "zh-TW", "traditional": "zh-TW",
+    "jp": "ja", "japanese": "ja",
+    "eng": "en", "english": "en",
+    "auto": "auto",
+}
+
+
+def _normalize_lang(lang: str) -> str:
+    """把 --language 的常见写法规范化为 LANGUAGES 合法键（zh-CN/zh-TW/ja/en），无法识别回退 en。"""
+    if not lang:
+        return "en"
+    s = lang.strip().lower().replace("_", "-").replace(".", "-")
+    # 1) 直接匹配合法键（大小写不敏感）
+    for key in LANGUAGES:
+        if key.lower() == s:
+            return key
+    # 2) 去分隔符匹配（zhtw / zhcn）
+    compact = s.replace("-", "")
+    for key in LANGUAGES:
+        if key.lower().replace("-", "") == compact:
+            return key
+    # 3) alias 容错表
+    if s in _UI_LANG_ALIASES:
+        return _UI_LANG_ALIASES[s]
+    if compact in _UI_LANG_ALIASES:
+        return _UI_LANG_ALIASES[compact]
+    return "en"
+
+
 def set_language(lang: str) -> None:
     """设置当前语言；auto 按系统 locale 判定，未知语言回退 en"""
     global CURRENT_LANGUAGE
     if lang == "auto":
         lang = _auto_language()
+    else:
+        lang = _normalize_lang(lang)
     if lang not in LANGUAGES:
         lang = "en"
     CURRENT_LANGUAGE = lang
@@ -1214,7 +1265,9 @@ def run_with_timeout(func, timeout: float, *args, **kwargs):
     future = executor.submit(func, *args, **kwargs)
     try:
         return False, future.result(timeout=timeout)
-    except TimeoutError:
+    except (TimeoutError, concurrent.futures.TimeoutError):
+        # Python 3.10 中 concurrent.futures.TimeoutError 为独立类，
+        # 3.11 起才成为内置 TimeoutError 别名，两者都捕获保证跨版本一致
         return True, None
     finally:
         # wait=False：不等待可能永久阻塞的工作线程
@@ -1256,7 +1309,7 @@ def emit(msg: str, level: str = "info") -> None:
             if not _log_write_failed:
                 _log_write_failed = True
                 print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] " + t("error.log_write_failed", err=e, path=_log_path))
-    if not _quiet_mode or level in ("summary", "error"):
+    if not _quiet_mode or level in ("summary", "error", "warning"):
         print(line)
 
 
@@ -1570,7 +1623,10 @@ def extract_images_from_html(html_path: Path) -> list[Path]:
     try:
         content = html_path.read_text(encoding="utf-8", errors="ignore")
         srcs = re.findall(r'<img[^>]+src=["\']([^"\']+)["\']', content, re.IGNORECASE)
-        if not srcs:
+        if srcs:
+            # 与 HtmlImgParser 兜底路径一致：统一 unquote 处理 %XX 百分号编码
+            srcs = [unquote(s) for s in srcs]
+        else:
             # 兜底：HtmlImgParser（实体自动解码 + unquote 处理 %XX），
             # 覆盖正则难以处理的属性顺序/换行/实体编码场景
             srcs = extract_img_srcs_with_parser(content)
@@ -1793,6 +1849,20 @@ def ebook_to_cbz(ebook_path: Path, delete_original: bool = False, prefer: str = 
         elif total_in_dir != len(images):
             emit(t("convert.count_mismatch", total=total_in_dir, collected=len(images)))
 
+        # 物理去重提前：PageCount 与打包均用去重后列表，保证一致性
+        # （Step 4 打包仍保留 seen_paths 去重作防御，此时恒不触发）
+        deduped = []
+        seen_paths = set()
+        for img in images:
+            norm = norm_path(img)
+            if norm in seen_paths:
+                continue
+            seen_paths.add(norm)
+            deduped.append(img)
+        if len(deduped) != len(images):
+            emit(t("convert.dedup_physical", count=len(images) - len(deduped)))
+        images = deduped
+
         # Step 3.6: 生成 ComicInfo.xml（默认启用，--no-comicinfo 关闭）
         comicinfo_xml = None
         if comicinfo:
@@ -1905,12 +1975,12 @@ def read_exth_metadata(p: Path) -> dict:
         pos = idx + 12
         meta = {}
         for _ in range(count):
-            t = struct.unpack(">I", head[pos:pos + 4])[0]
+            type_id = struct.unpack(">I", head[pos:pos + 4])[0]
             l = struct.unpack(">I", head[pos + 4:pos + 8])[0]
             if l < 8 or pos + l > len(head):
                 break
             val = head[pos + 8:pos + l].decode("utf-8", errors="replace").strip("\x00")
-            key = key_map.get(t)
+            key = key_map.get(type_id)
             if key and val and key not in meta:
                 meta[key] = val
             pos += l
@@ -1943,6 +2013,27 @@ def read_opf_metadata(opf_path: Path) -> dict:
         return {}
 
 
+# 输入：日期字符串；输出：严格提取的 4 位年份，无法高置信度判定返回 None
+def _extract_year(date_str: str) -> str | None:
+    """从日期字符串严格提取年份（宁缺勿错）。
+
+    优先完整日期字段（YYYY-MM-DD / YYYY/MM/DD / YYYY.MM.DD 等）；
+    范围/多值（如 2001-2005、2001/2002）无法高置信度判定时返回 None。
+    """
+    if not date_str:
+        return None
+    s = date_str.strip()
+    # 完整日期：YYYY-MM-DD 等，取开头 4 位年份
+    m = re.match(r"^(19|20)\d{2}[-/.]\d{1,2}[-/.]\d{1,2}", s)
+    if m:
+        return m.group(0)[:4]
+    # 其余情况：出现多个年份视为范围/多值，宁缺勿错
+    years = re.findall(r"(?:19|20)\d{2}", s)
+    if len(years) == 1:
+        return years[0]
+    return None
+
+
 # 输入：OPF 元数据 + EXTH 元数据 + 源电子书路径；输出：ComicInfo 字段字典（仅含可靠来源的键）
 def collect_comicinfo_meta(opf_meta: dict, exth_meta: dict, ebook_path: Path) -> dict:
     """按优先级聚合 ComicInfo 字段：Title/Writer/Publisher/Year/Language/Summary。
@@ -1963,9 +2054,9 @@ def collect_comicinfo_meta(opf_meta: dict, exth_meta: dict, ebook_path: Path) ->
         meta["publisher"] = publisher.strip()
     date_str = opf_meta.get("date") or exth_meta.get("publish_date")
     if date_str:
-        m = re.search(r"(19|20)\d{2}", date_str)
-        if m:
-            meta["year"] = m.group(0)
+        year = _extract_year(date_str)
+        if year:
+            meta["year"] = year
     lang_src = opf_meta.get("language") or exth_meta.get("language")
     if lang_src:
         norm = normalize_language(lang_src)
@@ -1976,20 +2067,68 @@ def collect_comicinfo_meta(opf_meta: dict, exth_meta: dict, ebook_path: Path) ->
     return meta
 
 
+# ISO 639-1 全量 184 个两位代码白名单（LanguageISO 只接受白名单内代码）
+_ISO639_1 = {
+    "aa", "ab", "ae", "af", "ak", "am", "an", "ar", "as", "av", "ay", "az",
+    "ba", "be", "bg", "bh", "bi", "bm", "bn", "bo", "br", "bs",
+    "ca", "ce", "ch", "co", "cr", "cs", "cu", "cv", "cy",
+    "da", "de", "dv", "dz",
+    "ee", "el", "en", "eo", "es", "et", "eu",
+    "fa", "ff", "fi", "fj", "fo", "fr", "fy",
+    "ga", "gd", "gl", "gn", "gu", "gv",
+    "ha", "he", "hi", "ho", "hr", "ht", "hu", "hy", "hz",
+    "ia", "id", "ie", "ig", "ii", "ik", "io", "is", "it", "iu",
+    "ja", "jv",
+    "ka", "kg", "ki", "kj", "kk", "kl", "km", "kn", "ko", "kr", "ks", "ku", "kv", "kw", "ky",
+    "la", "lb", "lg", "li", "ln", "lo", "lt", "lu", "lv",
+    "mg", "mh", "mi", "mk", "ml", "mn", "mr", "ms", "mt", "my",
+    "na", "nb", "nd", "ne", "ng", "nl", "nn", "no", "nr", "nv", "ny",
+    "oc", "oj", "om", "or", "os",
+    "pa", "pi", "pl", "ps", "pt",
+    "qu",
+    "rm", "rn", "ro", "ru", "rw",
+    "sa", "sc", "sd", "se", "sg", "si", "sk", "sl", "sm", "sn", "so", "sq", "sr", "ss", "st", "su", "sv", "sw",
+    "ta", "te", "tg", "th", "ti", "tk", "tl", "tn", "to", "tr", "ts", "tt", "tw", "ty",
+    "ug", "uk", "ur", "uz",
+    "ve", "vi", "vo",
+    "wa", "wo",
+    "xh",
+    "yi", "yo",
+    "za", "zh", "zu",
+}
+
+# 常见非标准写法别名（jp/cn/tw、3 位全称、无分隔符区域写法等）
+_LANG_ALIASES = {
+    "jp": "ja", "cn": "zh", "tw": "zh",
+    "jpn": "ja", "japanese": "ja",
+    "chi": "zh", "zho": "zh", "cmn": "zh", "chinese": "zh",
+    "eng": "en", "english": "en",
+    "zhtw": "zh", "zhcn": "zh", "zhhans": "zh", "zhhant": "zh",
+}
+
+
 # 输入：语言代码字符串；输出：ISO 639-1 两位小写代码，无法识别返回 None
 def normalize_language(code: str) -> str | None:
     """把常见语言代码标准化为 ISO 639-1 两位小写。
 
-    支持 2 位（en/ja/zh...）、3 位（eng/jpn/chi...）、带区域后缀
-    （en-US/zh-CN/ja-jp...）等写法；无法高置信度识别时返回 None。
+    支持 2 位（en/ja/zh...，须在白名单内）、3 位（eng/jpn/chi...）、
+    带区域后缀（en-US/zh-CN/ja-jp...）及常见别名（jp/cn/zhtw...）等写法；
+    非 ISO 639-1 白名单或无法高置信度识别时返回 None（宁缺勿错）。
     """
     if not code:
         return None
     seg = code.strip().split("-")[0].split("_")[0].split(".")[0].lower()
     if not seg or not seg.isalpha():
         return None
+    # 1) 2 位：白名单校验，未命中再查别名（jp→ja / cn→zh / tw→zh）
     if len(seg) == 2:
-        return seg
+        if seg in _ISO639_1:
+            return seg
+        return _LANG_ALIASES.get(seg)
+    # 2) 别名（3/4 位常见写法：zhtw→zh / zhcn→zh / japanese→ja...）
+    if seg in _LANG_ALIASES:
+        return _LANG_ALIASES[seg]
+    # 3) 3 位 ISO 639-2 → 639-1
     three_to_two = {
         "eng": "en", "jpn": "ja", "chi": "zh", "zho": "zh", "cmn": "zh",
         "kor": "ko", "fre": "fr", "fra": "fr", "ger": "de", "deu": "de",
@@ -2038,9 +2177,16 @@ def infer_series_number(path: Path) -> tuple[str | None, str | None]:
     但 4 位年份（19xx/20xx）、纯数字文件名与无系列名的卷标记
     （如 "Vol.01" / "Volume 01" / "01巻"）会被排除，宁缺勿错。
     """
-    stem = path.stem
-    if not stem:
+    name = path.name
+    if not name:
         return None, None
+    # 用 name 而非 stem：Path.stem 会把 "Vol.01" 的 ".01" 当扩展名吞掉，
+    # 导致点号卷号（Vol.01）无法匹配；这里仅去掉已知电子书扩展名
+    stem = name
+    for ext in SUPPORTED_INPUT_EXTENSIONS:
+        if name.lower().endswith(ext):
+            stem = name[: -len(ext)]
+            break
     s = stem.strip()
     # 1) Vol.01 / Vol 01 / Volume 01 / vol.1 / v01 形式
     m = re.match(r"^(?P<series>.+?)[\s_\-\.]*[Vv]ol(?:ume)?[\s_\-\.]*(\d{1,4})\s*$", s)
@@ -2523,9 +2669,9 @@ def build_parser() -> argparse.ArgumentParser:
         "--version", action="version", version=f"{SCRIPT_NAME} {__version__}"
     )
     # 输入：语言选择 auto/zh-CN/zh-TW/ja/en；输出：全部文案与 --help 随所选语言翻译
+    # 容错：zh/cn/zhtw/jp 等常见写法经 _normalize_lang 规范化，未知写法回退 en
     parser.add_argument(
         "--language",
-        choices=["auto", "zh-CN", "zh-TW", "ja", "en"],
         default="auto",
         help=t("help.language"),
     )
@@ -2660,10 +2806,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 def _main():
     # 先解析 --language（不触发帮助），确定语言后再建正式 parser，使 --help 随语言翻译
+    # 容错：zh/cn/zhtw/jp 等常见写法经 set_language→_normalize_lang 规范化，未知写法回退 en
     pre_parser = argparse.ArgumentParser(add_help=False)
     pre_parser.add_argument(
         "--language",
-        choices=["auto", "zh-CN", "zh-TW", "ja", "en"],
         default="auto",
     )
     known, _ = pre_parser.parse_known_args()
