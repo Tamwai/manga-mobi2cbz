@@ -1,5 +1,4 @@
-**Languages:** [中文](README.md) | [English](README_en.md) | [日本語](README_ja.md)
-
+Languages:** [中文](README.md) | [English](README_en.md) | [日本語](README_ja.md)
 
 # manga-mobi2cbz
 
@@ -11,7 +10,7 @@
 > ⚠️ 代码完全由 AI 生成，本人无法逐行审计，请自行评估风险后使用。
 > 
 > 📝 说明：本项目为个人自用，用于保存文件转换时AI生成的脚本以便于后期使用。
->
+> 
 > **项目由来**：最初为处理个人Kindle漫画，每次转换都让AI生成脚本处理，为便于复用和避免脚本丢失，便上传到了GitHub。
 > 后续使用中陆续遇到顺序错乱、封面丢失、批量中断等问题，于是不断向AI提出修改需求。由于不懂代码，为了验证可靠性，逐渐形成了将同一段代码交给不同AI交叉验证的工作方式。项目从最初的一次性脚本，经反复迭代，逐步演变为现在的形态。代码完全由AI生成，本人仅负责需求与验收，它不专业，但已比最初完善很多。如果你也有类似需求，欢迎使用；若发现问题，也欢迎反馈，我会继续让AI修。
 
@@ -26,7 +25,7 @@
 - **同名扩展名去重** — 同目录下仅扩展名不同（如 `Vol1.mobi` + `Vol1.azw3`）时只保留一份，`--ext-priority` 控制保留优先级（默认 azw3）
 - **自然排序** — 按页码自然排序，避免 `10.jpg` 排在 `2.jpg` 前面
 - **完整性校验** — 转换后自动校验 CBZ 文件，损坏则删除并提示
-- **ComicInfo.xml 元数据** — 默认在 CBZ 根目录生成 ComicInfo.xml（UTF-8，含 XML 声明），写入 Title / Series / Number / Writer / Publisher / Year / LanguageISO / PageCount / Summary 漫画元数据；Series/Number 由文件名高置信度推断（支持 `001` / `01` / `1` / `Vol.01` / `Vol 01` / `Volume 01` / `第 01 卷` 等形式），无法高置信度判断时省略（宁缺勿错）；无可靠来源的字段不生成空标签；`--no-comicinfo` 关闭生成
+- **ComicInfo.xml 元数据** — 默认在 CBZ 根目录生成 ComicInfo.xml（UTF-8，含 XML 声明），写入 Title / Series / Number / Writer / Publisher / Year / LanguageISO / PageCount / Summary 漫画元数据；Series/Number 由文件名高置信度推断（支持 `001` / `01` / `1` / `Vol.01` / `Vol 01` / `Volume 01` / `第 01 卷` 等形式），无系列名的卷标记（如 `Vol.01` / `01巻`）不推断，无法高置信度判断时省略（宁缺勿错）；无可靠来源的字段不生成空标签；`--no-comicinfo` 关闭生成
 - **无压缩打包** — 图片已是压缩格式，ZIP 默认仅存储不压缩，速度快、体积小
 - **可选压缩** — `--compress LEVEL` 启用 deflate 压缩（1-9），PNG 源漫画可显著减小体积，级别越高越小但越慢；JPEG 源收益有限，不建议开启（默认 `0` 不压缩）
 - **检查模式** — `--inspect` 随机抽查 1 个电子书（`--inspect-all` 全量），只解包读取内部信息不生成 CBZ：基础检查（魔数/大小/DRM 双重判断）、EXTH 元数据（标题/作者/语言/出版日期/出版社/ISBN/ASIN/版权，读到才显示）、双目录标记、OPF 与 spine 提取数（前 5 文件名竖排预览）、目录(NCX) 条目数与预览、目录全部图片数、封面（OPF guide 官方引用优先，未命中回退文件名匹配）、图片格式分布、主流分辨率（主流高/宽 + 另一维范围）、压缩建议；DRM 头部标记有→直接判有并跳过解包，无标记+图片 0→疑似，无标记+有图片→无；结束后自动清理临时目录
@@ -159,30 +158,30 @@ python manga-mobi2cbz.py --version
 
 ## 参数说明
 
-| 参数                    | 说明                                                                                                                     |
-| --------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `target`              | 电子书文件路径或包含电子书（.mobi/.azw/.azw3）的目录（必填）                                                                                 |
-| `--language LANG`     | 输出语言：`auto` 按系统 locale 自动选择（zh 前缀→中文，zh-TW/zh-Hant→繁体中文，ja/Japanese→日文，否则→英文），或指定 `zh-CN`/`zh-TW`/`ja`/`en`（默认 `auto`） |
-| `--delete`            | 转换成功后删除原始电子书文件（默认不删除）                                                                                                  |
-| `--prefer`            | 双目录 mobi 时保留哪份：`mobi7` 或 `mobi8`（默认 `mobi8`）                                                                           |
-| `--drop-extra`        | 目录中有未被收集的多余图片时放弃追加（默认追加到 cbz 末尾）                                                                                       |
-| `--overwrite`         | 目标 cbz 已存在时强制重新生成（默认跳过）                                                                                                |
-| `--ext-priority EXTS` | 同目录同名（仅扩展名不同）时保留哪种格式：逗号分隔、顺序即优先级从高到低，仅接受 mobi/azw/azw3，默认 azw3；优先级未覆盖时回退兜底顺序 azw3→mobi→azw；与 `--prefer`（双目录选择）无关       |
-| `--timeout`           | 单文件转换超时秒数，超时自动跳过并计入失败（默认 600，`0` 表示不限制）                                                                                |
-| `--min-size BYTES`    | 过滤小于指定字节的电子书；不带数字默认 1000，`0` 关闭，不传则关闭大小过滤                                                                              |
-| `--output-dir DIR`    | CBZ 输出到指定目录（自动创建），默认保留相对输入的子目录结构（如 `One Piece/001.mobi` → `DIR/One Piece/001.cbz`）；加 `--flatten` 可平铺到目录根下                     |
-| `--flatten`          | 仅与 `--output-dir` 联用：所有 CBZ 平铺到输出目录根下，重名自动编号 `base (2).cbz`；单独使用（无 `--output-dir`）将报错退出                                                        |
-| `--progress`          | 强制显示文件级进度条（默认 TTY 且文件数≥2 时自动显示；与 `--no-progress` 同传时以最后出现的参数为准；`--quiet` 下默认保留；进度条写 stderr，不进 `--log` 日志）              |
-| `--no-progress`       | 强制关闭进度条（即使 TTY 且文件数≥2）                                                                                                 |
-| `--dry-run`           | 试运行：只扫描文件并打印转换流程，不实际解压打包、不创建输出目录                                                                                       |
-| `--quiet`             | 静默模式，只显示错误与最终汇总                                                                                                        |
-| `--short-summary`     | 精简汇总：成功/跳过文件只显示数量不列出路径（失败文件始终全路径列出）                                                                                    |
-| `--compress LEVEL`    | zip 压缩级别 0-9：`0`=不压缩（默认，图片本身已压缩），`1-9`=deflate 压缩（PNG 源有收益，级别越高越小但越慢）                                                  |
-| `--inspect`           | 检查模式：位置参数为单个文件时直接检查该文件，为目录时随机抽查 1 个，只解包读取内部信息（元数据/结构/图片/分辨率/DRM 双重判断/NCX 目录），不生成 CBZ，结束自动清理临时目录                                           |
-| `--inspect-all`       | 检查全部电子书（需配合 `--inspect` 使用，单独使用将自动启用 `--inspect`）                                                                                    |
-| `--no-comicinfo`      | 不生成 ComicInfo.xml（默认生成：向 CBZ 根目录写入 Title / Series / Number / Writer / Publisher / Year / LanguageISO / PageCount / Summary 漫画元数据）                                                                                          |
-| `--log FILE`          | 将全部输出追加写入指定日志文件                                                                                                        |
-| `--version`           | 显示版本号                                                                                                                  |
+| 参数  | 说明  |
+| --- | --- |
+| `target` | 电子书文件路径或包含电子书（.mobi/.azw/.azw3）的目录（必填） |
+| `--language LANG` | 输出语言：`auto` 按系统 locale 自动选择（zh 前缀→中文，zh-TW/zh-Hant→繁体中文，ja/Japanese→日文，否则→英文），或指定 `zh-CN`/`zh-TW`/`ja`/`en`（默认 `auto`） |
+| `--delete` | 转换成功后删除原始电子书文件（默认不删除） |
+| `--prefer` | 双目录 mobi 时保留哪份：`mobi7` 或 `mobi8`（默认 `mobi8`） |
+| `--drop-extra` | 目录中有未被收集的多余图片时放弃追加（默认追加到 cbz 末尾） |
+| `--overwrite` | 目标 cbz 已存在时强制重新生成（默认跳过） |
+| `--ext-priority EXTS` | 同目录同名（仅扩展名不同）时保留哪种格式：逗号分隔、顺序即优先级从高到低，仅接受 mobi/azw/azw3，默认 azw3；优先级未覆盖时回退兜底顺序 azw3→mobi→azw；与 `--prefer`（双目录选择）无关 |
+| `--timeout` | 单文件转换超时秒数，超时自动跳过并计入失败（默认 600，`0` 表示不限制） |
+| `--min-size BYTES` | 过滤小于指定字节的电子书；不带数字默认 1000，`0` 关闭，不传则关闭大小过滤 |
+| `--output-dir DIR` | CBZ 输出到指定目录（自动创建），默认保留相对输入的子目录结构（如 `One Piece/001.mobi` → `DIR/One Piece/001.cbz`）；加 `--flatten` 可平铺到目录根下 |
+| `--flatten` | 仅与 `--output-dir` 联用：所有 CBZ 平铺到输出目录根下，重名自动编号 `base (2).cbz`；单独使用（无 `--output-dir`）将报错退出 |
+| `--progress` | 强制显示文件级进度条（默认 TTY 且文件数≥2 时自动显示；与 `--no-progress` 同传时以最后出现的参数为准；`--quiet` 下默认保留；进度条写 stderr，不进 `--log` 日志） |
+| `--no-progress` | 强制关闭进度条（即使 TTY 且文件数≥2） |
+| `--dry-run` | 试运行：只扫描文件并打印转换流程，不实际解压打包、不创建输出目录 |
+| `--quiet` | 静默模式，只显示错误与最终汇总 |
+| `--short-summary` | 精简汇总：成功/跳过文件只显示数量不列出路径（失败文件始终全路径列出） |
+| `--compress LEVEL` | zip 压缩级别 0-9：`0`=不压缩（默认，图片本身已压缩），`1-9`=deflate 压缩（PNG 源有收益，级别越高越小但越慢） |
+| `--inspect` | 检查模式：位置参数为单个文件时直接检查该文件，为目录时随机抽查 1 个，只解包读取内部信息（元数据/结构/图片/分辨率/DRM 双重判断/NCX 目录），不生成 CBZ，结束自动清理临时目录 |
+| `--inspect-all` | 检查全部电子书（需配合 `--inspect` 使用，单独使用将自动启用 `--inspect`） |
+| `--no-comicinfo` | 不生成 ComicInfo.xml（默认生成：向 CBZ 根目录写入 Title / Series / Number / Writer / Publisher / Year / LanguageISO / PageCount / Summary 漫画元数据） |
+| `--log FILE` | 将全部输出追加写入指定日志文件 |
+| `--version` | 显示版本号 |
 
 ## 输出
 
@@ -218,6 +217,12 @@ A: v1.9.0 起 `--output-dir` 默认保留相对输入的子目录结构（旧版
 A: 支持。v1.8.0 起输入扩展名扩展为 `.mobi` / `.azw` / `.azw3`，三种格式统一走同一转换链路；同目录同名不同扩展名时默认保留 azw3，可用 `--ext-priority` 调整。
 
 ## 更新日志
+
+### [2.0.1] - 2026-08-17
+
+#### 修复
+
+- 修复 `infer_series_number` 对无系列名卷标记文件名（`Vol.01` / `Volume 01` / `01巻` 等）误推断系列名的问题，新增 `_is_volume_marker` 卷标记词过滤
 
 ### [2.0.0] - 2026-08-14
 
@@ -396,4 +401,4 @@ A: 支持。v1.8.0 起输入扩展名扩展为 `.mobi` / `.azw` / `.azw3`，三�
 
 ## License
 
-[MIT](./LICENSE)
+[MIT]
