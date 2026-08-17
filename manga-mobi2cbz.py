@@ -95,6 +95,10 @@ manga-mobi2cbz — 将 mobi/azw/azw3 电子书漫画文件批量转换为 cbz �
 要求: Python 3.10+
 
 更新日志:
+    v2.0.1 (2026-08-17)
+        - 修复 infer_series_number 对无系列名卷标记文件名
+          （Vol.01 / Volume 01 / 01巻 等）误推断系列名的问题，
+          新增 _is_volume_marker 卷标记词过滤
     v2.0.0 (2026-08-14)
         - 新增 ComicInfo.xml 生成（默认启用，--no-comicinfo 关闭）：
           写入 CBZ ZIP 根目录，UTF-8 含 XML 声明
@@ -116,6 +120,10 @@ manga-mobi2cbz — 将 mobi/azw/azw3 电子书漫画文件批量转换为 cbz �
         - i18n 四语言新增 6 键：comicinfo.generating / comicinfo.created
           / comicinfo.disabled / comicinfo.invalid / comicinfo.inferred /
           help.no_comicinfo；README 三语同步
+        - 修复 infer_series_number 对无系列名卷标记文件的误推断：
+          "Vol.01" / "Volume 01" / "01巻" 等不再被推断出系列名，
+          统一返回 (None, None)（新增 _is_volume_marker 卷标记词过滤，
+          宁缺勿错）；"One Piece Vol.01" 等正常推断不受影响
 
     v1.9.1 (2026-08-14)
         - --inspect-all 单独使用（未配合 --inspect）时自动启用
@@ -306,7 +314,7 @@ manga-mobi2cbz — 将 mobi/azw/azw3 电子书漫画文件批量转换为 cbz �
           EOCD + testzip 完整性校验、失败清理半成品
 """
 
-__version__ = "2.0.0"
+__version__ = "2.0.1"
 
 SCRIPT_NAME = "manga-mobi2cbz"
 
@@ -2011,13 +2019,24 @@ def normalize_language(code: str) -> str | None:
     return three_to_two.get(seg)
 
 
+# 卷标记词：无实际系列名时，series 若为这些词或纯数字则视为无法推断（宁缺勿错）
+_VOLUME_MARKERS = {"vol", "volume", "v", "第", "巻", "卷"}
+
+
+def _is_volume_marker(series: str) -> bool:
+    """判断 series 是否为纯卷标记词或纯数字（无实际系列名，宁缺勿错）。"""
+    s = series.strip().lower()
+    return s in _VOLUME_MARKERS or s.isdigit()
+
+
 # 输入：电子书文件路径；输出：(series, number) 高置信度推断结果，无法判断返回 (None, None)
 def infer_series_number(path: Path) -> tuple[str | None, str | None]:
     """从文件名高置信度推断漫画 Series/Number。
 
     支持形式：001 / 01 / 1 / Vol.01 / Vol 01 / Volume 01 / 第 01 卷 /
     01巻 等；纯数字结尾（如 "One Piece 108"）也视为高置信度，
-    但 4 位年份（19xx/20xx）与纯数字文件名会被排除，宁缺勿错。
+    但 4 位年份（19xx/20xx）、纯数字文件名与无系列名的卷标记
+    （如 "Vol.01" / "Volume 01" / "01巻"）会被排除，宁缺勿错。
     """
     stem = path.stem
     if not stem:
@@ -2026,15 +2045,24 @@ def infer_series_number(path: Path) -> tuple[str | None, str | None]:
     # 1) Vol.01 / Vol 01 / Volume 01 / vol.1 / v01 形式
     m = re.match(r"^(?P<series>.+?)[\s_\-\.]*[Vv]ol(?:ume)?[\s_\-\.]*(\d{1,4})\s*$", s)
     if m:
-        return m.group("series").strip(), str(int(m.group(2)))
+        series = m.group("series").strip()
+        if _is_volume_marker(series):
+            return None, None
+        return series, str(int(m.group(2)))
     # 2) 中文卷：第 01 卷 / 第1卷（阿拉伯数字）
     m = re.match(r"^(?P<series>.+?)[\s_\-\.]*第[\s_\-\.]*(\d{1,4})[\s_\-\.]*卷\s*$", s)
     if m:
-        return m.group("series").strip(), str(int(m.group(2)))
+        series = m.group("series").strip()
+        if _is_volume_marker(series):
+            return None, None
+        return series, str(int(m.group(2)))
     # 3) 日文卷：01巻 / 第1巻
     m = re.match(r"^(?P<series>.+?)[\s_\-\.]*第?[\s_\-\.]*(\d{1,4})[\s_\-\.]*巻\s*$", s)
     if m:
-        return m.group("series").strip(), str(int(m.group(2)))
+        series = m.group("series").strip()
+        if _is_volume_marker(series):
+            return None, None
+        return series, str(int(m.group(2)))
     # 4) 纯数字结尾（空格/连字符/下划线/点分隔）：如 "One Piece 108"
     m = re.match(r"^(?P<series>.+?)[\s_\-\.]+(\d{1,4})$", s)
     if m:
@@ -2042,8 +2070,9 @@ def infer_series_number(path: Path) -> tuple[str | None, str | None]:
         if len(num) == 4 and 1900 <= int(num) <= 2100:
             return None, None  # 疑似年份，宁缺勿错
         series = m.group("series").strip()
-        if series:
-            return series, str(int(num))
+        if not series or _is_volume_marker(series):
+            return None, None
+        return series, str(int(num))
     return None, None
 
 
