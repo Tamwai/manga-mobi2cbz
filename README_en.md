@@ -1,4 +1,5 @@
-Languages:** [中文](README.md) | [English](README_en.md) | [日本語](README_ja.md)
+**Languages:** [中文](README.md) | [English](README_en.md) | [日本語](README_ja.md)
+
 
 # manga-mobi2cbz
 
@@ -6,13 +7,14 @@ A batch-conversion CLI tool built for Kindle manga: convert DRM-free MOBI / AZW 
 It natively follows the OPF spine reading order to extract images, and comes with a full set of practical capabilities: automatic cover repair, same-volume multi-format deduplication, batch timeout protection, file integrity verification, and multi-language auto output. It also includes an `--inspect` exploration mode that lets you inspect comic metadata, resolution, NCX table of contents, and DRM status without packing. Cross-platform, efficient and stable for batch organizing your manga library.
 
 > ⚠️ Only supports DRM-free Kindle comics. Store-purchased DRM-protected eBooks cannot be parsed.
-> 
+>
 > ⚠️ The code is entirely AI-generated. I cannot audit it line by line; please evaluate the risks before use.
-> 
+>
 > 📝 Note: This project is for personal use, intended to preserve AI-generated scripts for future reuse.
-> 
+>
 > **Project Origin**: It began with converting my own Kindle comics, having AI generate scripts each time. To simplify reuse and avoid losing scripts, I uploaded them to GitHub.
 > Later usage revealed issues such as incorrect page order, missing covers, and batch processing hangs, prompting continuous modification requests to the AI. Unable to read code, I adopted a workflow of submitting the same code to different AIs for cross-validation to ensure reliability. What started as a one-off script evolved through iteration into its current form. The code is entirely AI-generated; I only define requirements and verify results. It is not professional, but significantly more complete than the initial version. If you have similar needs, feel free to use it; if you find issues, feedback is welcome—I will continue to have the AI fix them.
+
 
 ## Features
 
@@ -40,7 +42,7 @@ It natively follows the OPF spine reading order to extract images, and comes wit
 - **DRM encryption detection** — clearly reports when it encounters DRM-encrypted Kindle manga instead of failing silently
 - **Path case compatibility** — cover comparison and directory alignment use normalized lowercase paths, so case-only naming differences are not misjudged as duplicates/missing on case-insensitive Windows filesystems
 - **Output timestamps** — every output line is prefixed with `[YYYY-MM-DD HH:MM:SS]`, consistent across console and log files, making it easy to pinpoint when each conversion ran
-- **Custom output directory** — `--output-dir DIR` outputs CBZ to a specified directory (auto-created); by default it preserves the relative subdirectory structure of the input (e.g. `One Piece/001.mobi` → `DIR/One Piece/001.cbz`); add `--flatten` to flatten everything into the directory root, with automatic `base (2).cbz` numbering on conflicts
+- **Custom output directory** — `--output-dir DIR` outputs CBZ to a specified directory (auto-created); by default it preserves the relative subdirectory structure of the input (e.g. `One Piece/001.mobi` → `DIR/One Piece/001.cbz`); add `--flatten` to flatten everything into the directory root; same-name files are skipped (SKIP) unless `--overwrite` is given
 - **Precheck filtering** — 0-byte files and ebooks with a corrupt header (no `BOOKMOBI` magic at offset 60) are skipped directly at the precheck stage, with the full path and reason logged
 - **Minimum-size filtering** — `--min-size BYTES` filters out ebooks smaller than the given byte count (default 1000 when no number is given, `0` disables, not passing it disables size filtering), catching edge-corrupt samples whose header is intact but content is truncated
 - **Dry-run mode** — `--dry-run` only scans and prints the conversion flow without actually unpacking/packing, handy for previewing results first
@@ -161,34 +163,34 @@ python manga-mobi2cbz.py --version
 
 ## Parameter reference
 
-| Parameter | Description |
-| --- | --- |
-| `target` | Path to an ebook file or a directory containing ebooks (.mobi/.azw/.azw3) (required) |
-| `--language LANG` | Output language: `auto` selects by system locale (zh prefix → Chinese, zh-TW/zh-Hant → Traditional Chinese, ja/Japanese → Japanese, otherwise → English), or specify `zh-CN`/`zh-TW`/`ja`/`en` (default `auto`) |
-| `--delete` | Delete the original ebook file after successful conversion (default: keep) |
-| `--prefer` | Which copy to keep for dual-directory mobi: `mobi7` or `mobi8` (default `mobi8`) |
-| `--drop-extra` | Drop uncollected extra images in the directory (default: append to the end of the cbz) |
-| `--overwrite` | Force regeneration when the target cbz already exists (default: skip) |
-| `--ext-priority EXTS` | Which format to keep when files share the same name in the same directory (differing only by extension): comma-separated, order = priority high→low, accepts only mobi/azw/azw3, default azw3; groups not covered fall back to azw3→mobi→azw; unrelated to `--prefer` (dual-directory selection) |
-| `--timeout` | Per-file conversion timeout in seconds; timeout files are skipped and counted as failed (default 600, `0` = no limit) |
-| `--min-size BYTES` | Filter out ebooks smaller than the given bytes; default 1000 without a number, `0` disables, not passing it disables size filtering |
-| `--output-dir DIR` | Output CBZ to the specified directory (auto-created); preserves the relative subdirectory structure of the input by default (e.g. `One Piece/001.mobi` → `DIR/One Piece/001.cbz`); add `--flatten` to flatten into the directory root |
-| `--flatten` | Only used together with `--output-dir`: flattens all CBZ files into the output directory root, auto-numbering conflicts `base (2).cbz`; using it alone (without `--output-dir`) exits with an error |
-| `--progress` | Force the per-file progress bar (auto-shown by default when stderr is TTY and file count ≥ 2; when passed with `--no-progress`, the last one wins; kept by default under `--quiet`; writes to stderr, not into `--log`) |
-| `--no-progress` | Force-disable the progress bar (even when TTY and file count ≥ 2) |
-| `--dry-run` | Dry run: only scan files and print the conversion flow, without unpacking/packing or creating output directories |
-| `--quiet` | Quiet mode: only show errors and the final summary |
-| `--short-summary` | Compact summary: succeeded/skipped files show counts only (failed files always list full paths) |
-| `--compress LEVEL` | zip compression level 0-9: `0` = no compression (default, images are already compressed), `1-9` = deflate (benefits PNG sources; higher = smaller but slower) |
-| `--inspect` | Inspect mode: inspect the file directly when the positional argument is a single file, or randomly sample 1 ebook for a directory; unpack only to read internal info (metadata/structure/images/resolution/dual DRM judgment/NCX TOC), no CBZ produced, temp directory cleaned up automatically |
-| `--inspect-all` | Inspect all ebooks (requires `--inspect`; using it alone will auto-enable `--inspect`) |
-| `--no-comicinfo` | Do not generate ComicInfo.xml (default: generates it into the CBZ root with Title / Series / Number / Writer / Publisher / Year / LanguageISO / PageCount / Summary metadata) |
-| `--log FILE` | Append all output to the specified log file |
-| `--version` | Show version number |
+| Parameter               | Description                                                                                                                      |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `target`                | Path to an ebook file or a directory containing ebooks (.mobi/.azw/.azw3) (required)                                              |
+| `--language LANG`       | Output language: `auto` selects by system locale (zh prefix → Chinese, zh-TW/zh-Hant → Traditional Chinese, ja/Japanese → Japanese, otherwise → English), or specify `zh-CN`/`zh-TW`/`ja`/`en` (default `auto`); tolerant of common spellings: `zh`/`cn`→zh-CN, `zhtw`/`tw`→zh-TW, `jp`→ja, `eng`→en |
+| `--delete`              | Delete the original ebook file after successful conversion (default: keep)                                                        |
+| `--prefer`              | Which copy to keep for dual-directory mobi: `mobi7` or `mobi8` (default `mobi8`)                                                 |
+| `--drop-extra`          | Drop uncollected extra images in the directory (default: append to the end of the cbz)                                            |
+| `--overwrite`           | Force regeneration when the target cbz already exists (default: skip)                                                            |
+| `--ext-priority EXTS`   | Which format to keep when files share the same name in the same directory (differing only by extension): comma-separated, order = priority high→low, accepts only mobi/azw/azw3, default azw3; groups not covered fall back to azw3→mobi→azw; unrelated to `--prefer` (dual-directory selection) |
+| `--timeout`             | Per-file conversion timeout in seconds; timeout files are skipped and counted as failed (default 600, `0` = no limit)              |
+| `--min-size BYTES`      | Filter out ebooks smaller than the given bytes; default 1000 without a number, `0` disables, not passing it disables size filtering |
+| `--output-dir DIR`      | Output CBZ to the specified directory (auto-created); preserves the relative subdirectory structure of the input by default (e.g. `One Piece/001.mobi` → `DIR/One Piece/001.cbz`); add `--flatten` to flatten into the directory root |
+| `--flatten`              | Only used together with `--output-dir`: flattens all CBZ files into the output directory root; same-name files are skipped (SKIP) unless `--overwrite` is given, which overwrites the preferred name; using it alone (without `--output-dir`) exits with an error |
+| `--progress`            | Force the per-file progress bar (auto-shown by default when stderr is TTY and file count ≥ 2; when passed with `--no-progress`, the last one wins; kept by default under `--quiet`; writes to stderr, not into `--log`) |
+| `--no-progress`         | Force-disable the progress bar (even when TTY and file count ≥ 2)                                                                 |
+| `--dry-run`             | Dry run: only scan files and print the conversion flow, without unpacking/packing or creating output directories                   |
+| `--quiet`               | Quiet mode: only show errors and the final summary                                                                                |
+| `--short-summary`       | Compact summary: succeeded/skipped files show counts only (failed files always list full paths)                                    |
+| `--compress LEVEL`      | zip compression level 0-9: `0` = no compression (default, images are already compressed), `1-9` = deflate (benefits PNG sources; higher = smaller but slower) |
+| `--inspect`             | Inspect mode: inspect the file directly when the positional argument is a single file, or randomly sample 1 ebook for a directory; unpack only to read internal info (metadata/structure/images/resolution/dual DRM judgment/NCX TOC), no CBZ produced, temp directory cleaned up automatically |
+| `--inspect-all`         | Inspect all ebooks (requires `--inspect`; using it alone will auto-enable `--inspect`)                                                                |
+| `--no-comicinfo`        | Do not generate ComicInfo.xml (default: generates it into the CBZ root with Title / Series / Number / Writer / Publisher / Year / LanguageISO / PageCount / Summary metadata)                                                          |
+| `--log FILE`            | Append all output to the specified log file                                                                                       |
+| `--version`             | Show version number                                                                                                               |
 
 ## Output
 
-- By default, the converted `.cbz` file is placed in the same directory as the original ebook; with `--output-dir`, it goes to that directory (auto-created), preserving the relative subdirectory structure of the input, or flattened into the directory root with `--flatten` (conflicts auto-numbered)
+- By default, the converted `.cbz` file is placed in the same directory as the original ebook; with `--output-dir`, it goes to that directory (auto-created), preserving the relative subdirectory structure of the input, or flattened into the directory root with `--flatten` (same-name files are skipped unless `--overwrite` is given)
 - Existing `.cbz` files are skipped by default and never overwritten; use `--overwrite` to force regeneration
 - 0-byte / corrupt-header ebooks are skipped at the precheck stage, with the full path and reason logged
 - Per-file conversion time is printed in real time; total elapsed time is shown at the bottom of the summary
@@ -220,6 +222,27 @@ A: Since v1.9.0, `--output-dir` preserves the relative subdirectory structure of
 A: Yes. Since v1.8.0 the accepted input extensions are `.mobi` / `.azw` / `.azw3`, all three going through the same conversion pipeline; for same-name files with different extensions in the same directory, azw3 is kept by default, adjustable via `--ext-priority`.
 
 ## Changelog
+
+### [2.0.2] - 2026-08-17
+
+#### Changed
+
+- `infer_series_number` now supports parenthesized suffixes: a `(author)` suffix no longer blocks volume inference (e.g. `天是紅河岸 - 第23卷 (筱原千繪)` correctly infers Series=天是紅河岸 / Number=23)
+- Pure volume markers (`Vol.01` / `第 01 卷` / `01巻` etc.) now return only the volume number `(None, number)` instead of `(None, None)`, so ComicInfo can write Number
+- `--flatten` same-name handling changed to SKIP/`--overwrite`: same-name files in the flat output root are no longer auto-renamed and re-converted as `(2).cbz`; without `--overwrite` they are skipped (SKIP), with it the preferred name is overwritten; dry-run stays consistent with the real run
+- Removed the now-unused `unique_path` function
+
+#### Fixed
+
+- Fixed PageCount consistency: physical dedup now happens before ComicInfo generation; both PageCount and packaging use the deduplicated actual written count
+- Fixed `run_with_timeout` cross-version: except now catches both built-in `TimeoutError` and `concurrent.futures.TimeoutError` (Python 3.10 compatible)
+- Fixed `infer_series_number` dot failure: now uses `path.name` with manual extension removal, so dotted volume numbers like `One Piece Vol.01` infer correctly
+- LanguageISO whitelist + alias: full ISO 639-1 whitelist (184 codes) plus common aliases `jp→ja` / `cn→zh` / `zhtw→zh`
+- Year strict date parsing: prefers full date fields; ranges/multi-values (`2001-2005`) return None
+- `emit` warning now visible under `--quiet`
+- EXTH loop variable `t` renamed to `type_id` to avoid shadowing the global `t()`
+- Regex img src extraction now applies `unquote`, consistent with the HtmlImgParser fallback path
+- `--language` tolerance: accepts common spellings like `zh`/`cn`/`zhtw`/`jp` via new `_normalize_lang` (argparse `choices` restriction removed)
 
 ### [2.0.1] - 2026-08-17
 
@@ -404,4 +427,4 @@ A: Yes. Since v1.8.0 the accepted input extensions are `.mobi` / `.azw` / `.azw3
 
 ## License
 
-[MIT]
+[MIT](./LICENSE)
