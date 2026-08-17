@@ -46,6 +46,12 @@ It natively follows the OPF spine reading order to extract images, and comes wit
 - **Precheck filtering** — 0-byte files and ebooks with a corrupt header (no `BOOKMOBI` magic at offset 60) are skipped directly at the precheck stage, with the full path and reason logged
 - **Minimum-size filtering** — `--min-size BYTES` filters out ebooks smaller than the given byte count (default 1000 when no number is given, `0` disables, not passing it disables size filtering), catching edge-corrupt samples whose header is intact but content is truncated
 - **Dry-run mode** — `--dry-run` only scans and prints the conversion flow without actually unpacking/packing, handy for previewing results first
+- **Resume support** — if the target CBZ already exists and passes integrity verification, it is skipped (SKIP); corrupt/invalid output is automatically reconverted; `--overwrite` unconditionally overwrites
+- **Failure classification** — conversion failures are counted by reason (`timeout` / `drm` / `corrupt` / `no_images` / `comicinfo` / `verify` / `other`), with per-category counts shown in the summary
+- **Inspect supports CBZ** — `--inspect` can inspect `.cbz` files directly (pure zipfile reading, no unpacking); cover line gains resolution+size, format stats gain total file count, and each of the first 5 Spine entries gains width/height
+- **ComicInfo field override** — `--setinfo FIELD=VALUE` overrides/adds ComicInfo fields (highest priority); VALUE supports fixed values / `%series` / `%number` / `%title` / `%filename` / `%leftN` / `%rightN` placeholders, repeatable; CBZ modification mode rewrites the zip directly
+- **Auto-named log** — `--log` without a filename auto-generates `manga-mobi2cbz_YYYYMMDD_HHMMSS.log` (current directory)
+- **Unpack mode** — `--unpack` only extracts without converting, outputting to a same-name subdirectory next to each source file (auto-numbered `(2)(3)` if it already exists); mobi uses extract preserving the full structure, cbz uses extractall
 - **Elapsed-time stats** — per-file conversion time is printed in real time, and the total elapsed time is shown at the bottom of the summary
 
 ## Supported image formats
@@ -155,6 +161,18 @@ python manga-mobi2cbz.py "D:\Manga" --inspect
 python manga-mobi2cbz.py "D:\Manga" --inspect --inspect-all
 ```
 
+### Override/add ComicInfo fields (repeatable, highest priority)
+
+```bash
+python manga-mobi2cbz.py "D:\Manga\Vol1.mobi" --setinfo "Title=天是紅河岸" --setinfo "Number=%number" --setinfo "Summary=hello, world"
+```
+
+### Unpack to view (extract only, no conversion; output to a same-name subdirectory)
+
+```bash
+python manga-mobi2cbz.py "D:\Manga\Vol1.mobi" --unpack
+```
+
 ### Show version
 
 ```bash
@@ -185,7 +203,9 @@ python manga-mobi2cbz.py --version
 | `--inspect`             | Inspect mode: inspect the file directly when the positional argument is a single file, or randomly sample 1 ebook for a directory; unpack only to read internal info (metadata/structure/images/resolution/dual DRM judgment/NCX TOC), no CBZ produced, temp directory cleaned up automatically |
 | `--inspect-all`         | Inspect all ebooks (requires `--inspect`; using it alone will auto-enable `--inspect`)                                                                |
 | `--no-comicinfo`        | Do not generate ComicInfo.xml (default: generates it into the CBZ root with Title / Series / Number / Writer / Publisher / Year / LanguageISO / PageCount / Summary metadata)                                                          |
-| `--log FILE`            | Append all output to the specified log file                                                                                       |
+| `--setinfo FIELD=VALUE` | Override/add ComicInfo fields (repeatable, highest priority): `FIELD` is a ComicInfo field name; `VALUE` supports fixed values / `%series` / `%number` / `%title` / `%filename` / `%leftN` / `%rightN` placeholders (field omitted when the placeholder value is missing); smart splitting: only splits when a comma is followed by `fieldname=`, otherwise the comma is part of the value (e.g. `Summary=hello, world` is not split) |
+| `--unpack`              | Unpack to view: extract only, no conversion; outputs to a same-name subdirectory next to each source file (auto-numbered `(2)(3)` if it already exists); mobi uses extract preserving the full structure, cbz uses extractall |
+| `--log FILE`            | Append all output to the specified log file; without a filename, auto-generates `manga-mobi2cbz_YYYYMMDD_HHMMSS.log` (current directory)                                                                                       |
 | `--version`             | Show version number                                                                                                               |
 
 ## Output
@@ -222,6 +242,19 @@ A: Since v1.9.0, `--output-dir` preserves the relative subdirectory structure of
 A: Yes. Since v1.8.0 the accepted input extensions are `.mobi` / `.azw` / `.azw3`, all three going through the same conversion pipeline; for same-name files with different extensions in the same directory, azw3 is kept by default, adjustable via `--ext-priority`.
 
 ## Changelog
+
+### [2.1.0] - 2026-08-17
+
+#### Added
+
+- **Resume support (default behavior)** — if the target CBZ already exists and passes `validate_cbz`, it is skipped (SKIP); corrupt/invalid output is automatically reconverted; `--overwrite` unconditionally overwrites
+- **Failure classification** — `ebook_to_cbz` now returns a triple `(result, status, reason)`; failure reasons are categorized as `timeout` / `drm` / `corrupt` / `no_images` / `comicinfo` / `verify` / `other`; the main flow adds a `failed_reasons` counter shown in the summary
+- **`--inspect` supports CBZ** — merged into `inspect_ebook`; the CBZ branch reads purely via zipfile without unpacking; extracted `image_dimensions_bytes(bytes)` for reuse
+- **`--inspect` output enhancement** — cover line gains resolution+size, format stats gain total file count, and each of the first 5 Spine entries gains width/height
+- **`--setinfo FIELD=VALUE`** — override/add ComicInfo fields (repeatable, highest priority); VALUE supports fixed values / `%series` / `%number` / `%title` / `%filename` / `%leftN` / `%rightN`; smart splitting (only splits when a comma is followed by `fieldname=`); CBZ modification mode rewrites the zip directly; the `--inspect` preview block applies it too
+- **ComicInfo written in the same zip pass** — removed the `write_comicinfo` function; `zf.writestr` inside the Step4 `with` block
+- **`--log` auto-naming** — `nargs="?"` + `const="auto"`; auto generates `manga-mobi2cbz_YYYYMMDD_HHMMSS.log` (current directory)
+- **`--unpack` unpack-to-view** — extract only, no conversion; mobi uses extract preserving the full structure, cbz uses extractall; defaults to a same-name directory, auto-numbered `(2)(3)` if it already exists
 
 ### [2.0.2] - 2026-08-17
 
