@@ -30,7 +30,7 @@ manga-mobi2cbz — 将 mobi/azw/azw3 电子书漫画文件批量转换为 cbz �
     # CBZ 输出到自定义目录（默认保留相对输入的子目录结构，如 One Piece/001.mobi → E:\CBZ\One Piece\001.cbz）
     python manga-mobi2cbz.py "D:\\Manga" --output-dir "E:\\CBZ"
 
-    # 平铺输出：所有 CBZ 直接放到输出目录根下（重名自动编号）
+    # 平铺输出：所有 CBZ 直接放到输出目录根下（同名未指定 --overwrite 时跳过）
     python manga-mobi2cbz.py "D:\\Manga" --output-dir "E:\\CBZ" --flatten
 
     # 试运行：只扫描文件并打印转换流程，不实际解压打包、不创建输出目录
@@ -69,8 +69,8 @@ manga-mobi2cbz — 将 mobi/azw/azw3 电子书漫画文件批量转换为 cbz �
                      子目录结构（如 One Piece/001.mobi → DIR/One Piece/001.cbz），
                      需要平铺时加 --flatten
     --flatten       仅与 --output-dir 联用：所有 CBZ 平铺到输出目录根下，
-                     重名自动编号 base.cbz → base (2).cbz → …；
-                     单独使用（无 --output-dir）将报错退出
+                     同名文件未指定 --overwrite 时跳过（SKIP），
+                     指定时覆盖首选名；单独使用（无 --output-dir）将报错退出
     --dry-run        试运行：只扫描文件并打印转换流程，不实际解压打包、不创建输出目录
     --progress       强制显示文件级进度条（默认 TTY 且文件数≥2 时自动显示；
                      与 --no-progress 同传时以最后出现的参数为准）
@@ -96,6 +96,14 @@ manga-mobi2cbz — 将 mobi/azw/azw3 电子书漫画文件批量转换为 cbz �
 
 更新日志:
     v2.0.2 (2026-08-17)
+        - infer_series_number 支持括号后缀：文件名带 "(作者)" 等括号
+          内容时不再阻断卷号推断
+        - 纯卷标记（Vol.01 / 第 01 卷 / 01巻 等）只返回卷号
+          (None, number)，不再返回 (None, None)，ComicInfo 可写入 Number
+        - --flatten 同名处理改为 SKIP/--overwrite：平铺输出根下同名
+          文件不再自动编号重转 (2).cbz，未指定 --overwrite 时跳过
+          （SKIP），指定时覆盖首选名；dry-run 与实跑保持一致
+        - 移除已无引用的 unique_path 函数
         - 修复 PageCount 一致性：物理去重提前到 ComicInfo 生成之前，
           PageCount 与打包均用去重后实际写入数
         - 修复 run_with_timeout 跨版本：except 同时捕获内置 TimeoutError
@@ -105,7 +113,7 @@ manga-mobi2cbz — 将 mobi/azw/azw3 电子书漫画文件批量转换为 cbz �
         - LanguageISO 白名单 + alias：ISO 639-1 全量 184 个白名单校验，
           新增 jp→ja / cn→zh / zhtw→zh 等常见别名
         - Year 严格日期解析：优先完整日期字段，范围/多值（2001-2005）
-          宁缺勿错返回 None
+          返回 None
         - emit warning 在 --quiet 下可见
         - EXTH 循环变量 t 改名 type_id，避免遮蔽全局 t()
         - 正则 img src 提取补 unquote，与 HtmlImgParser 兜底路径一致
@@ -379,7 +387,7 @@ LANGUAGES = {
         "help.timeout": "单文件转换超时秒数，超时自动跳过并计入失败（默认 600，0 表示不限制）",
         "help.min_size": "过滤小于指定字节的电子书；不带数字默认1000字节，0关闭大小过滤，不传则关闭",
         "help.output_dir": "CBZ 输出到指定目录（自动创建），默认保留相对输入的子目录结构（如 One Piece/001.mobi → DIR/One Piece/001.cbz），加 --flatten 可平铺到目录根下",
-    "help.flatten": "仅与 --output-dir 联用：所有 CBZ 平铺到输出目录根下，重名自动编号 (2)(3)…；单独使用将报错退出",
+    "help.flatten": "仅与 --output-dir 联用：所有 CBZ 平铺到输出目录根下，同名文件未指定 --overwrite 时跳过（SKIP），指定时覆盖首选名；单独使用将报错退出",
         "help.dry_run": "试运行：只扫描文件并打印转换流程，不实际解压打包、不创建输出目录",
         "help.progress": "强制显示文件级进度条（默认 TTY 且文件数≥2 时自动显示；与 --no-progress 同传时以最后出现的参数为准）",
         "help.no_progress": "强制关闭进度条（即使 TTY 且文件数≥2）",
@@ -563,7 +571,7 @@ LANGUAGES = {
         "help.timeout": "單檔轉換逾時秒數，逾時自動跳過並計入失敗（預設 600，0 表示不限制）",
         "help.min_size": "過濾小於指定位元組的電子書；不帶數字預設1000位元組，0關閉大小過濾，不傳則關閉",
         "help.output_dir": "CBZ 輸出到指定目錄（自動建立），預設保留相對輸入的子目錄結構（如 One Piece/001.mobi → DIR/One Piece/001.cbz），加 --flatten 可平鋪到目錄根下",
-    "help.flatten": "僅與 --output-dir 聯用：所有 CBZ 平鋪到輸出目錄根下，重名自動編號 (2)(3)…；單獨使用將報錯退出",
+    "help.flatten": "僅與 --output-dir 聯用：所有 CBZ 平鋪到輸出目錄根下，同名檔案未指定 --overwrite 時跳過（SKIP），指定時覆蓋首選名；單獨使用將報錯退出",
         "help.dry_run": "試運行：只掃描檔案並列印轉換流程，不實際解壓打包、不建立輸出目錄",
         "help.progress": "強制顯示檔案級進度條（預設 TTY 且檔案數≥2 時自動顯示；與 --no-progress 同傳時以最後出現的參數為準）",
         "help.no_progress": "強制關閉進度條（即使 TTY 且檔案數≥2）",
@@ -747,7 +755,7 @@ LANGUAGES = {
         "help.timeout": "Per-file conversion timeout in seconds; on timeout the file is skipped and counted as failed (default 600, 0 = no limit)",
         "help.min_size": "Filter out ebooks smaller than the given bytes; without a number defaults to 1000 bytes, 0 disables size filtering, omitted disables it",
         "help.output_dir": "Output CBZ to the given directory (auto-created); by default keeps the relative subdirectory structure of the input (e.g. One Piece/001.mobi -> DIR/One Piece/001.cbz), add --flatten to flatten into the root",
-    "help.flatten": "Only with --output-dir: flatten all CBZ into the root of the output directory, auto-renaming conflicts as (2)(3)...; using it alone exits with an error",
+    "help.flatten": "Only with --output-dir: flatten all CBZ into the root of the output directory; same-name files are skipped (SKIP) unless --overwrite is given, which overwrites the preferred name; using it alone exits with an error",
         "help.dry_run": "Dry run: only scan files and print the conversion flow, without extracting, packing or creating output directories",
         "help.progress": "Force per-file progress bar (auto when TTY and >=2 files; when combined with --no-progress the last one wins)",
         "help.no_progress": "Force-disable the progress bar (even when TTY and >=2 files)",
@@ -931,7 +939,7 @@ LANGUAGES = {
         "help.timeout": 'ファイルごとの変換タイムアウト秒数。タイムアウトで自動スキップし失敗に計上（デフォルト 600、0 は制限なし）',
         "help.min_size": '指定バイト数未満の電子書籍を除外；数字なしでデフォルト 1000 バイト、0 でサイズフィルタ無効、未指定で無効',
         "help.output_dir": "CBZ を指定ディレクトリに出力（自動作成）、デフォルトでは入力の相対サブディレクトリ構造を保持（例: One Piece/001.mobi → DIR/One Piece/001.cbz）、--flatten でルートにフラット化",
-    "help.flatten": "--output-dir との併用時のみ：全 CBZ を出力ディレクトリのルートにフラット化、重複は自動で (2)(3)… にリネーム；単独使用はエラー終了",
+    "help.flatten": "--output-dir との併用時のみ：全 CBZ を出力ディレクトリのルートにフラット化、同名ファイルは --overwrite 指定時のみ上書き、未指定時はスキップ（SKIP）；単独使用はエラー終了",
         "help.dry_run": '試運転：ファイルをスキャンして変換フローを表示するだけで、解凍・パッキング・出力ディレクトリ作成は行わない',
         "help.progress": 'ファイル別プログレスバーを強制表示（デフォルトは TTY かつファイル数≥2 で自動表示；--no-progress と同時指定時は最後のパラメータが優先）',
         "help.no_progress": 'プログレスバーを強制オフ（TTY かつファイル数≥2 でも）',
@@ -1532,37 +1540,24 @@ def flat_base_name(ebook_path: Path, input_root: Path | None) -> str:
     return sanitize_filename_component(stem)
 
 
-def unique_path(output_dir: Path, base: str, used: set) -> Path:
-    """平铺唯一化：base.cbz 已被占用时依次尝试 base (2).cbz、base (3).cbz…
-
-    used 记录本次任务已占用的字符串路径（按处理顺序），与磁盘 exists 检查
-    配合，保证 dry-run 模拟与正式运行一致。"""
-    candidate = output_dir / (base + ".cbz")
-    n = 2
-    while candidate.exists() or str(candidate) in used:
-        candidate = output_dir / f"{base} ({n}).cbz"
-        n += 1
-    return candidate
-
-
 def target_cbz_path(ebook_path: Path, output_dir: Path | None, flatten: bool = False, input_root: Path | None = None, used_names: set | None = None) -> Path:
     """计算目标 cbz 路径。
 
     - output_dir 为 None：与源电子书同目录（历史行为）
     - output_dir + flatten=False：保留相对 input_root 的子目录结构；
       相对路径计算失败（跨盘符等）时回退 output_dir/stem.cbz 并输出 warning
-    - output_dir + flatten=True：平铺到 output_dir 根下，重名自动唯一化
-      base.cbz → base (2).cbz → …
+    - output_dir + flatten=True：平铺到 output_dir 根下，返回首选目标名
+      output_dir/base.cbz（不唯一化）；同名文件由上层按 SKIP/--overwrite 处理，
+      used_names 记录本次任务已占用的首选名，保证 dry-run 与实跑一致
     """
     if output_dir is None:
         return ebook_path.with_suffix(".cbz")
     if flatten:
         base = flat_base_name(ebook_path, input_root)
-        used = used_names if used_names is not None else set()
-        cbz = unique_path(output_dir, base, used)
+        preferred = output_dir / (base + ".cbz")
         if used_names is not None:
-            used_names.add(str(cbz))
-        return cbz
+            used_names.add(str(preferred))
+        return preferred
     if input_root is not None:
         try:
             rel = ebook_path.relative_to(input_root)
@@ -1802,7 +1797,8 @@ def ebook_to_cbz(ebook_path: Path, delete_original: bool = False, prefer: str = 
         output_dir.mkdir(parents=True, exist_ok=True)
     cbz_path = target_cbz_path(ebook_path, output_dir, flatten=flatten, input_root=input_root, used_names=used_names)
     cbz_path.parent.mkdir(parents=True, exist_ok=True)
-    if cbz_path.exists() and not overwrite:
+    # 目标已存在（磁盘）或本次任务已占用（used_names，dry-run 一致性）→ 未指定 --overwrite 时跳过
+    if (cbz_path.exists() or (used_names is not None and str(cbz_path) in used_names)) and not overwrite:
         emit(t("convert.skip_exists", name=cbz_path.name))
         return None, ConvStatus.SKIP
     if cbz_path.exists():
@@ -2173,9 +2169,11 @@ def infer_series_number(path: Path) -> tuple[str | None, str | None]:
     """从文件名高置信度推断漫画 Series/Number。
 
     支持形式：001 / 01 / 1 / Vol.01 / Vol 01 / Volume 01 / 第 01 卷 /
-    01巻 等；纯数字结尾（如 "One Piece 108"）也视为高置信度，
-    但 4 位年份（19xx/20xx）、纯数字文件名与无系列名的卷标记
-    （如 "Vol.01" / "Volume 01" / "01巻"）会被排除，宁缺勿错。
+    01巻 等；纯数字结尾（如 "One Piece 108"）也视为高置信度。
+    文件名可带括号后缀（如 "天是紅河岸 - 第23卷 (筱原千繪)"），
+    括号内容不影响推断。4 位年份（19xx/20xx）与纯数字文件名
+    （如 "108"）会被排除，宁缺勿错；无系列名的纯卷标记
+    （如 "Vol.01" / "第 01 卷" / "01巻"）只返回卷号 (None, number)。
     """
     name = path.name
     if not name:
@@ -2188,26 +2186,28 @@ def infer_series_number(path: Path) -> tuple[str | None, str | None]:
             stem = name[: -len(ext)]
             break
     s = stem.strip()
+    # 括号后缀（如 "(作者)" / "(scan)"）不影响推断，统一剥离
+    s = re.sub(r"\s*\([^)]*\)\s*$", "", s).strip()
     # 1) Vol.01 / Vol 01 / Volume 01 / vol.1 / v01 形式
-    m = re.match(r"^(?P<series>.+?)[\s_\-\.]*[Vv]ol(?:ume)?[\s_\-\.]*(\d{1,4})\s*$", s)
+    m = re.match(r"^(?P<series>.*?)[\s_\-\.]*[Vv]ol(?:ume)?[\s_\-\.]*(\d{1,4})\s*$", s)
     if m:
         series = m.group("series").strip()
-        if _is_volume_marker(series):
-            return None, None
+        if not series or _is_volume_marker(series):
+            return None, str(int(m.group(2)))
         return series, str(int(m.group(2)))
     # 2) 中文卷：第 01 卷 / 第1卷（阿拉伯数字）
-    m = re.match(r"^(?P<series>.+?)[\s_\-\.]*第[\s_\-\.]*(\d{1,4})[\s_\-\.]*卷\s*$", s)
+    m = re.match(r"^(?P<series>.*?)[\s_\-\.]*第[\s_\-\.]*(\d{1,4})[\s_\-\.]*卷\s*$", s)
     if m:
         series = m.group("series").strip()
-        if _is_volume_marker(series):
-            return None, None
+        if not series or _is_volume_marker(series):
+            return None, str(int(m.group(2)))
         return series, str(int(m.group(2)))
     # 3) 日文卷：01巻 / 第1巻
-    m = re.match(r"^(?P<series>.+?)[\s_\-\.]*第?[\s_\-\.]*(\d{1,4})[\s_\-\.]*巻\s*$", s)
+    m = re.match(r"^(?P<series>.*?)[\s_\-\.]*第?[\s_\-\.]*(\d{1,4})[\s_\-\.]*巻\s*$", s)
     if m:
         series = m.group("series").strip()
-        if _is_volume_marker(series):
-            return None, None
+        if not series or _is_volume_marker(series):
+            return None, str(int(m.group(2)))
         return series, str(int(m.group(2)))
     # 4) 纯数字结尾（空格/连字符/下划线/点分隔）：如 "One Piece 108"
     m = re.match(r"^(?P<series>.+?)[\s_\-\.]+(\d{1,4})$", s)
@@ -2216,8 +2216,10 @@ def infer_series_number(path: Path) -> tuple[str | None, str | None]:
         if len(num) == 4 and 1900 <= int(num) <= 2100:
             return None, None  # 疑似年份，宁缺勿错
         series = m.group("series").strip()
-        if not series or _is_volume_marker(series):
-            return None, None
+        if not series:
+            return None, None  # 纯数字文件名，无法判断
+        if _is_volume_marker(series):
+            return None, str(int(num))
         return series, str(int(num))
     return None, None
 
@@ -2931,7 +2933,7 @@ def _main():
                 if pbar is not None:
                     pbar.set_postfix_str(truncate_name(mf.name))
                 out = target_cbz_path(mf, output_dir, flatten=args.flatten, input_root=input_root, used_names=used_names)
-                state_tag = t("tag.will_skip") if out.exists() and not args.overwrite else t("tag.pending")
+                state_tag = t("tag.will_skip") if (out.exists() or str(out) in used_names) and not args.overwrite else t("tag.pending")
                 emit(f"  {state_tag} {mf} -> {out}", level="summary")
                 if pbar is not None:
                     pbar.update(1)
