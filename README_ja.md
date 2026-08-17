@@ -44,6 +44,12 @@ OPF spine の標準的な読み順に従って画像を抽出し、表紙の自�
 - **事前チェックフィルタ** — 0 バイトやヘッダ破損（オフセット 60 に `BOOKMOBI` なし）のファイルは事前チェックでスキップし、フルパスと理由をログに出します
 - **最小サイズフィルタ** — `--min-size BYTES` で指定バイト未満を除外します（数値省略時デフォルト 1000、`0` で無効、未指定でサイズフィルタオフ）
 - **ドライラン** — `--dry-run` は変換フローの表示のみで、実際の解凍・パッケージ化は行いません
+- **再開サポート** — 対象 CBZ が既に存在し完全性検証に合格した場合はスキップ（SKIP）します。破損・無効な場合は自動で再変換します。`--overwrite` は無条件で上書きします
+- **失敗の分類** — 変換失敗を原因別に集計します（`timeout` / `drm` / `corrupt` / `no_images` / `comicinfo` / `verify` / `other`）。集計にカテゴリ別の件数を表示します
+- **検査モードが CBZ 対応** — `--inspect` で `.cbz` を直接検査できます（zipfile のみで解凍しません）。表紙行に解像度+サイズ、形式統計に総ファイル数、Spine 先頭 5 件の各行に幅/高さを追加
+- **ComicInfo フィールド上書き** — `--setinfo FIELD=VALUE` で ComicInfo フィールドを上書き/追加します（最優先）。VALUE は固定値 / `%series` / `%number` / `%title` / `%filename` / `%leftN` / `%rightN` プレースホルダに対応し、複数指定可能。CBZ 変更モードは zip を直接書き直します
+- **ログの自動命名** — `--log` をファイル名なしで指定すると `manga-mobi2cbz_YYYYMMDD_HHMMSS.log`（カレントディレクトリ）を自動生成します
+- **解凍表示** — `--unpack` は変換せず解凍のみ行い、各ソースファイルと同じ名前のサブディレクトリへ出力します（既存時は `(2)(3)` と自動採番）。mobi は extract で完全な構造を保持、cbz は extractall
 - **所要時間** — ファイルごとの変換時間をリアルタイム表示し、集計下部に合計を出します
 
 ## 対応画像形式
@@ -153,6 +159,18 @@ python manga-mobi2cbz.py "D:\Manga" --inspect
 python manga-mobi2cbz.py "D:\Manga" --inspect --inspect-all
 ```
 
+### ComicInfo フィールドを上書き/追加（複数指定可、最優先）
+
+```bash
+python manga-mobi2cbz.py "D:\Manga\Vol1.mobi" --setinfo "Title=天是紅河岸" --setinfo "Number=%number" --setinfo "Summary=hello, world"
+```
+
+### 解凍表示（変換せず解凍のみ、同名サブディレクトリへ出力）
+
+```bash
+python manga-mobi2cbz.py "D:\Manga\Vol1.mobi" --unpack
+```
+
 ### バージョン確認
 
 ```bash
@@ -183,7 +201,9 @@ python manga-mobi2cbz.py --version
 | `--inspect` | 位置引数が単一ファイルの場合はそのファイルを直接検査、ディレクトリの場合は 1 冊をランダム抽出して内部情報のみ読取（CBZ 非生成、一時ディレクトリは終了時に削除） |
 | `--inspect-all` | 全冊を検査（`--inspect` と併用が必要、単独指定時は自動的に `--inspect` を有効化） |
 | `--no-comicinfo` | ComicInfo.xml を生成しない（デフォルト: CBZ ルートに Title / Series / Number / Writer / Publisher / Year / LanguageISO / PageCount / Summary を書き込み） |
-| `--log FILE` | 全出力を指定ログへ追記 |
+| `--setinfo FIELD=VALUE` | ComicInfo フィールドを上書き/追加（複数指定可、最優先）。`FIELD` は ComicInfo のフィールド名。`VALUE` は固定値 / `%series` / `%number` / `%title` / `%filename` / `%leftN` / `%rightN` プレースホルダに対応（対応値が無い場合はそのフィールドを書き込まない）。スマート分割: カンマの直後に `フィールド名=` が続く場合のみ分割し、それ以外はカンマを値の一部とみなす（例: `Summary=hello, world` は分割しない） |
+| `--unpack` | 解凍表示: 変換せず解凍のみ。各ソースファイルと同じ名前のサブディレクトリへ出力（既存時は `(2)(3)` と自動採番）。mobi は extract で完全な構造を保持、cbz は extractall |
+| `--log FILE` | 全出力を指定ログへ追記。ファイル名なしで指定すると `manga-mobi2cbz_YYYYMMDD_HHMMSS.log`（カレントディレクトリ）を自動生成 |
 | `--version` | バージョン番号を表示 |
 
 ## 出力
@@ -220,6 +240,19 @@ A: v1.9.0 以降、`--output-dir` はデフォルトで入力の相対サブデ�
 A: 対応しています。v1.8.0 以降、入力は `.mobi` / `.azw` / `.azw3` で、同じ変換パイプラインを使います。同一ディレクトリで同名・異拡張子のときはデフォルトで azw3 を残し、`--ext-priority` で変更できます。
 
 ## 更新履歴
+
+### [2.1.0] - 2026-08-17
+
+#### 追加
+
+- **再開サポート（デフォルト動作）** — 対象 CBZ が既に存在し `validate_cbz` に合格した場合は SKIP、破損・無効な場合は自動で再変換。`--overwrite` は無条件で上書き
+- **失敗の分類** — `ebook_to_cbz` は 3 要素タプル `(result, status, reason)` を返すようになり、失敗理由を `timeout` / `drm` / `corrupt` / `no_images` / `comicinfo` / `verify` / `other` に分類。主フローに `failed_reasons` 集計を追加し、集計に出力
+- **`--inspect` が CBZ 対応** — `inspect_ebook` に統合。CBZ 分岐は zipfile のみで解凍しない。`image_dimensions_bytes(bytes)` を抽出して再利用
+- **`--inspect` 出力の強化** — 表紙行に解像度+サイズ、形式統計に総ファイル数、Spine 先頭 5 件の各行に幅/高さを追加
+- **`--setinfo FIELD=VALUE`** — ComicInfo フィールドを上書き/追加（複数指定可、最優先）。VALUE は固定値 / `%series` / `%number` / `%title` / `%filename` / `%leftN` / `%rightN` に対応。スマート分割（カンマ直後に `フィールド名=` が続く場合のみ分割）。CBZ 変更モードは zip を直接書き直し。`--inspect` プレビューブロックにも適用
+- **ComicInfo を同一 zip パスで書き込み** — `write_comicinfo` 関数を削除し、Step4 の with ブロック内で `zf.writestr`
+- **`--log` の自動命名** — `nargs="?"` + `const="auto"`。auto 時は `manga-mobi2cbz_YYYYMMDD_HHMMSS.log`（カレントディレクトリ）を生成
+- **`--unpack` 解凍表示** — 変換せず解凍のみ。mobi は extract で完全な構造を保持、cbz は extractall。デフォルトで同名ディレクトリへ出力し、既存時は `(2)(3)` と自動採番
 
 ### [2.0.2] - 2026-08-17
 
