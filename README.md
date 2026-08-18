@@ -20,7 +20,7 @@
 - **OPF spine 排序** — 优先按 OPF spine 顺序提取图片，保证真实阅读顺序；无 OPF 时兜底按文件名自然排序
 - **封面兜底** — 自动扫描文件名含 cover/front 的图片；封面已在 spine 列表中则以列表顺序为准，仅缺失时插入首位补齐
 - **目录对齐兜底** — 目录图片数与收集数不一致时，多出的图片默认按自然排序追加到 cbz 末尾；`--drop-extra` 可改为放弃，处理结果会打印输出
-- **双目录去重** — 自动识别 mobi7/mobi8 双目录，默认保留 mobi8（画质可能更好），可切换
+- **双目录去重** — 自动识别 mobi7/mobi8 双目录，默认 `auto`：优先保留 mobi8（画质可能更好），mobi8 无图片时自动回退 mobi7；`--prefer mobi7|mobi8` 可强制指定，指定目录无图片时自动回退另一份
 - **轻量多语言** — `--language auto|zh-CN|zh-TW|ja|en` 切换输出语言（默认 `auto` 按系统 locale 自动判定：简体中文归 zh-CN、繁体中文归 zh-TW、日文归 ja、其余归 en）；全量输出文案与 `--help` 随语言翻译，参数名/枚举/专有词不翻译
 - **同名扩展名去重** — 同目录下仅扩展名不同（如 `Vol1.mobi` + `Vol1.azw3`）时只保留一份，`--ext-priority` 控制保留优先级（默认 azw3）
 - **自然排序** — 按页码自然排序，避免 `10.jpg` 排在 `2.jpg` 前面
@@ -41,12 +41,12 @@
 - **预处理过滤** — 0 字节、文件头损坏（偏移 60 处无 `BOOKMOBI` 魔数）的电子书在预处理阶段直接跳过，日志输出跳过文件完整路径与原因
 - **大小下限过滤** — `--min-size BYTES` 过滤小于指定字节数的电子书（不带数字默认 1000，`0` 关闭，不传则关闭大小过滤），兜住头部恰好完整但内容被截断的边缘损坏样本
 - **试运行模式** — `--dry-run` 只扫描与打印转换流程，不实际解压打包，适合先确认转换结果
-- **断点续跑** — 目标 CBZ 已存在且完整性校验有效时直接跳过（SKIP），损坏/无效自动重新转换；`--overwrite` 无条件覆盖
+- **断点续跑** — 目标 CBZ 已存在且完整性校验有效时直接跳过（SKIP）；源文件比 CBZ 更新时自动重新转换；损坏/无效自动重新转换；`--overwrite` 无条件覆盖
 - **失败分类** — 转换失败按原因分类统计（timeout / drm / corrupt / no_images / comicinfo / verify / other），汇总输出各类失败数量
 - **检查模式支持 CBZ** — `--inspect` 可直接检查 `.cbz` 文件（纯 zipfile 读取不解压）；封面行加分辨率+大小、格式统计加总文件数、Spine 前 5 列表每行加宽高
-- **ComicInfo 字段覆盖** — `--setinfo FIELD=VALUE` 覆盖/新增 ComicInfo 字段（优先级最高），VALUE 支持固定值 / `%series` / `%number` / `%title` / `%filename` / `%leftN` / `%rightN` 占位符，可多次指定；CBZ 修改模式直接重写 zip
+- **ComicInfo 字段覆盖** — `--setinfo FIELD=VALUE` 覆盖/新增 ComicInfo 字段（优先级最高），VALUE 支持固定值 / `%series` / `%number` / `%title` / `%filename` / `%leftN` / `%rightN` 占位符，可多次指定；字段名需在 ComicInfo 标准字段白名单内，白名单外字段 warning 忽略；输入为已有 CBZ 时直接修改其 ComicInfo.xml（未指定字段保留原值）
 - **日志自动命名** — `--log` 不带文件名时自动生成 `manga-mobi2cbz_YYYYMMDD_HHMMSS.log`（当前目录）
-- **解包查看** — `--unpack` 只解压不转换，输出到源文件同名子目录（已存在自动加序号避让），mobi 保留完整结构、cbz 直接解包
+- **解包查看** — `--unpack` 只解压不转换，输出到源文件同名子目录（已存在自动加序号避让），mobi 保留完整结构、cbz 直接解包（含 zip-slip 路径穿越防护）；`--unpack` / `--setinfo` 时也会收集 `.cbz` 输入
 - **耗时统计** — 每个文件转换耗时实时输出，汇总底部显示总耗时
 
 ## 支持的图片格式
@@ -181,7 +181,7 @@ python manga-mobi2cbz.py --version
 | `target`              | 电子书文件路径或包含电子书（.mobi/.azw/.azw3）的目录（必填）                                                                                                                                           |
 | `--language LANG`     | 输出语言：`auto` 按系统 locale 自动选择（zh 前缀→中文，zh-TW/zh-Hant→繁体中文，ja/Japanese→日文，否则→英文），或指定 `zh-CN`/`zh-TW`/`ja`/`en`（默认 `auto`）；兼容常见写法：`zh`/`cn`→zh-CN，`zhtw`/`tw`→zh-TW，`jp`→ja，`eng`→en |
 | `--delete`            | 转换成功后删除原始电子书文件（默认不删除）                                                                                                                                                            |
-| `--prefer`            | 双目录 mobi 时保留哪份：`mobi7` 或 `mobi8`（默认 `mobi8`）                                                                                                                                     |
+| `--prefer`            | 双目录 mobi 时保留哪份：`auto` / `mobi7` / `mobi8`（默认 `auto`）；`auto` 优先 mobi8、mobi8 无图片自动回退 mobi7；明确指定 `mobi7`/`mobi8` 时该目录无图片自动回退另一份                                                        |
 | `--drop-extra`        | 目录中有未被收集的多余图片时放弃追加（默认追加到 cbz 末尾）                                                                                                                                                 |
 | `--overwrite`         | 目标 cbz 已存在时强制重新生成（默认跳过）                                                                                                                                                          |
 | `--ext-priority EXTS` | 同目录同名（仅扩展名不同）时保留哪种格式：逗号分隔、顺序即优先级从高到低，仅接受 mobi/azw/azw3，默认 azw3；优先级未覆盖时回退兜底顺序 azw3→mobi→azw；与 `--prefer`（双目录选择）无关                                                                 |
@@ -198,8 +198,8 @@ python manga-mobi2cbz.py --version
 | `--inspect`           | 检查模式：位置参数为单个文件时直接检查该文件，为目录时随机抽查 1 个，只解包读取内部信息（元数据/结构/图片/分辨率/DRM 双重判断/NCX 目录），不生成 CBZ，结束自动清理临时目录                                                                                  |
 | `--inspect-all`       | 检查全部电子书（需配合 `--inspect` 使用，单独使用将自动启用 `--inspect`）                                                                                                                                |
 | `--no-comicinfo`      | 不生成 ComicInfo.xml（默认生成：向 CBZ 根目录写入 Title / Series / Number / Writer / Publisher / Year / LanguageISO / PageCount / Summary 漫画元数据）                                                |
-| `--setinfo FIELD=VALUE` | 覆盖/新增 ComicInfo 字段（可多次指定，优先级最高）：`FIELD` 为 ComicInfo 字段名，`VALUE` 支持固定值 / `%series` / `%number` / `%title` / `%filename` / `%leftN` / `%rightN` 占位符（对应值缺失时该字段不写入）；智能拆分：仅当逗号后紧跟"字段名="时才拆分，否则逗号视为值的一部分（如 `Summary=hello, world` 不拆分） |
-| `--unpack`            | 解包查看：只解压不转换，输出到各源文件所在目录的同名子目录（已存在自动加序号避让）；mobi 走 extract 保留完整结构，cbz 走 extractall |
+| `--setinfo FIELD=VALUE` | 覆盖/新增 ComicInfo 字段（可多次指定，优先级最高）：`FIELD` 为 ComicInfo 字段名（需在 ComicInfo 标准字段白名单内，白名单外 warning 忽略），`VALUE` 支持固定值 / `%series` / `%number` / `%title` / `%filename` / `%leftN` / `%rightN` 占位符（对应值缺失时该字段不写入）；智能拆分：仅当逗号后紧跟"字段名="时才拆分，否则逗号视为值的一部分（如 `Summary=hello, world` 不拆分）；输入为已有 `.cbz` 时直接修改其 ComicInfo.xml（未指定字段保留原值） |
+| `--unpack`            | 解包查看：只解压不转换，输出到各源文件所在目录的同名子目录（已存在自动加序号避让）；mobi 走 extract 保留完整结构，cbz 走 extractall（含 zip-slip 路径穿越防护）；`--unpack` / `--setinfo` 时也会收集 `.cbz` 输入 |
 | `--log FILE`          | 将全部输出追加写入指定日志文件；不带文件名时自动生成 `manga-mobi2cbz_YYYYMMDD_HHMMSS.log`（当前目录）                                                                                                  |
 | `--version`           | 显示版本号                                                                                                                                                                            |
 
@@ -225,7 +225,7 @@ A: 优先按 OPF spine 顺序（EPUB 标准阅读顺序）提取图片，绝大�
 A: 部分 mobi 的封面只由 OPF metadata 的 cover meta 指向、未被 spine 引用，按 spine 提取时会漏掉。脚本会自动扫描文件名含 cover/front 的图片，缺失时插入首位补齐；若封面已在 spine 列表中则保持原顺序。若封面文件名不含上述关键字，可能仍会遗漏，可改名后重转。
 
 **Q: 为什么有些 mobi 转换后体积很小？**
-A: 双目录 mobi（mobi7+mobi8）默认只保留 mobi8 一份，避免内容重复导致体积翻倍。如需保留 mobi7 请加 `--prefer mobi7`。
+A: 双目录 mobi（mobi7+mobi8）默认 `auto` 只保留有内容的一份（优先 mobi8，mobi8 无图片自动回退 mobi7），避免内容重复导致体积翻倍。如需强制保留 mobi7 请加 `--prefer mobi7`。
 
 **Q: 批量转换时遇到损坏/加密 mobi 卡住不动了？**
 A: 单文件转换默认有 600 秒超时（`--timeout` 可调），超时后会自动跳过该文件并计入失败，主流程继续处理后续文件。若你更早发现某个文件卡住，可用 `--timeout 30` 之类的较小值加快跳过，或用 `--quiet` 减少输出。
@@ -237,6 +237,29 @@ A: v1.9.0 起 `--output-dir` 默认保留相对输入的子目录结构（旧版
 A: 支持。v1.8.0 起输入扩展名扩展为 `.mobi` / `.azw` / `.azw3`，三种格式统一走同一转换链路；同目录同名不同扩展名时默认保留 azw3，可用 `--ext-priority` 调整。
 
 ## 更新日志
+
+### [2.2.0] - 2026-08-18
+
+#### 新增
+
+- **CBZ 修改模式** — 输入为已有 `.cbz` 且带 `--setinfo` 时直接修改其 ComicInfo.xml：读原 XML → 覆盖指定字段、未指定字段保留原值 → 临时文件 + 原子替换（`os.replace`）；纳入 `--dry-run` 预览 / 汇总统计 / `--log`
+- **setinfo 白名单** — `--setinfo` 字段名需在 ComicInfo 标准字段白名单内（39 个简单字段，Pages 复杂结构排除），白名单外字段输出 warning 并忽略
+- **源文件更新自动重转** — 断点续跑时比较源文件与目标 CBZ 的 mtime，源文件更新则自动重新转换
+- **`--unpack` / `--setinfo` 支持 CBZ 输入** — 收集阶段在 `--unpack` 或 `--setinfo` 时也收集 `.cbz` 文件
+- **`--prefer auto`（默认）** — 双目录 mobi 默认自动选择：优先 mobi8，mobi8 无图片自动回退 mobi7；明确指定 `mobi7`/`mobi8` 时该目录无图片自动回退另一份
+- **Summary HTML 清理** — ComicInfo 的 Summary 字段自动去除 HTML 标签（纯文本落盘）
+- **封面来源标记** — ComicInfo 的 Notes 字段追加 `CoverSource`（OPF guide / 文件名匹配）
+- **CBZ 预处理** — `.cbz` 输入同样执行 0 字节 / `--min-size` 检查
+- **`--inspect` PageCount 一致性检查** — 比对 CBZ 内 ComicInfo 的 PageCount 与实际图片数，不一致时提示
+
+#### 变更
+
+- **`--unpack` 路径安全** — cbz 解包增加 zip-slip 路径穿越防护（拒绝 `..` / 绝对路径条目），并输出解包汇总
+- **多 OPF 提示** — 目录下存在多个 `.opf` 时输出 warning 并取第一个
+- **损坏 CBZ 重转原因** — 断点续跑遇损坏 CBZ 自动重转时输出 `validate_cbz` 的具体失败原因
+- **HTML 图片路径兼容** — 提取 `<img>` 时去除 src 中的 query / fragment（`?` / `#`）再拼本地路径
+- **目录创建时机** — 目标 CBZ 已存在且将 SKIP 时不再提前创建输出目录
+- **代码卫生** — `ebook_to_cbz` 返回类型注解补全三元组；`_auto_language` 末尾显式标注
 
 ### [2.1.0] - 2026-08-17
 
