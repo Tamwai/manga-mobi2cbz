@@ -3,7 +3,7 @@
 manga-mobi2cbz — 将 mobi/azw/azw3 电子书漫画文件批量转换为 cbz 格式（OPF spine 排序 + 封面兜底增强版）
 
 用法:
-    python manga-mobi2cbz.py <目录或文件路径> [--language auto|zh-CN|zh-TW|ja|en] [--delete] [--prefer mobi7|mobi8] [--ext-priority EXTS] [--drop-extra] [--overwrite] [--timeout SECONDS] [--output-dir DIR] [--flatten] [--dry-run] [--progress|--no-progress] [--quiet] [--short-summary] [--compress LEVEL] [--inspect] [--inspect-all] [--no-comicinfo] [--setinfo FIELD=VALUE] [--unpack] [--log FILE]
+    python manga-mobi2cbz.py <目录或文件路径> [--language auto|zh-CN|zh-TW|ja|en] [--delete] [--prefer mobi7|mobi8|auto] [--ext-priority EXTS] [--drop-extra] [--overwrite] [--timeout SECONDS] [--output-dir DIR] [--flatten] [--dry-run] [--progress|--no-progress] [--quiet] [--short-summary] [--compress LEVEL] [--inspect] [--inspect-all] [--no-comicinfo] [--setinfo FIELD=VALUE] [--unpack] [--log FILE]
 
 示例:
     # 转换整个文件夹（递归搜索所有 .mobi/.azw/.azw3）
@@ -62,7 +62,9 @@ manga-mobi2cbz — 将 mobi/azw/azw3 电子书漫画文件批量转换为 cbz �
                      zh-TW/zh-Hant→繁体中文，ja/Japanese→日文，
                      否则→英文），或指定 zh-CN/zh-TW/ja/en
     --delete         转换成功后删除原始电子书文件
-    --prefer         双目录 mobi（mobi7/mobi8）时保留哪份，默认 mobi8
+    --prefer         双目录 mobi（mobi7/mobi8）时保留哪份：auto 默认优先 mobi8、
+                     空壳自动回退 mobi7；指定 mobi7/mobi8 时，指定目录为空
+                     也自动回退另一份（默认 auto）
     --ext-priority EXTS 同目录同名（仅扩展名不同）时保留哪种格式，
                      逗号分隔、顺序即优先级从高到低，仅接受
                      mobi/azw/azw3，默认 azw3；优先级未覆盖时
@@ -111,6 +113,38 @@ manga-mobi2cbz — 将 mobi/azw/azw3 电子书漫画文件批量转换为 cbz �
 要求: Python 3.10+
 
 更新日志:
+    v2.2.0 (2026-08-18)
+        - 新增 CBZ 修改模式：输入为已有 .cbz 且带 --setinfo 时直接修改
+          其 ComicInfo.xml，读原 XML → 覆盖指定字段、未指定字段保留原值
+          （含命名空间字段）→ 临时文件 + os.replace 原子替换；纳入
+          --dry-run 预览 / 汇总统计 / --log
+        - setinfo 白名单：--setinfo 字段名需在 ComicInfo 标准字段白名单
+          内（39 个简单字段，Pages 复杂结构排除），白名单外字段输出
+          warning 并忽略
+        - 源文件更新自动重转：断点续跑时比较源文件与目标 CBZ 的 mtime，
+          源文件更新则自动重新转换
+        - --unpack / --setinfo 支持 CBZ 输入：收集阶段在 --unpack 或
+          --setinfo 时也收集 .cbz 文件
+        - --prefer auto（默认）：双目录 mobi 默认自动选择，优先 mobi8，
+          mobi8 无图片自动回退 mobi7；明确指定 mobi7/mobi8 时该目录无
+          图片自动回退另一份
+        - Summary HTML 清理：ComicInfo 的 Summary 字段自动去除 HTML 标签
+          （纯文本落盘）
+        - 封面来源标记：ComicInfo 的 Notes 字段追加 CoverSource
+          （OPF guide / 文件名匹配）
+        - CBZ 预处理：.cbz 输入同样执行 0 字节 / --min-size 检查
+        - --inspect PageCount 一致性检查：比对 CBZ 内 ComicInfo 的
+          PageCount 与实际图片数，不一致时提示
+        - --unpack 路径安全：cbz 解包增加 zip-slip 路径穿越防护（拒绝
+          ../ 与绝对路径条目），并输出解包汇总
+        - 多 OPF 提示：目录下存在多个 .opf 时输出 warning 并取第一个
+        - 损坏 CBZ 重转原因：断点续跑遇损坏 CBZ 自动重转时输出
+          validate_cbz 的具体失败原因
+        - HTML 图片路径兼容：提取 <img> 时去除 src 中的 query/fragment
+          （? / #）再拼本地路径
+        - 目录创建时机：目标 CBZ 已存在且将 SKIP 时不再提前创建输出目录
+        - 代码卫生：ebook_to_cbz 返回类型注解补全三元组；_auto_language
+          末尾显式标注
     v2.1.0 (2026-08-17)
         - 断点续跑（默认行为）：目标 CBZ 已存在且 validate_cbz 校验有效
           时直接 SKIP，损坏/无效自动重转；--overwrite 无条件覆盖
@@ -375,7 +409,7 @@ manga-mobi2cbz — 将 mobi/azw/azw3 电子书漫画文件批量转换为 cbz �
           EOCD + testzip 完整性校验、失败清理半成品
 """
 
-__version__ = "2.1.0"
+__version__ = "2.2.0"
 
 SCRIPT_NAME = "manga-mobi2cbz"
 
@@ -391,6 +425,7 @@ import zipfile
 import argparse
 import traceback
 import xml.etree.ElementTree as ET
+import html
 from html.parser import HTMLParser
 from urllib.parse import unquote
 from enum import Enum
@@ -417,7 +452,7 @@ LANGUAGES = {
         "help.language": "输出语言：auto 按系统语言自动选择（zh 前缀→中文，zh-TW/zh-Hant→繁体中文，ja/Japanese→日文，否则→英文），或指定 zh-CN/zh-TW/ja/en（兼容 zh/cn/zhtw/jp 等常见写法）",
         "help.target": "电子书文件路径或包含电子书（.mobi/.azw/.azw3）的目录",
         "help.delete": "转换成功后删除原始电子书文件",
-        "help.prefer": "双目录 mobi（mobi7/mobi8）时保留哪份，默认 mobi8",
+        "help.prefer": "双目录 mobi（mobi7/mobi8）时保留哪份：auto 默认优先 mobi8、空壳自动回退 mobi7；指定 mobi7/mobi8 时，指定目录为空也自动回退另一份",
         "help.ext_priority": "同目录同名（仅扩展名不同）时保留哪种格式：逗号分隔、顺序即优先级从高到低，仅接受 mobi/azw/azw3，默认 azw3；优先级未覆盖时回退兜底顺序 azw3→mobi→azw；与 --prefer（双目录选择）无关",
         "help.drop_extra": "目录中有未被收集的多余图片时放弃追加（默认追加到 cbz 末尾）",
         "help.overwrite": "目标 cbz 已存在时强制重新生成（默认跳过）",
@@ -473,17 +508,20 @@ LANGUAGES = {
         "dedupe.fallback": "  [去重] 同名扩展名优先级 [{priority}] 未覆盖该组，回退兜底顺序: {order}",
         "dedupe.reason": "同目录同名，按 --ext-priority {priority} 保留 {name}",
         "dedupe.both_dirs": "  [去重] 检测到双目录，保留 {dir}",
+        "dedupe.auto_fallback": "  [去重] 双目录，mobi8 为空壳，自动回退 mobi7",
+        "dedupe.prefer_empty_fallback": "  [去重] 指定保留 {prefer} 但该目录无图片，自动回退 {fallback}",
         # ---- 目录对齐 ----
         "align.drop": "  [提示] 目录中 {count} 张图片未被收集，已按 --drop-extra 放弃",
         "align.append": "  [提示] 目录中 {count} 张图片未被收集，已追加到末尾",
         # ---- 【转换】转换流程 ----
         "convert.skip_exists": "  [跳过] 目标已存在: {name}",
-        "convert.skip_corrupt_reconvert": "  [提示] 目标 {name} 已存在但校验失败，自动重新转换",
+        "convert.skip_corrupt_reconvert": "  [提示] 目标 {name} 已存在但校验失败（{reason}），自动重新转换",
         "convert.overwrite": "  [覆盖] 已删除旧文件，重新生成: {name}",
         "convert.spine": "  [排序] 按 OPF spine 顺序（{count} 张图片）",
         "convert.spine_empty": "  [排序] spine 提取为空，兜底按文件名排序（{count} 张）",
         "convert.dedup_physical": "  [去重] 跳过 {count} 个物理重复文件（同一文件重复出现，未写入 CBZ）",
         "convert.no_opf": "  [排序] 未找到 OPF，兜底按文件名排序（{count} 张）",
+        "convert.multi_opf": "  [排序] 检测到 {count} 个 OPF 文件，使用第一个: {first}",
         "convert.no_images": "  [失败] 未找到图片: {name}",
         "convert.drm_hint": "  [提示] 可能为 DRM 加密的 Kindle 漫画，mobi 库无法解密，请先去除 DRM 后再转换",
         "convert.count_mismatch": "  [提示] 目录共 {total} 张图片，收集 {collected} 张，数量不一致",
@@ -596,6 +634,19 @@ LANGUAGES = {
     "output.flatten_requires_dir": "--flatten 需配合 --output-dir 使用，请同时指定输出目录",
     "error.flatten_without_output_dir": "--flatten 必须与 --output-dir 一起使用（无 --output-dir 时无法平铺）",
     "rel_fallback": "  [警告] 无法计算 {name} 的相对子目录路径（可能跨盘符），回退输出到输出目录根下: {path}",
+    # ---- 【修改】CBZ ComicInfo 修改模式 ----
+    "modify.header": "  [修改] 共 {count} 个 CBZ 将更新 ComicInfo.xml",
+    "modify.plan": "  [将修改] {name}",
+    "modify.done": "  [修改] {name}：ComicInfo.xml 已更新",
+    "modify.nochange": "  [修改] {name}：无字段变化，未改动",
+    "modify.fail": "  [失败] {name}: {err}",
+    "modify.stats": "  修改完成：成功 {success}，无变化 {nochange}，失败 {fail}",
+    "modify.failed_reasons": "修改失败原因: {summary}",
+    "modify.dryrun_end": "  试运行结束：未实际修改任何 CBZ",
+    "progress.desc.modify": "修改中",
+    "setinfo.whitelist_skip": "  [警告] {field} 不在 ComicInfo 白名单，已忽略",
+    "convert.source_newer_reconvert": "  [提示] 目标 {name} 已存在但源文件更新，自动重新转换",
+    "inspect.pagecount_mismatch": "  [提示] ComicInfo PageCount={declared} 与实际图片数 {actual} 不一致",
     },
     "zh-TW": {
         "error.missing_dependency": "【致命錯誤】缺少核心依賴 mobi，請執行安裝命令：",
@@ -607,7 +658,7 @@ LANGUAGES = {
         "help.language": "輸出語言：auto 按系統語言自動選擇（zh 前綴→中文，zh-TW/zh-Hant→繁體中文，ja/Japanese→日文，否則→英文），或指定 zh-CN/zh-TW/ja/en（相容 zh/cn/zhtw/jp 等常見寫法）",
         "help.target": "電子書檔案路徑或包含電子書（.mobi/.azw/.azw3）的目錄",
         "help.delete": "轉換成功後刪除原始電子書檔案",
-        "help.prefer": "雙目錄 mobi（mobi7/mobi8）時保留哪份，預設 mobi8",
+        "help.prefer": "雙目錄 mobi（mobi7/mobi8）時保留哪份：auto 預設優先 mobi8、空殼自動回退 mobi7；指定 mobi7/mobi8 時，指定目錄為空也自動回退另一份",
         "help.ext_priority": "同目錄同名（僅副檔名不同）時保留哪種格式：逗號分隔、順序即優先級從高到低，僅接受 mobi/azw/azw3，預設 azw3；優先級未覆蓋時回退兜底順序 azw3→mobi→azw；與 --prefer（雙目錄選擇）無關",
         "help.drop_extra": "目錄中有未被收集的多餘圖片時放棄追加（預設追加到 cbz 末尾）",
         "help.overwrite": "目標 cbz 已存在時強制重新生成（預設跳過）",
@@ -663,6 +714,8 @@ LANGUAGES = {
         "dedupe.fallback": "  [去重] 同名副檔名優先級 [{priority}] 未覆蓋該組，回退兜底順序: {order}",
         "dedupe.reason": "同目錄同名，按 --ext-priority {priority} 保留 {name}",
         "dedupe.both_dirs": "  [去重] 偵測到雙目錄，保留 {dir}",
+        "dedupe.auto_fallback": "  [去重] 雙目錄，mobi8 為空殼，自動回退 mobi7",
+        "dedupe.prefer_empty_fallback": "  [去重] 指定保留 {prefer} 但該目錄無圖片，自動回退 {fallback}",
         # ---- 目录对齐 ----
         "align.drop": "  [提示] 目錄中 {count} 張圖片未被收集，已按 --drop-extra 放棄",
         "align.append": "  [提示] 目錄中 {count} 張圖片未被收集，已追加到末尾",
@@ -674,6 +727,7 @@ LANGUAGES = {
         "convert.spine_empty": "  [排序] spine 提取為空，兜底按檔名排序（{count} 張）",
         "convert.dedup_physical": "  [去重] 跳過 {count} 個物理重複檔案（同一檔案重複出現，未寫入 CBZ）",
         "convert.no_opf": "  [排序] 未找到 OPF，兜底按檔名排序（{count} 張）",
+        "convert.multi_opf": "  [排序] 偵測到 {count} 個 OPF 檔案，使用第一個: {first}",
         "convert.no_images": "  [失敗] 未找到圖片: {name}",
         "convert.drm_hint": "  [提示] 可能為 DRM 加密的 Kindle 漫畫，mobi 函式庫無法解密，請先去除 DRM 後再轉換",
         "convert.count_mismatch": "  [提示] 目錄共 {total} 張圖片，收集 {collected} 張，數量不一致",
@@ -786,6 +840,19 @@ LANGUAGES = {
     "output.flatten_requires_dir": "--flatten 需配合 --output-dir 使用，請同時指定輸出目錄",
     "error.flatten_without_output_dir": "--flatten 必須與 --output-dir 一起使用（無 --output-dir 時無法平鋪）",
     "rel_fallback": "  [警告] 無法計算 {name} 的相對子目錄路徑（可能跨磁碟），回退輸出到輸出目錄根下: {path}",
+    # ---- 【修改】CBZ ComicInfo 修改模式 ----
+    "modify.header": "  [修改] 共 {count} 個 CBZ 將更新 ComicInfo.xml",
+    "modify.plan": "  [將修改] {name}",
+    "modify.done": "  [修改] {name}：ComicInfo.xml 已更新",
+    "modify.nochange": "  [修改] {name}：無欄位變化，未改動",
+    "modify.fail": "  [失敗] {name}: {err}",
+    "modify.stats": "  修改完成：成功 {success}，無變化 {nochange}，失敗 {fail}",
+    "modify.failed_reasons": "修改失敗原因: {summary}",
+    "modify.dryrun_end": "  試運行結束：未實際修改任何 CBZ",
+    "progress.desc.modify": "修改中",
+    "setinfo.whitelist_skip": "  [警告] {field} 不在 ComicInfo 白名單，已忽略",
+    "convert.source_newer_reconvert": "  [提示] 目標 {name} 已存在但來源檔案更新，自動重新轉換",
+    "inspect.pagecount_mismatch": "  [提示] ComicInfo PageCount={declared} 與實際圖片數 {actual} 不一致",
     },
     "en": {
         "error.missing_dependency": "[Fatal Error] Missing required dependency mobi. Install with:",
@@ -797,7 +864,7 @@ LANGUAGES = {
         "help.language": "Output language: auto picks by system locale (zh prefix->Chinese, zh-TW/zh-Hant->Traditional Chinese, ja/Japanese->Japanese, otherwise->English), or choose zh-CN/zh-TW/ja/en (tolerant of common variants like zh/cn/zhtw/jp)",
         "help.target": "Path to an ebook file or a directory containing ebooks (.mobi/.azw/.azw3)",
         "help.delete": "Delete the original ebook file after successful conversion",
-        "help.prefer": "Which directory to keep when both mobi7/mobi8 exist, default mobi8",
+        "help.prefer": "Which directory to keep when both mobi7/mobi8 exist: auto (default) prefers mobi8 and falls back to mobi7 if empty; when mobi7/mobi8 is specified, falls back to the other if the chosen one is empty",
         "help.ext_priority": "When same-name files differ only by extension in the same directory, which format to keep: comma-separated, order is priority high->low, only mobi/azw/azw3 accepted, default azw3; falls back to azw3->mobi->azw when not covered; unrelated to --prefer (mobi7/mobi8 selection)",
         "help.drop_extra": "Drop extra images not collected from the directory (default: append them to the end of the cbz)",
         "help.overwrite": "Force regenerate when the target cbz already exists (default: skip)",
@@ -853,17 +920,20 @@ LANGUAGES = {
         "dedupe.fallback": "  [Dedup] Priority [{priority}] did not cover this group, falling back to default order: {order}",
         "dedupe.reason": "Same name in same directory, kept {name} per --ext-priority {priority}",
         "dedupe.both_dirs": "  [Dedup] Both directories detected, keeping {dir}",
+        "dedupe.auto_fallback": "  [Dedup] Dual directories, mobi8 is empty, auto fallback to mobi7",
+        "dedupe.prefer_empty_fallback": "  [Dedup] {prefer} specified but has no images, auto fallback to {fallback}",
         # ---- 目录对齐 ----
         "align.drop": "  [Info] {count} images in the directory were not collected, dropped per --drop-extra",
         "align.append": "  [Info] {count} images in the directory were not collected, appended to the end",
         # ---- 【转换】转换流程 ----
         "convert.skip_exists": "  [Skip] Target already exists: {name}",
-        "convert.skip_corrupt_reconvert": "  [Info] Target {name} exists but failed validation, reconverting automatically",
+        "convert.skip_corrupt_reconvert": "  [Info] Target {name} exists but failed validation ({reason}), reconverting automatically",
         "convert.overwrite": "  [Overwrite] Deleted old file, regenerating: {name}",
         "convert.spine": "  [Sort] Using OPF spine order ({count} images)",
         "convert.spine_empty": "  [Sort] spine extraction empty, fell back to filename order ({count} images)",
         "convert.dedup_physical": "  [Dedup] Skipped {count} physically duplicate file(s) (same file appeared more than once, not written to CBZ)",
         "convert.no_opf": "  [Sort] No OPF found, fell back to filename order ({count} images)",
+        "convert.multi_opf": "  [Sort] {count} OPF files detected, using the first: {first}",
         "convert.no_images": "  [Failed] No images found: {name}",
         "convert.drm_hint": "  [Info] Possibly a DRM-protected Kindle comic; the mobi library cannot decrypt it. Remove DRM first and retry",
         "convert.count_mismatch": "  [Info] Directory has {total} images but {collected} were collected; count mismatch",
@@ -976,6 +1046,19 @@ LANGUAGES = {
     "output.flatten_requires_dir": "--flatten requires --output-dir; please specify an output directory too",
     "error.flatten_without_output_dir": "--flatten must be used together with --output-dir (cannot flatten without an output directory)",
     "rel_fallback": "  [Warning] Cannot compute relative subdirectory path for {name} (possibly crossing drives), falling back to the root of the output directory: {path}",
+    # ---- 【Modify】CBZ ComicInfo modification mode ----
+    "modify.header": "  [Modify] {count} CBZ file(s) will have ComicInfo.xml updated",
+    "modify.plan": "  [will modify] {name}",
+    "modify.done": "  [Modified] {name}: ComicInfo.xml updated",
+    "modify.nochange": "  [Modified] {name}: no field changes, untouched",
+    "modify.fail": "  [Failed] {name}: {err}",
+    "modify.stats": "  Modify done: success {success}, unchanged {nochange}, failed {fail}",
+    "modify.failed_reasons": "Modify failure reasons: {summary}",
+    "modify.dryrun_end": "  Dry-run finished: no CBZ was actually modified",
+    "progress.desc.modify": "Modifying",
+    "setinfo.whitelist_skip": "  [Warning] {field} is not in the ComicInfo whitelist, ignored",
+    "convert.source_newer_reconvert": "  [Info] Target {name} exists but the source is newer, reconverting automatically",
+    "inspect.pagecount_mismatch": "  [Info] ComicInfo PageCount={declared} does not match actual image count {actual}",
     },
     "ja": {
         "error.missing_dependency": '【致命的エラー】必須依存ライブラリ mobi がありません。インストールを実行してください：',
@@ -987,7 +1070,7 @@ LANGUAGES = {
         "help.language": '出力言語：auto はシステム言語で自動判定（zh プレフィックス→中国語、zh-TW/zh-Hant→繁体字中国語、ja/Japanese→日本語、それ以外→英語）、または zh-CN/zh-TW/ja/en を指定（zh/cn/zhtw/jp などの一般的な表記も許容）',
         "help.target": '電子書籍ファイルのパス、または電子書籍（.mobi/.azw/.azw3）を含むディレクトリ',
         "help.delete": '変換成功後に元の電子書籍ファイルを削除',
-        "help.prefer": '二重ディレクトリ mobi（mobi7/mobi8）がある場合にどちらを残すか、デフォルトは mobi8',
+        "help.prefer": '二重ディレクトリ mobi（mobi7/mobi8）がある場合にどちらを残すか：auto（デフォルト）は mobi8 優先、空なら mobi7 に自動フォールバック。mobi7/mobi8 指定時も、指定先が空ならもう一方に自動フォールバック',
         "help.ext_priority": '同じディレクトリで同名（拡張子のみ異なる）の場合にどの形式を残すか：カンマ区切り、順序が優先度（高→低）、mobi/azw/azw3 のみ指定可能、デフォルト azw3；優先度がカバーしない場合は azw3→mobi→azw にフォールバック；--prefer（二重ディレクトリ選択）とは無関係',
         "help.drop_extra": 'ディレクトリ内で収集されなかった余分な画像を追加しない（デフォルトは cbz 末尾に追加）',
         "help.overwrite": '対象 cbz が既に存在する場合に強制的に再生成（デフォルトはスキップ）',
@@ -1043,17 +1126,20 @@ LANGUAGES = {
         "dedupe.fallback": '  [重複除去] 拡張子優先度 [{priority}] がこのグループをカバーしていないため、フォールバック順に戻ります: {order}',
         "dedupe.reason": '同じディレクトリで同名のため、--ext-priority {priority} に従い {name} を保持',
         "dedupe.both_dirs": '  [重複除去] 二重ディレクトリを検出、{dir} を保持',
+        "dedupe.auto_fallback": '  [重複除去] 二重ディレクトリ、mobi8 が空のため mobi7 に自動フォールバック',
+        "dedupe.prefer_empty_fallback": '  [重複除去] {prefer} を指定したが画像なし、{fallback} に自動フォールバック',
         # ---- 目录对齐 ----
         "align.drop": '  [情報] ディレクトリ内の未収集画像 {count} 枚を --drop-extra により破棄',
         "align.append": '  [情報] ディレクトリ内の未収集画像 {count} 枚を末尾に追加',
         # ---- 【转换】转换流程 ----
         "convert.skip_exists": '  [スキップ] 対象は既に存在: {name}',
-        "convert.skip_corrupt_reconvert": '  [情報] 対象 {name} は存在しますが検証に失敗したため、自動的に再変換します',
+        "convert.skip_corrupt_reconvert": '  [情報] 対象 {name} は存在しますが検証に失敗したため（{reason}）、自動的に再変換します',
         "convert.overwrite": '  [上書き] 古いファイルを削除し再生成: {name}',
         "convert.spine": '  [ソート] OPF spine 順に抽出（{count} 枚）',
         "convert.spine_empty": '  [ソート] spine 抽出が空のため、ファイル名順にフォールバック（{count} 枚）',
         "convert.dedup_physical": '  [重複排除] 物理的に重複する {count} ファイルをスキップ（同一ファイルが重複出現、CBZ に書き込みません）',
         "convert.no_opf": '  [ソート] OPF が見つからないため、ファイル名順にフォールバック（{count} 枚）',
+        "convert.multi_opf": '  [ソート] OPF ファイルが {count} 個検出、最初のものを使用: {first}',
         "convert.no_images": '  [失敗] 画像が見つかりません: {name}',
         "convert.drm_hint": '  [情報] DRM 暗号化された Kindle 漫画の可能性があります。mobi ライブラリでは復号できないため、DRM を除去してから再変換してください',
         "convert.count_mismatch": '  [情報] ディレクトリ内の画像は {total} 枚、収集は {collected} 枚で不一致',
@@ -1166,6 +1252,19 @@ LANGUAGES = {
     "output.flatten_requires_dir": "--flatten は --output-dir と併用してください。出力ディレクトリも指定してください",
     "error.flatten_without_output_dir": "--flatten は --output-dir と一緒に使用する必要があります（出力ディレクトリなしではフラット化できません）",
     "rel_fallback": "  [警告] {name} の相対サブディレクトリパスを計算できません（ドライブをまたいでいる可能性）。出力ディレクトリのルートにフォールバックします: {path}",
+    # ---- 【変更】CBZ ComicInfo 変更モード ----
+    "modify.header": '  [変更] 合計 {count} 個の CBZ の ComicInfo.xml を更新します',
+    "modify.plan": '  [変更予定] {name}',
+    "modify.done": '  [変更] {name}: ComicInfo.xml を更新しました',
+    "modify.nochange": '  [変更] {name}: フィールド変更なし、変更なし',
+    "modify.fail": '  [失敗] {name}: {err}',
+    "modify.stats": '  変更完了：成功 {success}、変更なし {nochange}、失敗 {fail}',
+    "modify.failed_reasons": '変更失敗理由: {summary}',
+    "modify.dryrun_end": '  試行終了：実際にはどの CBZ も変更されていません',
+    "progress.desc.modify": '変更中',
+    "setinfo.whitelist_skip": '  [警告] {field} は ComicInfo ホワイトリストにありません。無視します',
+    "convert.source_newer_reconvert": '  [情報] 対象 {name} は存在しますがソースが新しいため、自動的に再変換します',
+    "inspect.pagecount_mismatch": '  [情報] ComicInfo の PageCount={declared} は実際の画像数 {actual} と一致しません',
     },
 }
 
@@ -1202,6 +1301,7 @@ def _auto_language() -> str:
             if marker in lc:
                 return "zh-TW"
         return "zh-CN"
+    # 其余为 ja 前缀（日文），显式返回 ja
     return "ja"
 
 
@@ -1513,7 +1613,12 @@ def precheck_ebook(p: Path, min_bytes: int) -> str | None:
     """
     try:
         if p.suffix.lower() == ".cbz":
-            # CBZ 为 zip 容器，无 BOOKMOBI 魔数，--inspect 模式下直接放行
+            # CBZ 为 zip 容器，无 BOOKMOBI 魔数；仍做大小下限与 0 字节检查
+            size = p.stat().st_size
+            if min_bytes > 0 and size < min_bytes:
+                return t("precheck.small", size=size, min=min_bytes)
+            if size == 0:
+                return t("precheck.zero")
             return None
         size = p.stat().st_size
         if min_bytes > 0 and size < min_bytes:
@@ -1634,10 +1739,13 @@ def target_cbz_path(ebook_path: Path, output_dir: Path | None, flatten: bool = F
 
 
 def find_opf(base_dir: Path) -> Path | None:
-    """在目录下递归查找 .opf 文件"""
-    for p in base_dir.rglob("*.opf"):
-        return p
-    return None
+    """在目录下递归查找 .opf 文件；存在多个时输出 warning 并取第一个"""
+    found = list(base_dir.rglob("*.opf"))
+    if not found:
+        return None
+    if len(found) > 1:
+        emit(t("convert.multi_opf", count=len(found), first=found[0].name), level="warning")
+    return found[0]
 
 
 class HtmlImgParser(HTMLParser):
@@ -1694,7 +1802,9 @@ def extract_images_from_html(html_path: Path) -> list[Path]:
         for src in srcs:
             if src.startswith(("data:", "http://", "https://", "//")):
                 continue
-            img_path = (base_dir / src).resolve()
+            # 兼容带 query/fragment 的 src（如 image.jpg?width=800 / image.jpg#page1）
+            clean = src.split("?", 1)[0].split("#", 1)[0]
+            img_path = (base_dir / clean).resolve()
             if img_path.exists() and img_path.suffix.lower() in IMAGE_EXTENSIONS:
                 result.append(img_path)
         return result
@@ -1820,16 +1930,32 @@ def collect_images_fallback(base_dir: Path) -> list[Path]:
 
     # 输入：mobi.extract 解包出的临时目录与 prefer（mobi7/mobi8）；输出：实际使用的子目录路径
 def select_mobi_dir(tempdir: Path, prefer: str) -> Path:
-    """根据 prefer 参数选择 mobi7 或 mobi8 目录；如果只有一份则返回那一份"""
+    """根据 prefer 参数选择 mobi7 或 mobi8 目录；如果只有一份则返回那一份。
+
+    prefer: "auto"（默认）双目录时优先 mobi8，mobi8 为空壳（无图片）自动回退 mobi7；
+            明确指定 mobi7/mobi8 时，若指定目录为空但另一份有图片，warning 后回退到另一份。
+    """
     mobi7_dir = tempdir / "mobi7"
     mobi8_dir = tempdir / "mobi8"
 
     has7 = mobi7_dir.is_dir()
     has8 = mobi8_dir.is_dir()
 
+    def _has_images(d: Path) -> bool:
+        return any(p.suffix.lower() in IMAGE_EXTENSIONS for p in d.rglob("*") if p.is_file())
+
     if has7 and has8:
         chosen = mobi7_dir if prefer == "mobi7" else mobi8_dir
-        emit(t("dedupe.both_dirs", dir="mobi7" if prefer == "mobi7" else "mobi8"))
+        fallback = mobi8_dir if chosen is mobi7_dir else mobi7_dir
+        if not _has_images(chosen) and _has_images(fallback):
+            if prefer == "auto":
+                emit(t("dedupe.auto_fallback"), level="warning")
+            else:
+                emit(t("dedupe.prefer_empty_fallback",
+                       prefer="mobi7" if chosen is mobi7_dir else "mobi8",
+                       fallback="mobi8" if chosen is mobi7_dir else "mobi7"), level="warning")
+            chosen = fallback
+        emit(t("dedupe.both_dirs", dir="mobi7" if chosen is mobi7_dir else "mobi8"))
         return chosen
     if has8:
         return mobi8_dir
@@ -1840,10 +1966,10 @@ def select_mobi_dir(tempdir: Path, prefer: str) -> Path:
 
 
     # 输入：电子书路径与转换选项（delete/prefer/drop_extra/overwrite/output_dir/compress）；输出：(cbz 路径或 None, ConvStatus)
-def ebook_to_cbz(ebook_path: Path, delete_original: bool = False, prefer: str = "mobi8", drop_extra: bool = False, overwrite: bool = False, output_dir: Path | None = None, compress: int = 0, flatten: bool = False, input_root: Path | None = None, used_names: set | None = None, comicinfo: bool = True, setinfo_args: list | None = None) -> tuple[Path | None, ConvStatus]:
+def ebook_to_cbz(ebook_path: Path, delete_original: bool = False, prefer: str = "mobi8", drop_extra: bool = False, overwrite: bool = False, output_dir: Path | None = None, compress: int = 0, flatten: bool = False, input_root: Path | None = None, used_names: set | None = None, comicinfo: bool = True, setinfo_args: list | None = None) -> tuple[Path | None, ConvStatus, str | None]:
     """将单个 mobi 文件转换为 cbz
 
-    prefer: 双目录 mobi（mobi7/mobi8）时保留哪份，默认 "mobi8"
+    prefer: "auto"（默认）双目录时优先 mobi8，mobi8 为空壳（无图片）自动回退 mobi7
     drop_extra: 目录中有未被收集的多余图片时放弃追加，默认追加到末尾
     overwrite: 目标 cbz 已存在时强制重新生成（默认跳过）
     output_dir: 指定 CBZ 输出目录（自动创建），默认与源 mobi 同目录
@@ -1852,22 +1978,32 @@ def ebook_to_cbz(ebook_path: Path, delete_original: bool = False, prefer: str = 
     used_names: 平铺唯一化已占用名集合（仅 dry-run 模拟占用，实跑以磁盘存在性为准）
     comicinfo: 是否生成 ComicInfo.xml（默认生成，--no-comicinfo 关闭）
 
-    返回 (结果, 状态)：状态为 ConvStatus 枚举，
-    - OK: 转换成功，结果为 cbz 路径
-    - SKIP: 目标已存在且未指定 --overwrite，结果为 None
-    - FAIL: 转换失败，结果为 None
+    返回 (结果, 状态, 原因)：状态为 ConvStatus 枚举，
+    - OK: 转换成功，结果为 cbz 路径，原因为 None
+    - SKIP: 目标已存在且未指定 --overwrite，结果为 None，原因为 None
+    - FAIL: 转换失败，结果为 None，原因为失败分类（no_images/drm/comicinfo/verify/other）
     """
-    if output_dir is not None:
-        output_dir.mkdir(parents=True, exist_ok=True)
     cbz_path = target_cbz_path(ebook_path, output_dir, flatten=flatten, input_root=input_root, used_names=used_names)
-    cbz_path.parent.mkdir(parents=True, exist_ok=True)
     # 断点续跑：目标已存在（磁盘）且未指定 --overwrite 时，校验有效才跳过；损坏自动重转
     if cbz_path.exists() and not overwrite:
-        ok, _ = validate_cbz(cbz_path, require_comicinfo=comicinfo)
+        ok, err = validate_cbz(cbz_path, require_comicinfo=comicinfo)
         if ok:
-            emit(t("convert.skip_exists", name=cbz_path.name))
-            return None, ConvStatus.SKIP, None
-        emit(t("convert.skip_corrupt_reconvert", name=cbz_path.name), level="warning")
+            # 源文件比目标新时也重转（mtime 比较），避免旧转换结果残留
+            try:
+                src_newer = ebook_path.stat().st_mtime > cbz_path.stat().st_mtime
+            except OSError:
+                src_newer = False
+            if src_newer:
+                emit(t("convert.source_newer_reconvert", name=cbz_path.name), level="warning")
+            else:
+                emit(t("convert.skip_exists", name=cbz_path.name))
+                return None, ConvStatus.SKIP, None
+        else:
+            emit(t("convert.skip_corrupt_reconvert", name=cbz_path.name, reason=err), level="warning")
+    # SKIP 判断之后才创建输出目录，避免为跳过文件产生空目录
+    if output_dir is not None:
+        output_dir.mkdir(parents=True, exist_ok=True)
+    cbz_path.parent.mkdir(parents=True, exist_ok=True)
     if cbz_path.exists():
         cbz_path.unlink()
         emit(t("convert.overwrite", name=cbz_path.name))
@@ -1926,6 +2062,25 @@ def ebook_to_cbz(ebook_path: Path, delete_original: bool = False, prefer: str = 
             emit(t("convert.dedup_physical", count=len(images) - len(deduped)))
         images = deduped
 
+        # 封面来源判定（Notes 标记用）：OPF guide > 文件名关键字 > spine > first
+        cover_source = None
+        if images:
+            first = images[0]
+            guide_cover = None
+            if opf_path:
+                guide_cover = get_opf_guide_cover_href(opf_path)
+            if guide_cover:
+                try:
+                    clean = guide_cover.split("#", 1)[0]
+                    if norm_path((base_dir / clean).resolve()) == norm_path(first):
+                        cover_source = "OPF guide"
+                except Exception:
+                    pass
+            if cover_source is None and any(k in first.name.lower() for k in COVER_KEYWORDS):
+                cover_source = "filename"
+            if cover_source is None:
+                cover_source = "spine" if opf_path else "first"
+
         # Step 3.6: 生成 ComicInfo.xml（默认启用，--no-comicinfo 关闭）
         comicinfo_xml = None
         if comicinfo:
@@ -1935,7 +2090,7 @@ def ebook_to_cbz(ebook_path: Path, delete_original: bool = False, prefer: str = 
                 meta = collect_comicinfo_meta(opf_meta, exth_meta, ebook_path)
                 inferred = infer_series_number(ebook_path)
                 setinfo = parse_setinfo_args(setinfo_args, meta, inferred, ebook_path)
-                comicinfo_xml = build_comicinfo(meta, images, inferred, setinfo)
+                comicinfo_xml = build_comicinfo(meta, images, inferred, setinfo, cover_source=cover_source)
             except Exception:
                 comicinfo_xml = None
             if comicinfo_xml is None:
@@ -2322,6 +2477,20 @@ def _resolve_setinfo_value(raw: str, series, number, title, stem) -> str | None:
     return raw
 
 
+# ComicInfo.xml v2.1 标准简单字段白名单（39 个；Pages 为复杂结构不纳入）
+COMICINFO_WHITELIST = {
+    "Title", "Series", "Number", "Count", "Volume", "AlternateSeries",
+    "AlternateNumber", "AlternateCount", "StoryArc", "StoryArcNumber",
+    "SeriesGroup", "Genre", "Tags", "Writer", "Penciller", "Inker",
+    "Colorist", "Letterer", "CoverArtist", "Editor", "Publisher",
+    "Imprint", "Web", "PageCount", "LanguageISO", "Format", "AgeRating",
+    "Manga", "Characters", "Teams", "Locations", "ScanInformation",
+    "Summary", "Notes", "Year", "Month", "Day", "BlackAndWhite", "GTIN",
+}
+# 大小写不敏感映射：小写 → 标准名
+_COMICINFO_WHITELIST_LOWER = {f.lower(): f for f in COMICINFO_WHITELIST}
+
+
 def parse_setinfo_args(setinfo_args: list, meta: dict, inferred: tuple, ebook_path: Path) -> dict:
     """解析 --setinfo 参数为 {ComicInfo标签: 值} 字典（可多次，后出现覆盖先出现）。
 
@@ -2358,18 +2527,37 @@ def parse_setinfo_args(setinfo_args: list, meta: dict, inferred: tuple, ebook_pa
             raw = raw.strip()
             if not field:
                 continue
+            # 白名单校验：大小写不敏感，白名单外字段 warning 忽略
+            std = _COMICINFO_WHITELIST_LOWER.get(field.lower())
+            if std is None:
+                emit(t("setinfo.whitelist_skip", field=field), level="warning")
+                continue
+            field = std
             value = _resolve_setinfo_value(raw, series, number, title, stem)
             if value is not None:
                 result[field] = value
     return result
 
 
-def build_comicinfo(meta: dict, images: list, inferred: tuple, setinfo: dict | None = None) -> str | None:
+def _strip_html(text: str | None) -> str | None:
+    """去除 HTML 标签与常见实体，返回纯文本（Summary 字段用）；异常时原样返回"""
+    if not text:
+        return text
+    try:
+        text = re.sub(r"<[^>]+>", "", text)
+        text = html.unescape(text)
+        return re.sub(r"\s+", " ", text).strip()
+    except Exception:
+        return text
+
+
+def build_comicinfo(meta: dict, images: list, inferred: tuple, setinfo: dict | None = None, cover_source: str | None = None) -> str | None:
     """用 xml.etree.ElementTree 生成 ComicInfo.xml（禁止手工拼接字符串）。
 
     PageCount 必写（=最终写入 CBZ 的实际图片数）；其余字段有可靠来源
     才写入，无来源直接省略，不生成空标签。setinfo 为 --setinfo 解析结果，
-    优先级最高（覆盖 meta 与 inferred）。返回含 XML 声明的 UTF-8 文本。
+    优先级最高（覆盖 meta 与 inferred）。cover_source 非空时在 Notes 追加
+    "CoverSource: <来源>" 标记封面来源。返回含 XML 声明的 UTF-8 文本。
     """
     try:
         root = ET.Element("ComicInfo")
@@ -2379,6 +2567,9 @@ def build_comicinfo(meta: dict, images: list, inferred: tuple, setinfo: dict | N
             series = setinfo["Series"]
         if "Number" in setinfo:
             number = setinfo["Number"]
+        notes = setinfo.get("Notes")
+        if cover_source:
+            notes = (notes + "\n" if notes else "") + f"CoverSource: {cover_source}"
         ordered = [
             ("Title", setinfo.get("Title", meta.get("title"))),
             ("Series", series),
@@ -2388,7 +2579,8 @@ def build_comicinfo(meta: dict, images: list, inferred: tuple, setinfo: dict | N
             ("Year", setinfo.get("Year", meta.get("year"))),
             ("LanguageISO", setinfo.get("LanguageISO", meta.get("language"))),
             ("PageCount", str(len(images))),
-            ("Summary", setinfo.get("Summary", meta.get("summary"))),
+            ("Summary", _strip_html(setinfo.get("Summary", meta.get("summary")))),
+            ("Notes", notes),
         ]
         for tag, val in ordered:
             if val is None:
@@ -2625,6 +2817,15 @@ def inspect_ebook(p: Path, min_bytes: int, prefer: str = "mobi8", setinfo_args: 
                             node = root.find(tag)
                             if node is not None and node.text:
                                 emit(f"  {tag}: {node.text}")
+                        # PageCount 一致性：ComicInfo 声明页数 vs 实际图片数
+                        pc_node = root.find("PageCount")
+                        if pc_node is not None and pc_node.text:
+                            try:
+                                declared = int(pc_node.text.strip())
+                                if declared != total_in_dir:
+                                    emit(t("inspect.pagecount_mismatch", declared=declared, actual=total_in_dir), level="warning")
+                            except ValueError:
+                                pass
                     except Exception:
                         pass
                 return "ok"
@@ -2845,11 +3046,129 @@ def inspect_ebook(p: Path, min_bytes: int, prefer: str = "mobi8", setinfo_args: 
                 shutil.rmtree(tp, ignore_errors=True)
 
 
+def modify_cbz_comicinfo(cbz_path: Path, setinfo_args: list) -> bool:
+    """修改已有 CBZ 的 ComicInfo.xml：读原 XML → 未指定字段保留原值 → setinfo 覆盖 → 原子替换。
+
+    无 ComicInfo.xml 时新建（PageCount 由 CBZ 实际图片数决定）。
+    返回是否实际发生修改；白名单外字段已在 parse_setinfo_args 过滤。
+    """
+    with zipfile.ZipFile(str(cbz_path)) as zf:
+        infos = zf.infolist()
+        entries = {info.filename: (info, zf.read(info.filename)) for info in infos}
+    img_count = sum(1 for n in entries if Path(n).suffix.lower() in IMAGE_EXTENSIONS)
+
+    existing = entries.get("ComicInfo.xml")
+    if existing is not None and existing[1]:
+        root = ET.fromstring(existing[1])
+    else:
+        root = ET.Element("ComicInfo")
+        pc = ET.SubElement(root, "PageCount")
+        pc.text = str(img_count)
+
+    # 解析 setinfo：无 EXTH/OPF 元数据，meta 传空；占位符可从文件名推断（%number 等）
+    setinfo = parse_setinfo_args(setinfo_args, {}, infer_series_number(cbz_path), cbz_path)
+    changed = False
+    for field, value in setinfo.items():
+        node = root.find(field)
+        if node is None:
+            node = ET.SubElement(root, field)
+        if node.text != str(value):
+            node.text = str(value)
+            changed = True
+
+    if not changed:
+        return False
+
+    xml_bytes = ET.tostring(root, encoding="utf-8", xml_declaration=True)
+    # 重建 zip：替换 ComicInfo.xml，其余条目原样保留（保留各条目原始压缩方式与属性）
+    tmp = cbz_path.with_name(cbz_path.name + ".tmp")
+    try:
+        with zipfile.ZipFile(str(tmp), "w") as zf:
+            if existing is None or not existing[1]:
+                # 原 zip 无 ComicInfo.xml：先写入新建的 XML
+                zi = zipfile.ZipInfo("ComicInfo.xml")
+                zi.compress_type = zipfile.ZIP_DEFLATED
+                zi.date_time = tuple(datetime.now().timetuple()[:6])
+                zf.writestr(zi, xml_bytes)
+            for name, (info, data) in entries.items():
+                zi = zipfile.ZipInfo(name)
+                zi.compress_type = zipfile.ZIP_DEFLATED if name == "ComicInfo.xml" else info.compress_type
+                zi.date_time = info.date_time
+                zi.external_attr = info.external_attr
+                zi.internal_attr = info.internal_attr
+                zf.writestr(zi, xml_bytes if name == "ComicInfo.xml" else data)
+        os.replace(str(tmp), str(cbz_path))
+    except Exception:
+        if tmp.exists():
+            tmp.unlink(missing_ok=True)
+        raise
+    return True
+
+
+def modify_cbz_mode(cbz_files: list[Path], args) -> None:
+    """--setinfo 修改已有 CBZ 的 ComicInfo.xml 模式入口。
+
+    纳入 --dry-run / 进度条 / 汇总统计 / --log。
+    """
+    emit(t("modify.header", count=len(cbz_files)), level="summary")
+    if args.dry_run:
+        pbar = create_progress_if_needed(args, cbz_files, t("progress.desc.modify"))
+        try:
+            for mf in cbz_files:
+                if pbar is not None:
+                    pbar.set_postfix_str(truncate_name(mf.name))
+                # dry-run 也做一次只读解析，触发白名单外字段 warning（不写盘）
+                parse_setinfo_args(args.setinfo, {}, infer_series_number(mf), mf)
+                emit(t("modify.plan", name=mf.name), level="summary")
+                if pbar is not None:
+                    pbar.update(1)
+        finally:
+            if pbar is not None:
+                pbar.close()
+        emit(t("modify.dryrun_end"), level="summary")
+        return
+
+    success = 0
+    nochange = 0
+    failed_files = []
+    failed_reasons = Counter()
+    pbar = create_progress_if_needed(args, cbz_files, t("progress.desc.modify"))
+    try:
+        for mf in cbz_files:
+            if pbar is not None:
+                pbar.set_postfix_str(truncate_name(mf.name))
+            try:
+                if modify_cbz_comicinfo(mf, args.setinfo):
+                    success += 1
+                    emit(t("modify.done", name=mf.name), level="summary")
+                else:
+                    nochange += 1
+                    emit(t("modify.nochange", name=mf.name), level="summary")
+            except Exception as e:
+                failed_files.append(mf)
+                failed_reasons[str(e)] += 1
+                emit(t("modify.fail", name=mf.name, err=e), level="error")
+            if pbar is not None:
+                pbar.update(1)
+    finally:
+        if pbar is not None:
+            pbar.close()
+
+    emit(t("modify.stats", success=success, nochange=nochange, fail=len(failed_files)), level="summary")
+    if failed_files:
+        emit(t("run.failed_header", count=len(failed_files)), level="summary")
+        for mf in failed_files:
+            emit(f"  {mf}", level="summary")
+    if failed_reasons:
+        parts = ", ".join(f"{k}={v}" for k, v in failed_reasons.items())
+        emit(t("modify.failed_reasons", summary=parts), level="summary")
+
+
 def unpack_ebook(p: Path, out_root: Path) -> Path:
     """解包电子书到 out_root 下的同名子目录（已存在自动加序号避让）。
 
-    mobi 走 mobi.extract 保留完整结构（mobi7/mobi8 等），cbz 走 extractall。
-    返回实际解包到的目录。
+    mobi 走 mobi.extract 保留完整结构（mobi7/mobi8 等），cbz 逐条目安全解压
+    （含 zip-slip 路径穿越防护）。返回实际解包到的目录。
     """
     out_dir = out_root / p.stem
     n = 2
@@ -2859,7 +3178,20 @@ def unpack_ebook(p: Path, out_root: Path) -> Path:
     out_dir.mkdir(parents=True, exist_ok=True)
     if p.suffix.lower() == ".cbz":
         with zipfile.ZipFile(str(p)) as zf:
-            zf.extractall(str(out_dir))
+            for member in zf.infolist():
+                name = member.filename
+                # 路径穿越防护：拒绝绝对路径与 .. 跳转，防止 zip-slip
+                norm_name = name.replace("\\", "/")
+                if norm_name.startswith("/") or ".." in norm_name.split("/"):
+                    emit(t("unpack.path_skip", name=p.name, entry=name), level="warning")
+                    continue
+                if member.is_dir() or norm_name.endswith("/"):
+                    (out_dir / norm_name).mkdir(parents=True, exist_ok=True)
+                    continue
+                target = out_dir / norm_name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                with zf.open(member) as src, open(target, "wb") as dst:
+                    shutil.copyfileobj(src, dst)
     else:
         tempdir_raw, _ = mobi.extract(str(p))
         tempdir = Path(tempdir_raw)
@@ -2978,8 +3310,8 @@ def build_parser() -> argparse.ArgumentParser:
     # 输入：双目录 mobi 保留哪份 mobi7/mobi8；输出：解包后选择目录的依据
     parser.add_argument(
         "--prefer",
-        choices=["mobi7", "mobi8"],
-        default="mobi8",
+        choices=["mobi7", "mobi8", "auto"],
+        default="auto",
         help=t("help.prefer"),
     )
     # 输入：同名不同扩展名时的保留优先级（逗号分隔，如 azw3,mobi）；输出：去重时保留哪份
@@ -3176,7 +3508,7 @@ def _main():
     # target 为文件时不计算相对路径，直接输出 DIR/stem.cbz
     input_root = target if target.is_dir() else None
 
-    ebook_files = collect_ebook_files(target, include_cbz=args.inspect)
+    ebook_files = collect_ebook_files(target, include_cbz=args.inspect or args.unpack or bool(args.setinfo))
     if not ebook_files:
         emit(t("run.no_ebooks", path=args.target), level="error")
         sys.exit(0)
@@ -3209,9 +3541,15 @@ def _main():
         inspect_mode(ebook_files, precheck_skipped, args)
         return
 
+    # #36 CBZ 修改模式：--setinfo 且输入为已有 CBZ 时，直接修改其 ComicInfo.xml
+    cbz_modify_files = [f for f in ebook_files if f.suffix.lower() == ".cbz"]
+    ebook_files = [f for f in ebook_files if f.suffix.lower() != ".cbz"]
+    if cbz_modify_files:
+        modify_cbz_mode(cbz_modify_files, args)
+
     if not ebook_files:
-        emit(t("run.none_convertible"), level="error")
-        sys.exit(0)
+        # 纯 CBZ 修改模式已处理完成，无待转换 mobi
+        return
 
     emit(t("run.found", total=len(ebook_files), pre=len(precheck_skipped), dedup=len(dedupe_skipped)))
     for mf in ebook_files:
