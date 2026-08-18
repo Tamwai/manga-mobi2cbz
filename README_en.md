@@ -22,7 +22,7 @@ It natively follows the OPF spine reading order to extract images, and comes wit
 - **OPF spine ordering** — extract images in OPF spine order to preserve the real reading order; falls back to natural filename sorting when no OPF exists
 - **Cover fallback** — automatically scans for images whose filenames contain cover/front; if the cover is already in the spine list, the list order wins, and it is only inserted at the front when missing
 - **Directory alignment fallback** — when the image count in the directory differs from the collected count, extra images are appended to the end of the cbz in natural order by default; `--drop-extra` switches to dropping them instead, and the outcome is printed
-- **Dual-directory deduplication** — automatically detects mobi7/mobi8 dual directories and keeps mobi8 by default (potentially better image quality), switchable
+- **Dual-directory deduplication** — automatically detects mobi7/mobi8 dual directories and keeps the copy that has content (default `auto`: prefers mobi8, falls back to mobi7 when mobi8 has no images; explicitly specifying `mobi7`/`mobi8` also falls back to the other when the chosen directory has no images)
 - **Lightweight i18n** — `--language auto|zh-CN|zh-TW|ja|en` switches the UI language (default `auto` follows the system locale: Simplified Chinese → zh-CN, Traditional Chinese → zh-TW, Japanese → ja, otherwise → en).
 - Runtime messages and `--help` follow the selected language; CLI flag names, enums, and technical terms (OPF, DRM, spine, etc.) stay in English.
 - **Same-name extension deduplication** — when files in the same directory differ only by extension (e.g. `Vol1.mobi` + `Vol1.azw3`), only one is kept; `--ext-priority` controls the keep priority (default azw3)
@@ -46,12 +46,12 @@ It natively follows the OPF spine reading order to extract images, and comes wit
 - **Precheck filtering** — 0-byte files and ebooks with a corrupt header (no `BOOKMOBI` magic at offset 60) are skipped directly at the precheck stage, with the full path and reason logged
 - **Minimum-size filtering** — `--min-size BYTES` filters out ebooks smaller than the given byte count (default 1000 when no number is given, `0` disables, not passing it disables size filtering), catching edge-corrupt samples whose header is intact but content is truncated
 - **Dry-run mode** — `--dry-run` only scans and prints the conversion flow without actually unpacking/packing, handy for previewing results first
-- **Resume support** — if the target CBZ already exists and passes integrity verification, it is skipped (SKIP); corrupt/invalid output is automatically reconverted; `--overwrite` unconditionally overwrites
+- **Resume support** — if the target CBZ already exists and passes integrity verification, it is skipped (SKIP); corrupt/invalid output is automatically reconverted; when the source file is newer than the target CBZ it is automatically reconverted too; `--overwrite` unconditionally overwrites
 - **Failure classification** — conversion failures are counted by reason (`timeout` / `drm` / `corrupt` / `no_images` / `comicinfo` / `verify` / `other`), with per-category counts shown in the summary
 - **Inspect supports CBZ** — `--inspect` can inspect `.cbz` files directly (pure zipfile reading, no unpacking); cover line gains resolution+size, format stats gain total file count, and each of the first 5 Spine entries gains width/height
-- **ComicInfo field override** — `--setinfo FIELD=VALUE` overrides/adds ComicInfo fields (highest priority); VALUE supports fixed values / `%series` / `%number` / `%title` / `%filename` / `%leftN` / `%rightN` placeholders, repeatable; CBZ modification mode rewrites the zip directly
+- **ComicInfo field override** — `--setinfo FIELD=VALUE` overrides/adds ComicInfo fields (highest priority); VALUE supports fixed values / `%series` / `%number` / `%title` / `%filename` / `%leftN` / `%rightN` placeholders, repeatable; FIELD must be in the ComicInfo standard-field whitelist (39 simple fields, complex `Pages` excluded; out-of-whitelist fields emit a warning and are ignored); when the input is an existing `.cbz`, its ComicInfo.xml is modified in place (unspecified fields keep their original values, written via temp file + atomic replace)
 - **Auto-named log** — `--log` without a filename auto-generates `manga-mobi2cbz_YYYYMMDD_HHMMSS.log` (current directory)
-- **Unpack mode** — `--unpack` only extracts without converting, outputting to a same-name subdirectory next to each source file (auto-numbered `(2)(3)` if it already exists); mobi uses extract preserving the full structure, cbz uses extractall
+- **Unpack mode** — `--unpack` only extracts without converting, outputting to a same-name subdirectory next to each source file (auto-numbered `(2)(3)` if it already exists); mobi uses extract preserving the full structure, cbz uses extractall (with zip-slip path-traversal protection); `.cbz` inputs are also collected when `--unpack` or `--setinfo` is given
 - **Elapsed-time stats** — per-file conversion time is printed in real time, and the total elapsed time is shown at the bottom of the summary
 
 ## Supported image formats
@@ -186,7 +186,7 @@ python manga-mobi2cbz.py --version
 | `target`                | Path to an ebook file or a directory containing ebooks (.mobi/.azw/.azw3) (required)                                              |
 | `--language LANG`       | Output language: `auto` selects by system locale (zh prefix → Chinese, zh-TW/zh-Hant → Traditional Chinese, ja/Japanese → Japanese, otherwise → English), or specify `zh-CN`/`zh-TW`/`ja`/`en` (default `auto`); tolerant of common spellings: `zh`/`cn`→zh-CN, `zhtw`/`tw`→zh-TW, `jp`→ja, `eng`→en |
 | `--delete`              | Delete the original ebook file after successful conversion (default: keep)                                                        |
-| `--prefer`              | Which copy to keep for dual-directory mobi: `mobi7` or `mobi8` (default `mobi8`)                                                 |
+| `--prefer`              | Which copy to keep for dual-directory mobi: `auto` / `mobi7` / `mobi8` (default `auto`); `auto` prefers mobi8 and falls back to mobi7 when mobi8 has no images; explicitly specifying `mobi7`/`mobi8` falls back to the other when the chosen directory has no images |
 | `--drop-extra`          | Drop uncollected extra images in the directory (default: append to the end of the cbz)                                            |
 | `--overwrite`           | Force regeneration when the target cbz already exists (default: skip)                                                            |
 | `--ext-priority EXTS`   | Which format to keep when files share the same name in the same directory (differing only by extension): comma-separated, order = priority high→low, accepts only mobi/azw/azw3, default azw3; groups not covered fall back to azw3→mobi→azw; unrelated to `--prefer` (dual-directory selection) |
@@ -203,8 +203,8 @@ python manga-mobi2cbz.py --version
 | `--inspect`             | Inspect mode: inspect the file directly when the positional argument is a single file, or randomly sample 1 ebook for a directory; unpack only to read internal info (metadata/structure/images/resolution/dual DRM judgment/NCX TOC), no CBZ produced, temp directory cleaned up automatically |
 | `--inspect-all`         | Inspect all ebooks (requires `--inspect`; using it alone will auto-enable `--inspect`)                                                                |
 | `--no-comicinfo`        | Do not generate ComicInfo.xml (default: generates it into the CBZ root with Title / Series / Number / Writer / Publisher / Year / LanguageISO / PageCount / Summary metadata)                                                          |
-| `--setinfo FIELD=VALUE` | Override/add ComicInfo fields (repeatable, highest priority): `FIELD` is a ComicInfo field name; `VALUE` supports fixed values / `%series` / `%number` / `%title` / `%filename` / `%leftN` / `%rightN` placeholders (field omitted when the placeholder value is missing); smart splitting: only splits when a comma is followed by `fieldname=`, otherwise the comma is part of the value (e.g. `Summary=hello, world` is not split) |
-| `--unpack`              | Unpack to view: extract only, no conversion; outputs to a same-name subdirectory next to each source file (auto-numbered `(2)(3)` if it already exists); mobi uses extract preserving the full structure, cbz uses extractall |
+| `--setinfo FIELD=VALUE` | Override/add ComicInfo fields (repeatable, highest priority): `FIELD` is a ComicInfo field name and must be in the standard-field whitelist (39 simple fields; out-of-whitelist fields emit a warning and are ignored); `VALUE` supports fixed values / `%series` / `%number` / `%title` / `%filename` / `%leftN` / `%rightN` placeholders (field omitted when the placeholder value is missing); smart splitting: only splits when a comma is followed by `fieldname=`, otherwise the comma is part of the value (e.g. `Summary=hello, world` is not split); when the input is an existing `.cbz`, its ComicInfo.xml is modified in place (unspecified fields keep their original values) |
+| `--unpack`              | Unpack to view: extract only, no conversion; outputs to a same-name subdirectory next to each source file (auto-numbered `(2)(3)` if it already exists); mobi uses extract preserving the full structure, cbz uses extractall (with zip-slip path-traversal protection); `.cbz` inputs are also collected |
 | `--log FILE`            | Append all output to the specified log file; without a filename, auto-generates `manga-mobi2cbz_YYYYMMDD_HHMMSS.log` (current directory)                                                                                       |
 | `--version`             | Show version number                                                                                                               |
 
@@ -230,7 +230,7 @@ A: Images are extracted in OPF spine order (the EPUB standard reading order) fir
 A: Some mobi covers are only referenced by the OPF metadata cover meta and are not referenced by the spine, so spine-based extraction misses them. The script automatically scans for images whose filenames contain cover/front and inserts one at the front when missing; if the cover is already in the spine list, the original order is kept. If the cover filename contains none of those keywords, it may still be missed — rename it and reconvert.
 
 **Q: Why are some mobi files very small after conversion?**
-A: Dual-directory mobi (mobi7+mobi8) keeps only the mobi8 copy by default to avoid duplicated content doubling the size. Add `--prefer mobi7` to keep mobi7 instead.
+A: Dual-directory mobi (mobi7+mobi8) keeps only one copy by default (`--prefer auto`): it prefers mobi8 and falls back to mobi7 when mobi8 has no images, avoiding duplicated content doubling the size. Add `--prefer mobi7` to force keeping mobi7.
 
 **Q: Batch conversion stalls on a corrupt/encrypted mobi?**
 A: Per-file conversion has a 600-second timeout by default (`--timeout` adjustable); on timeout the file is skipped automatically and counted as failed, and the main flow continues with the remaining files. If you notice a file stalling earlier, use a smaller value like `--timeout 30` to skip it faster, or `--quiet` to reduce output.
@@ -242,6 +242,29 @@ A: Since v1.9.0, `--output-dir` preserves the relative subdirectory structure of
 A: Yes. Since v1.8.0 the accepted input extensions are `.mobi` / `.azw` / `.azw3`, all three going through the same conversion pipeline; for same-name files with different extensions in the same directory, azw3 is kept by default, adjustable via `--ext-priority`.
 
 ## Changelog
+
+### [2.2.0] - 2026-08-18
+
+#### Added
+
+- **CBZ modification mode** — when the input is an existing `.cbz` and `--setinfo` is given, its ComicInfo.xml is modified directly: read the original XML → overwrite the specified fields, keep unspecified fields at their original values → write via temp file + atomic replace (`os.replace`); covered by `--dry-run` preview / summary stats / `--log`
+- **setinfo whitelist** — `--setinfo` field names must be within the ComicInfo standard-field whitelist (39 simple fields, complex `Pages` excluded); out-of-whitelist fields emit a warning and are ignored
+- **Source-newer auto-reconvert** — resume support now compares the source file's mtime with the target CBZ's; when the source is newer, it is automatically reconverted
+- **`--unpack` / `--setinfo` accept CBZ input** — the collection stage also gathers `.cbz` files when `--unpack` or `--setinfo` is given
+- **`--prefer auto` (default)** — dual-directory mobi now defaults to auto: prefers mobi8, falls back to mobi7 when mobi8 has no images; explicitly specifying `mobi7`/`mobi8` falls back to the other when the chosen directory has no images
+- **Summary HTML cleanup** — the ComicInfo Summary field strips HTML tags (plain text written to disk)
+- **Cover-source annotation** — the ComicInfo Notes field appends `CoverSource` (OPF guide / filename match)
+- **CBZ precheck** — `.cbz` inputs now also go through 0-byte / `--min-size` checks
+- **`--inspect` PageCount consistency check** — compares the ComicInfo PageCount inside a CBZ with the actual image count and reports a mismatch
+
+#### Changed
+
+- **`--unpack` path safety** — cbz unpacking gains zip-slip path-traversal protection (rejects `..` / absolute-path entries) and prints an unpack summary
+- **Multiple OPF warning** — when a directory contains more than one `.opf`, a warning is emitted and the first one is used
+- **Corrupt-CBZ reconvert reason** — the resume path now prints the specific `validate_cbz` failure reason when reconverting a corrupt CBZ
+- **HTML image path compatibility** — `<img>` src extraction strips query / fragment (`?` / `#`) before resolving the local path
+- **Directory creation timing** — no longer creates the output directory early when the target CBZ already exists and will be SKIPped
+- **Code hygiene** — `ebook_to_cbz` return-type annotation completed to the triple; `_auto_language` tail made explicit
 
 ### [2.1.0] - 2026-08-17
 
