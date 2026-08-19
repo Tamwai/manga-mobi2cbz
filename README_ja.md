@@ -51,6 +51,7 @@ OPF spine の標準的な読み順に従って画像を抽出し、表紙の自�
 - **ログの自動命名** — `--log` をファイル名なしで指定すると `manga-mobi2cbz_YYYYMMDD_HHMMSS.log`（カレントディレクトリ）を自動生成します
 - **解凍表示** — `--unpack` は変換せず解凍のみ行い、各ソースファイルと同じ名前のサブディレクトリへ出力します（既存時は `(2)(3)` と自動採番）。mobi は extract で完全な構造を保持、cbz は extractall（zip-slip パストラバーサル対策付き）。`--unpack` または `--setinfo` 指定時は `.cbz` 入力も収集します
 - **所要時間** — ファイルごとの変換時間をリアルタイム表示し、集計下部に合計を出します
+- **JSON 構造化出力** — `--json` は実行結果を 1 行のコンパクト JSON として stdout に出力（AI / パイプライン / スクリプト向け、有効時は人間向けテキスト出力を抑制）。`--json-out [FILE]` は構造化結果を JSON ファイルに書き込み（インデント形式、ファイル名省略時はタイムスタンプ付きファイルを自動生成、`--log` と同一挙動）。両者は併用可能で、変換モードと `--setinfo` 変更モードの両方に対応
 
 ## 対応画像形式
 
@@ -165,11 +166,23 @@ python manga-mobi2cbz.py "D:\Manga" --inspect --inspect-all
 python manga-mobi2cbz.py "D:\Manga\Vol1.mobi" --setinfo "Title=天是紅河岸" --setinfo "Number=%number" --setinfo "Summary=hello, world"
 ```
 
+> 補足: `--setinfo` はカンマの直後に「フィールド名=」が続く場合のみ分割します。値自体に `Key=...` 構造が含まれる場合は、誤分割を避けるため複数回の `--setinfo` で渡してください。入力ディレクトリに既存 `.cbz` と `.mobi` が混在する場合、`--setinfo` 有効時は `.cbz` の ComicInfo.xml を直接変更し（未指定フィールドは元の値を保持）、それ以外のファイルは通常どおり変換します。
+
 ### 解凍表示（変換せず解凍のみ、同名サブディレクトリへ出力）
 
 ```bash
 python manga-mobi2cbz.py "D:\Manga\Vol1.mobi" --unpack
 ```
+
+### JSON 構造化出力（stdout 1 行 / ファイル書き込み）
+
+```bash
+python manga-mobi2cbz.py "D:\Manga" --json
+python manga-mobi2cbz.py "D:\Manga" --json-out
+python manga-mobi2cbz.py "D:\Manga" --json --json-out result.json
+```
+
+> 補足: `--json` / `--json-out` は「変換」または「CBZ 変更」の実行後にのみ構造化結果を出力します。`--dry-run` / `--inspect` / `--unpack` モードでは出力しません。プログレスバーと人間向け表示は stderr、JSON は stdout に書き込まれ自然に分離しますが、`2>&1` で結合リダイレクトするとプログレスバーが JSON に混入するため、その場合は `--no-progress` を併用してください。
 
 ### バージョン確認
 
@@ -201,9 +214,11 @@ python manga-mobi2cbz.py --version
 | `--inspect` | 位置引数が単一ファイルの場合はそのファイルを直接検査、ディレクトリの場合は 1 冊をランダム抽出して内部情報のみ読取（CBZ 非生成、一時ディレクトリは終了時に削除） |
 | `--inspect-all` | 全冊を検査（`--inspect` と併用が必要、単独指定時は自動的に `--inspect` を有効化） |
 | `--no-comicinfo` | ComicInfo.xml を生成しない（デフォルト: CBZ ルートに Title / Series / Number / Writer / Publisher / Year / LanguageISO / PageCount / Summary を書き込み） |
-| `--setinfo FIELD=VALUE` | ComicInfo フィールドを上書き/追加（複数指定可、最優先）。`FIELD` は ComicInfo 標準フィールドのホワイトリスト内である必要があります（単純フィールド 39 個、複雑な `Pages` は除外。ホワイトリスト外は warning を出して無視）。`VALUE` は固定値 / `%series` / `%number` / `%title` / `%filename` / `%leftN` / `%rightN` プレースホルダに対応（対応値が無い場合はそのフィールドを書き込まない）。スマート分割: カンマの直後に `フィールド名=` が続く場合のみ分割し、それ以外はカンマを値の一部とみなす（例: `Summary=hello, world` は分割しない）。入力が既存 `.cbz` の場合、その ComicInfo.xml を直接変更（未指定フィールドは元の値を保持） |
+| `--setinfo FIELD=VALUE` | ComicInfo フィールドを上書き/追加（複数指定可、最優先）。`FIELD` は ComicInfo 標準フィールドのホワイトリスト内である必要があります（単純フィールド 39 個、複雑な `Pages` は除外。ホワイトリスト外は warning を出して無視）。`VALUE` は固定値 / `%series` / `%number` / `%title` / `%filename` / `%leftN` / `%rightN` プレースホルダに対応（対応値が無い場合はそのフィールドを書き込まない）。スマート分割: カンマの直後に `フィールド名=` が続く場合のみ分割し、それ以外はカンマを値の一部とみなす（例: `Summary=hello, world` は分割しない）。入力が既存 `.cbz` の場合、その ComicInfo.xml を直接変更（未指定フィールドは元の値を保持）。値に `Key=` が含まれる場合は複数回の `--setinfo` で渡す。有効時は入力に混在する `.cbz` を直接変更し、他のファイルは通常どおり変換 |
 | `--unpack` | 解凍表示: 変換せず解凍のみ。各ソースファイルと同じ名前のサブディレクトリへ出力（既存時は `(2)(3)` と自動採番）。mobi は extract で完全な構造を保持、cbz は extractall（zip-slip パストラバーサル対策付き）。`--unpack` 指定時は `.cbz` 入力も収集 |
 | `--log FILE` | 全出力を指定ログへ追記。ファイル名なしで指定すると `manga-mobi2cbz_YYYYMMDD_HHMMSS.log`（カレントディレクトリ）を自動生成 |
+| `--json` | 実行結果を 1 行のコンパクト JSON として stdout に出力（AI / パイプライン / スクリプト向け）。有効時は人間向けテキスト出力（プログレスバー / emit 表示 / 集計）を抑制。`--json-out` と併用可。変換/変更モードでのみ出力（dry-run/inspect/unpack では出力しない）。プログレスバーは stderr に書き込まれ混ざらないが、2>&1 結合リダイレクトでは混入する |
+| `--json-out [FILE]` | 構造化結果を JSON ファイルに書き込み（インデント形式）。ファイル名なしで指定するとタイムスタンプ付きファイル（カレントディレクトリ）を自動生成、`--log` と同一挙動。`--json` と併用可。`--json` と同様、変換/変更モードのみ書き込み |
 | `--version` | バージョン番号を表示 |
 
 ## 出力
@@ -240,6 +255,33 @@ A: v1.9.0 以降、`--output-dir` はデフォルトで入力の相対サブデ�
 A: 対応しています。v1.8.0 以降、入力は `.mobi` / `.azw` / `.azw3` で、同じ変換パイプラインを使います。同一ディレクトリで同名・異拡張子のときはデフォルトで azw3 を残し、`--ext-priority` で変更できます。
 
 ## 更新履歴
+
+### [2.3.1] - 2026-08-19
+
+#### 修正
+
+- **変換ブランチのアトミック置換を強化** — 一時ファイルを validate_cbz で検証してから `os.replace` で対象を上書き。失敗時は tmp のみ削除し旧 CBZ を保持。ComicInfo 生成失敗時に既存の対象 CBZ を削除しなくなった。Ctrl+C（KeyboardInterrupt）で残る `.tmp` は finally で確実にクリーンアップ
+- **`--setinfo` 未知プレースホルダの warning** — ホワイトリスト外のプレースホルダは warning を出力した上でそのまま書き込む（4 言語の i18n キーを追加）
+- **sanitize 拡張** — ASCII 制御文字を除去、末尾のピリオド/スペースを除去
+- **find_opf の命名優先度** — 複数 OPF がある場合 `content.opf` / `package.opf` を優先
+- **メンテナンス** — 古い docstring を整理。`_strip_html` を HTMLParser に変更（不要な `import html` を削除）
+
+#### ドキュメント
+
+- **`--help` 文言を拡充（zh-CN/zh-TW/en/ja）** — `--setinfo`: 値に `Key=` が含まれる場合は複数回指定、有効時は既存 `.cbz` を直接変更。`--json`/`--json-out`: 変換/変更モードでのみ出力（dry-run/inspect/unpack では出力しない）、プログレスバーは stderr へ書き込まれ分離されるが 2>&1 結合では混入
+- **README の使用説明を同期** — setinfo / JSON セクションとパラメータ表を更新
+
+### [2.3.0] - 2026-08-19
+
+#### 追加
+
+- **JSON 構造化出力** — `--json` は stdout に単行のコンパクト JSON を出力（AI / パイプ / スクリプト向け。有効時は人間向けテキスト出力を抑止）；`--json-out [FILE]` は構造化結果を JSON ファイルに書き込み（インデント形式、ファイル名省略時はタイムスタンプファイルを自動作成、`--log` と同様の挙動）；両者は併用可能で、変換モードと `--setinfo` 変更モードの両方に対応
+
+#### 修正（v2.2.1 の中間修正を併合してリリース）
+
+- **変換パスのアトミック置換** — CBZ パッケージングを `xxx.cbz.tmp` 一時ファイルに書き込み、すべて成功後に `os.replace` で対象を上書きする方式に変更。パッケージ前の旧 CBZ 削除と失敗分岐での削除を撤廃し、例外時は半成品の tmp のみクリーンアップ。Ctrl+C / 途中クラッシュによる壊れた CBZ の残存、上書き失敗時に旧ファイルが失われるデータ損失リスクを解消（CBZ 変更モードの既存アトミック置換と一貫）
+- **`--inspect` の非数値 PageCount 警告** — ComicInfo の PageCount が数値でない場合、黙って無視せず warning を出力（新 i18n キー `inspect.pagecount_non_numeric`、四言語同期）
+- **`--timeout` ヘルプ文言** — タイムアウト後に基盤の解凍スレッドがバックグラウンドに残る可能性がある旨を追記。`--overwrite` の表示も「古いファイルを上書きし再生成」に変更し、実際のアトミック置換動作に一致させた
 
 ### [2.2.0] - 2026-08-18
 
