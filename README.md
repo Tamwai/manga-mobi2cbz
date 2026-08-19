@@ -48,6 +48,7 @@
 - **日志自动命名** — `--log` 不带文件名时自动生成 `manga-mobi2cbz_YYYYMMDD_HHMMSS.log`（当前目录）
 - **解包查看** — `--unpack` 只解压不转换，输出到源文件同名子目录（已存在自动加序号避让），mobi 保留完整结构、cbz 直接解包（含 zip-slip 路径穿越防护）；`--unpack` / `--setinfo` 时也会收集 `.cbz` 输入
 - **耗时统计** — 每个文件转换耗时实时输出，汇总底部显示总耗时
+- **JSON 结构化输出** — `--json` stdout 单行紧凑 JSON（供 AI / 管道 / 脚本读取，开启时屏蔽人类文本输出）；`--json-out [FILE]` 将结构化结果写入 JSON 文件（缩进格式，省略文件名自动生成时间戳文件，行为对齐 `--log`）；两者可共存，转换模式与 `--setinfo` 修改模式均支持
 
 ## 支持的图片格式
 
@@ -162,11 +163,23 @@ python manga-mobi2cbz.py "D:\Manga" --inspect --inspect-all
 python manga-mobi2cbz.py "D:\Manga\Vol1.mobi" --setinfo "Title=天是紅河岸" --setinfo "Number=%number" --setinfo "Summary=hello, world"
 ```
 
+> 说明：`--setinfo` 只在逗号后紧跟「字段名=」时才拆分，若值本身含 `Key=...` 结构，请拆成多次 `--setinfo` 传入以免误拆分。输入目录若混有已有 `.cbz` 与 `.mobi`，开启 `--setinfo` 时 `.cbz` 会被就地修改其 `ComicInfo.xml`（未指定字段保留原值），其余文件照常转换。
+
 ### 解包查看（只解压不转换，输出到源文件同名子目录）
 
 ```bash
 python manga-mobi2cbz.py "D:\Manga\Vol1.mobi" --unpack
 ```
+
+### JSON 结构化输出（stdout 单行 / 写入文件）
+
+```bash
+python manga-mobi2cbz.py "D:\Manga" --json
+python manga-mobi2cbz.py "D:\Manga" --json-out
+python manga-mobi2cbz.py "D:\Manga" --json --json-out result.json
+```
+
+> 说明：`--json` / `--json-out` 仅在「转换」或「CBZ 修改」执行后输出结构化结果；`--dry-run`、`--inspect`、`--unpack` 模式不输出。进度条与人类可读提示写 stderr、JSON 写 stdout 天然分流；若用 `2>&1` 合并重定向会把进度条混入 JSON 流，建议同时加 `--no-progress`。
 
 ### 查看版本号
 
@@ -198,9 +211,11 @@ python manga-mobi2cbz.py --version
 | `--inspect`           | 检查模式：位置参数为单个文件时直接检查该文件，为目录时随机抽查 1 个，只解包读取内部信息（元数据/结构/图片/分辨率/DRM 双重判断/NCX 目录），不生成 CBZ，结束自动清理临时目录                                                                                  |
 | `--inspect-all`       | 检查全部电子书（需配合 `--inspect` 使用，单独使用将自动启用 `--inspect`）                                                                                                                                |
 | `--no-comicinfo`      | 不生成 ComicInfo.xml（默认生成：向 CBZ 根目录写入 Title / Series / Number / Writer / Publisher / Year / LanguageISO / PageCount / Summary 漫画元数据）                                                |
-| `--setinfo FIELD=VALUE` | 覆盖/新增 ComicInfo 字段（可多次指定，优先级最高）：`FIELD` 为 ComicInfo 字段名（需在 ComicInfo 标准字段白名单内，白名单外 warning 忽略），`VALUE` 支持固定值 / `%series` / `%number` / `%title` / `%filename` / `%leftN` / `%rightN` 占位符（对应值缺失时该字段不写入）；智能拆分：仅当逗号后紧跟"字段名="时才拆分，否则逗号视为值的一部分（如 `Summary=hello, world` 不拆分）；输入为已有 `.cbz` 时直接修改其 ComicInfo.xml（未指定字段保留原值） |
+| `--setinfo FIELD=VALUE` | 覆盖/新增 ComicInfo 字段（可多次指定，优先级最高）：`FIELD` 为 ComicInfo 字段名（需在 ComicInfo 标准字段白名单内，白名单外 warning 忽略），`VALUE` 支持固定值 / `%series` / `%number` / `%title` / `%filename` / `%leftN` / `%rightN` 占位符（对应值缺失时该字段不写入）；智能拆分：仅当逗号后紧跟"字段名="时才拆分，否则逗号视为值的一部分（如 `Summary=hello, world` 不拆分）；值内含 `Key=` 结构请用多次 `--setinfo` 传入；开启 `--setinfo` 时输入目录中混有的已有 `.cbz` 会就地修改其 ComicInfo.xml（未指定字段保留原值），其余文件照常转换 |
 | `--unpack`            | 解包查看：只解压不转换，输出到各源文件所在目录的同名子目录（已存在自动加序号避让）；mobi 走 extract 保留完整结构，cbz 走 extractall（含 zip-slip 路径穿越防护）；`--unpack` / `--setinfo` 时也会收集 `.cbz` 输入 |
 | `--log FILE`          | 将全部输出追加写入指定日志文件；不带文件名时自动生成 `manga-mobi2cbz_YYYYMMDD_HHMMSS.log`（当前目录）                                                                                                  |
+| `--json`              | stdout 输出单行紧凑 JSON（供 AI / 管道 / 脚本读取），开启时屏蔽人类可读文本输出（进度条 / emit 提示 / 汇总）；仅转换/修改模式输出（dry-run/inspect/unpack 不输出）；进度条写 stderr 不混流，但 `2>&1` 合并重定向会混入进度条 |
+| `--json-out FILE`     | 将结构化结果写入 JSON 文件（缩进格式）；不带文件名时自动生成时间戳文件（当前目录），带文件名写入指定路径，行为对齐 `--log`；与 `--json` 可共存；同 `--json` 仅转换/修改模式写入                                                                                  |
 | `--version`           | 显示版本号                                                                                                                                                                            |
 
 ## 输出
@@ -237,6 +252,33 @@ A: v1.9.0 起 `--output-dir` 默认保留相对输入的子目录结构（旧版
 A: 支持。v1.8.0 起输入扩展名扩展为 `.mobi` / `.azw` / `.azw3`，三种格式统一走同一转换链路；同目录同名不同扩展名时默认保留 azw3，可用 `--ext-priority` 调整。
 
 ## 更新日志
+
+### [2.3.1] - 2026-08-19
+
+#### 修复
+
+- **转换分支原子替换加固** — 先对临时文件 validate_cbz 校验、通过后才 `os.replace` 覆盖目标；失败仅清理 tmp，旧 CBZ 保留；ComicInfo 生成失败不再删除已有目标 CBZ；Ctrl+C（KeyboardInterrupt）残留 `.tmp` 由 finally 兜底清理
+- **`--setinfo` 未知占位符 warning** — 白名单外占位符输出 warning 后按原样写入（新增 i18n 四语言键）
+- **sanitize 补充 ASCII 控制字符 + 去除尾部点/空格**
+- **find_opf 多 OPF 命名优先级** — `content.opf` / `package.opf` 优先
+- **维护性** — docstring 残留清理；`_strip_html` 改用 HTMLParser（移除死 import html）
+
+#### 文档
+
+- **`--help` 文案补充（zh-CN/zh-TW/en/ja 四语言）** — `--setinfo` 值内含 `Key=` 结构时用多次传入、开启时输入中的 `.cbz` 就地修改 ComicInfo.xml；`--json`/`--json-out` 仅转换/修改模式输出（dry-run/inspect/unpack 不输出）、进度条写 stderr 不混流但 `2>&1` 合并重定向会混入
+- **README 使用说明同步** — setinfo / JSON 小节补充上述行为说明，参数表对应行同步更新
+
+### [2.3.0] - 2026-08-19
+
+#### 新增
+
+- **JSON 结构化输出** — `--json` stdout 单行紧凑 JSON（供 AI / 管道 / 脚本读取，开启时屏蔽人类可读文本输出）；`--json-out [FILE]` 将结构化结果写入 JSON 文件（缩进格式，省略文件名自动生成时间戳文件，行为对齐 `--log`）；两者可共存，转换模式与 `--setinfo` 修改模式均支持
+
+#### 修复（随 v2.2.1 中间修复合并发布）
+
+- **转换分支原子替换** — CBZ 打包改为先写 `xxx.cbz.tmp` 临时文件、全部成功后再 `os.replace` 覆盖目标；移除打包前删除旧 CBZ 及失败分支的删除逻辑，异常仅清理半成品 tmp。消除 Ctrl+C / 中途崩溃残留残缺 CBZ、覆盖失败丢旧文件的数据丢失风险（与 CBZ 修改模式原有原子替换逻辑一致）
+- **`--inspect` PageCount 非数字告警** — ComicInfo 的 PageCount 非数字值时由静默忽略改为输出 warning（新增 i18n 键 `inspect.pagecount_non_numeric`，四语言同步）
+- **`--timeout` 文案补充** — 说明超时后底层解包线程可能后台残留；`--overwrite` 提示文案同步为「将覆盖旧文件」，与实际原子替换行为一致
 
 ### [2.2.0] - 2026-08-18
 
