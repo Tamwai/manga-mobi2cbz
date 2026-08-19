@@ -113,6 +113,34 @@ manga-mobi2cbz — 将 mobi/azw/azw3 电子书漫画文件批量转换为 cbz �
 要求: Python 3.10+
 
 更新日志:
+    v2.3.1 (2026-08-19)
+        - 修复校验顺序：先对临时文件 validate_cbz 校验、通过后才
+          os.replace 覆盖目标；失败仅清理 tmp，旧 CBZ 保留；ComicInfo
+          生成失败不再删除已有目标 CBZ
+        - 修复 Ctrl+C（KeyboardInterrupt）残留 .tmp：finally 兜底清理
+        - 修复 --setinfo 未知占位符：白名单外输出 warning 后按原样写入
+          （新增 i18n 四语言键）
+        - 修复 sanitize：补充 ASCII 控制字符 + 去除尾部点/空格
+        - 修复 find_opf 多 OPF 命名优先级：content.opf / package.opf 优先
+        - 维护性：清理残留 docstring；_strip_html 改用 HTMLParser
+        - 文档：--help 四语文案补充（--setinfo 多次传入 / 已有 .cbz
+          就地修改 / --json 仅转换与修改模式输出 / 2>&1 混流提示），
+          README 三语同步
+    v2.3.0 (2026-08-19)
+        - 新增 --json：stdout 输出单行紧凑 JSON（给 AI/管道读取），
+          开启时屏蔽人类可读文本输出
+        - 新增 --json-out：转换结果写本地 JSON 文件；nargs='?' 与 --log
+          同模式（省略文件名自动生成时间戳文件，或指定路径），缩进格式
+        - 统一结果结构：summary 统计 + files 逐文件记录（状态/输出/耗时/
+          失败原因），--json 与 --json-out 共用一份 schema，可同时开启
+        - 修复原子替换：转换分支 CBZ 打包改为先写 xxx.cbz.tmp 临时
+          文件，全部成功后再 os.replace 覆盖目标；删除打包前 unlink 旧
+          文件与失败分支的 cbz 删除，异常仅清理半成品 tmp，消除 Ctrl+C/
+          中途崩溃残留残缺 CBZ、以及覆盖失败丢旧文件的数据丢失风险
+          （modify_cbz_comicinfo 原有原子替换逻辑保持一致）
+        - 修复 --inspect PageCount 非数字值：int 转换失败由静默
+          pass 改为输出 warning（新增 i18n 键 inspect.pagecount_non_numeric）
+        - help.timeout 文案补充：超时后底层解包线程可能后台残留
     v2.2.0 (2026-08-18)
         - 新增 CBZ 修改模式：输入为已有 .cbz 且带 --setinfo 时直接修改
           其 ComicInfo.xml，读原 XML → 覆盖指定字段、未指定字段保留原值
@@ -218,7 +246,7 @@ manga-mobi2cbz — 将 mobi/azw/azw3 电子书漫画文件批量转换为 cbz �
         - 修复 infer_series_number 对无系列名卷标记文件的误推断：
           "Vol.01" / "Volume 01" / "01巻" 等不再被推断出系列名，
           统一返回 (None, None)（新增 _is_volume_marker 卷标记词过滤，
-          宁缺勿错）；"One Piece Vol.01" 等正常推断不受影响
+         ）；"One Piece Vol.01" 等正常推断不受影响
 
     v1.9.1 (2026-08-14)
         - --inspect-all 单独使用（未配合 --inspect）时自动启用
@@ -409,10 +437,11 @@ manga-mobi2cbz — 将 mobi/azw/azw3 电子书漫画文件批量转换为 cbz �
           EOCD + testzip 完整性校验、失败清理半成品
 """
 
-__version__ = "2.2.0"
+__version__ = "2.3.1"
 
 SCRIPT_NAME = "manga-mobi2cbz"
 
+import json
 import locale
 import os
 import re
@@ -425,7 +454,6 @@ import zipfile
 import argparse
 import traceback
 import xml.etree.ElementTree as ET
-import html
 from html.parser import HTMLParser
 from urllib.parse import unquote
 from enum import Enum
@@ -445,6 +473,7 @@ LANGUAGES = {
     "zh-CN": {
         "error.missing_dependency": "【致命错误】缺少核心依赖 mobi，请执行安装命令：",
         "error.log_write_failed": "【警告】日志写入失败（{err}），日志文件: {path}，后续日志不再写入",
+        "error.json_write_failed": "【警告】JSON 结果写入失败（{err}），路径: {path}",
         "error.ext_priority_empty": "--ext-priority 不能为空",
         "error.ext_priority_invalid": "--ext-priority 仅接受 mobi/azw/azw3，收到: {p}",
         # ---- --help 文案 ----
@@ -456,7 +485,7 @@ LANGUAGES = {
         "help.ext_priority": "同目录同名（仅扩展名不同）时保留哪种格式：逗号分隔、顺序即优先级从高到低，仅接受 mobi/azw/azw3，默认 azw3；优先级未覆盖时回退兜底顺序 azw3→mobi→azw；与 --prefer（双目录选择）无关",
         "help.drop_extra": "目录中有未被收集的多余图片时放弃追加（默认追加到 cbz 末尾）",
         "help.overwrite": "目标 cbz 已存在时强制重新生成（默认跳过）",
-        "help.timeout": "单文件转换超时秒数，超时自动跳过并计入失败（默认 600，0 表示不限制）",
+        "help.timeout": "单文件转换超时秒数，超时自动跳过并计入失败（默认 600，0 表示不限制；超时后底层解包线程可能后台残留）",
         "help.min_size": "过滤小于指定字节的电子书；不带数字默认1000字节，0关闭大小过滤，不传则关闭",
         "help.output_dir": "CBZ 输出到指定目录（自动创建），默认保留相对输入的子目录结构（如 One Piece/001.mobi → DIR/One Piece/001.cbz），加 --flatten 可平铺到目录根下",
     "help.flatten": "仅与 --output-dir 联用：所有 CBZ 平铺到输出目录根下，同名文件未指定 --overwrite 时跳过（SKIP），指定时覆盖首选名；单独使用将报错退出",
@@ -470,14 +499,17 @@ LANGUAGES = {
         "help.inspect_all": "检查全部电子书（需配合 --inspect 使用，单独使用将自动启用 --inspect）",
         "warn.inspect_all_auto_enable": "注意: --inspect-all 已自动启用 --inspect",
         "help.no_comicinfo": "不生成 ComicInfo.xml（默认生成：向 CBZ 根目录写入漫画元数据）",
-        "help.setinfo": "设置 ComicInfo 字段（可多次，格式 FIELD=VALUE；VALUE 支持 %%series/%%number/%%title/%%filename/%%leftN/%%rightN；逗号后紧跟字段名=才拆分）",
+        "help.setinfo": "设置 ComicInfo 字段（可多次，格式 FIELD=VALUE；VALUE 支持 %%series/%%number/%%title/%%filename/%%leftN/%%rightN；逗号后紧跟字段名=才拆分，值内含 Key= 结构请用多次 --setinfo 传入；--setinfo 开启时输入中的已有 .cbz 会就地修改其 ComicInfo.xml）",
         "comicinfo.generating": "生成 ComicInfo.xml",
         "comicinfo.created": "已写入 ComicInfo.xml",
         "comicinfo.disabled": "ComicInfo.xml 已禁用（--no-comicinfo）",
         "comicinfo.invalid": "ComicInfo.xml 无效或生成失败: {err}",
         "comicinfo.inferred": "推断",
         "help.log": "将全部输出追加写入日志文件（省略文件名时自动生成时间戳日志）",
+        "help.json": "在 stdout 输出单行紧凑 JSON 结果（给 AI/管道读取），开启时屏蔽人类可读文本；仅在转换或 CBZ 修改执行后输出（dry-run/inspect/unpack 不输出）；进度条写 stderr 不与 JSON 混流，但 2>&1 合并重定向会混入",
+        "help.json_out": "将转换结果写入 JSON 文件（省略文件名时自动生成时间戳文件，或指定路径；同 --json 仅转换/修改模式写入）",
         "log.auto_named": "日志文件: {path}（自动命名）",
+        "json.written": "JSON 结果已写入: {path}",
         "help.unpack": "解包模式：只解压不转换，输出到源文件所在目录的同名子目录（已存在自动加序号避让）",
         "unpack.done": "已解包 {name} -> {dir}",
         # ---- 输出标签 ----
@@ -516,7 +548,7 @@ LANGUAGES = {
         # ---- 【转换】转换流程 ----
         "convert.skip_exists": "  [跳过] 目标已存在: {name}",
         "convert.skip_corrupt_reconvert": "  [提示] 目标 {name} 已存在但校验失败（{reason}），自动重新转换",
-        "convert.overwrite": "  [覆盖] 已删除旧文件，重新生成: {name}",
+        "convert.overwrite": "  [覆盖] 将覆盖旧文件，重新生成: {name}",
         "convert.spine": "  [排序] 按 OPF spine 顺序（{count} 张图片）",
         "convert.spine_empty": "  [排序] spine 提取为空，兜底按文件名排序（{count} 张）",
         "convert.dedup_physical": "  [去重] 跳过 {count} 个物理重复文件（同一文件重复出现，未写入 CBZ）",
@@ -526,7 +558,7 @@ LANGUAGES = {
         "convert.drm_hint": "  [提示] 可能为 DRM 加密的 Kindle 漫画，mobi 库无法解密，请先去除 DRM 后再转换",
         "convert.count_mismatch": "  [提示] 目录共 {total} 张图片，收集 {collected} 张，数量不一致",
         "convert.done": "  [完成] {name} ({count} 张图片, {size} MB)",
-        "convert.verify_fail": "  [校验失败] {name}: {msg}，已删除坏文件",
+        "convert.verify_fail": "  [校验失败] {name}: {msg}，旧文件已保留",
         "convert.verify_ok": "  [校验] {msg}",
         "convert.deleted_original": "  [清理] 已删除原始文件: {name}",
         "convert.error": "  [错误] {name}: {err}",
@@ -645,12 +677,15 @@ LANGUAGES = {
     "modify.dryrun_end": "  试运行结束：未实际修改任何 CBZ",
     "progress.desc.modify": "修改中",
     "setinfo.whitelist_skip": "  [警告] {field} 不在 ComicInfo 白名单，已忽略",
+    "setinfo.unknown_placeholder": "  [警告] 未知占位符 {raw}，按原样写入",
     "convert.source_newer_reconvert": "  [提示] 目标 {name} 已存在但源文件更新，自动重新转换",
     "inspect.pagecount_mismatch": "  [提示] ComicInfo PageCount={declared} 与实际图片数 {actual} 不一致",
+    "inspect.pagecount_non_numeric": "  [警告] ComicInfo PageCount 非数字: {raw}",
     },
     "zh-TW": {
         "error.missing_dependency": "【致命錯誤】缺少核心依賴 mobi，請執行安裝命令：",
         "error.log_write_failed": "【警告】日誌寫入失敗（{err}），日誌檔案: {path}，後續日誌不再寫入",
+        "error.json_write_failed": "【警告】JSON 結果寫入失敗（{err}），路徑: {path}",
         "error.ext_priority_empty": "--ext-priority 不能為空",
         "error.ext_priority_invalid": "--ext-priority 僅接受 mobi/azw/azw3，收到: {p}",
         # ---- --help 文案 ----
@@ -662,7 +697,7 @@ LANGUAGES = {
         "help.ext_priority": "同目錄同名（僅副檔名不同）時保留哪種格式：逗號分隔、順序即優先級從高到低，僅接受 mobi/azw/azw3，預設 azw3；優先級未覆蓋時回退兜底順序 azw3→mobi→azw；與 --prefer（雙目錄選擇）無關",
         "help.drop_extra": "目錄中有未被收集的多餘圖片時放棄追加（預設追加到 cbz 末尾）",
         "help.overwrite": "目標 cbz 已存在時強制重新生成（預設跳過）",
-        "help.timeout": "單檔轉換逾時秒數，逾時自動跳過並計入失敗（預設 600，0 表示不限制）",
+        "help.timeout": "單檔轉換逾時秒數，逾時自動跳過並計入失敗（預設 600，0 表示不限制；逾時後底層解包執行緒可能於背景殘留）",
         "help.min_size": "過濾小於指定位元組的電子書；不帶數字預設1000位元組，0關閉大小過濾，不傳則關閉",
         "help.output_dir": "CBZ 輸出到指定目錄（自動建立），預設保留相對輸入的子目錄結構（如 One Piece/001.mobi → DIR/One Piece/001.cbz），加 --flatten 可平鋪到目錄根下",
     "help.flatten": "僅與 --output-dir 聯用：所有 CBZ 平鋪到輸出目錄根下，同名檔案未指定 --overwrite 時跳過（SKIP），指定時覆蓋首選名；單獨使用將報錯退出",
@@ -676,14 +711,17 @@ LANGUAGES = {
         "help.inspect_all": "檢查全部電子書（需配合 --inspect 使用，單獨使用將自動啟用 --inspect）",
         "warn.inspect_all_auto_enable": "注意: --inspect-all 已自動啟用 --inspect",
         "help.no_comicinfo": "不生成 ComicInfo.xml（預設生成：向 CBZ 根目錄寫入漫畫元資料）",
-        "help.setinfo": "設定 ComicInfo 欄位（可多次，格式 FIELD=VALUE；VALUE 支援 %%series/%%number/%%title/%%filename/%%leftN/%%rightN；逗號後緊跟欄位名=才拆分）",
+        "help.setinfo": "設定 ComicInfo 欄位（可多次，格式 FIELD=VALUE；VALUE 支援 %%series/%%number/%%title/%%filename/%%leftN/%%rightN；逗號後緊跟欄位名=才拆分，值內含 Key= 結構請用多次 --setinfo 傳入；--setinfo 開啟時輸入中的既有 .cbz 會就地修改其 ComicInfo.xml）",
         "comicinfo.generating": "生成 ComicInfo.xml",
         "comicinfo.created": "已寫入 ComicInfo.xml",
         "comicinfo.disabled": "ComicInfo.xml 已停用（--no-comicinfo）",
         "comicinfo.invalid": "ComicInfo.xml 無效或生成失敗: {err}",
         "comicinfo.inferred": "推斷",
         "help.log": "將全部輸出追加寫入日誌檔案（省略檔名時自動產生時間戳日誌）",
+        "help.json": "在 stdout 輸出單行緊湊 JSON 結果（供 AI/管道讀取），開啟時屏蔽人類可讀文本；僅在轉換或 CBZ 修改執行後輸出（dry-run/inspect/unpack 不輸出）；進度條寫 stderr 不與 JSON 混流，但 2>&1 合併重新導向會混入",
+        "help.json_out": "將轉換結果寫入 JSON 檔案（省略檔名時自動產生時間戳檔案，或指定路徑；同 --json 僅轉換/修改模式寫入）",
         "log.auto_named": "日誌檔案: {path}（自動命名）",
+        "json.written": "JSON 結果已寫入: {path}",
         "help.unpack": "解包模式：只解壓不轉換，輸出到來源檔案所在目錄的同名子目錄（已存在自動加序號避讓）",
         "unpack.done": "已解包 {name} -> {dir}",
         # ---- 输出标签 ----
@@ -722,7 +760,7 @@ LANGUAGES = {
         # ---- 【转换】转换流程 ----
         "convert.skip_exists": "  [跳過] 目標已存在: {name}",
         "convert.skip_corrupt_reconvert": "  [提示] 目標 {name} 已存在但校驗失敗，自動重新轉換",
-        "convert.overwrite": "  [覆寫] 已刪除舊檔，重新生成: {name}",
+        "convert.overwrite": "  [覆寫] 將覆蓋舊檔，重新生成: {name}",
         "convert.spine": "  [排序] 按 OPF spine 順序（{count} 張圖片）",
         "convert.spine_empty": "  [排序] spine 提取為空，兜底按檔名排序（{count} 張）",
         "convert.dedup_physical": "  [去重] 跳過 {count} 個物理重複檔案（同一檔案重複出現，未寫入 CBZ）",
@@ -732,7 +770,7 @@ LANGUAGES = {
         "convert.drm_hint": "  [提示] 可能為 DRM 加密的 Kindle 漫畫，mobi 函式庫無法解密，請先去除 DRM 後再轉換",
         "convert.count_mismatch": "  [提示] 目錄共 {total} 張圖片，收集 {collected} 張，數量不一致",
         "convert.done": "  [完成] {name} ({count} 張圖片, {size} MB)",
-        "convert.verify_fail": "  [校驗失敗] {name}: {msg}，已刪除壞檔",
+        "convert.verify_fail": "  [校驗失敗] {name}: {msg}，舊檔案已保留",
         "convert.verify_ok": "  [校驗] {msg}",
         "convert.deleted_original": "  [清理] 已刪除原始檔案: {name}",
         "convert.error": "  [錯誤] {name}: {err}",
@@ -851,12 +889,15 @@ LANGUAGES = {
     "modify.dryrun_end": "  試運行結束：未實際修改任何 CBZ",
     "progress.desc.modify": "修改中",
     "setinfo.whitelist_skip": "  [警告] {field} 不在 ComicInfo 白名單，已忽略",
+    "setinfo.unknown_placeholder": "  [警告] 未知佔位符 {raw}，按原樣寫入",
     "convert.source_newer_reconvert": "  [提示] 目標 {name} 已存在但來源檔案更新，自動重新轉換",
     "inspect.pagecount_mismatch": "  [提示] ComicInfo PageCount={declared} 與實際圖片數 {actual} 不一致",
+    "inspect.pagecount_non_numeric": "  [警告] ComicInfo PageCount 非數字: {raw}",
     },
     "en": {
         "error.missing_dependency": "[Fatal Error] Missing required dependency mobi. Install with:",
         "error.log_write_failed": "[Warning] Failed to write log ({err}), log file: {path}, further log entries will be skipped",
+        "error.json_write_failed": "[Warning] Failed to write JSON result ({err}), path: {path}",
         "error.ext_priority_empty": "--ext-priority must not be empty",
         "error.ext_priority_invalid": "--ext-priority accepts only mobi/azw/azw3, got: {p}",
         # ---- --help 文案 ----
@@ -868,7 +909,7 @@ LANGUAGES = {
         "help.ext_priority": "When same-name files differ only by extension in the same directory, which format to keep: comma-separated, order is priority high->low, only mobi/azw/azw3 accepted, default azw3; falls back to azw3->mobi->azw when not covered; unrelated to --prefer (mobi7/mobi8 selection)",
         "help.drop_extra": "Drop extra images not collected from the directory (default: append them to the end of the cbz)",
         "help.overwrite": "Force regenerate when the target cbz already exists (default: skip)",
-        "help.timeout": "Per-file conversion timeout in seconds; on timeout the file is skipped and counted as failed (default 600, 0 = no limit)",
+        "help.timeout": "Per-file conversion timeout in seconds; on timeout the file is skipped and counted as failed (default 600, 0 = no limit; on timeout the underlying unpack thread may linger in the background)",
         "help.min_size": "Filter out ebooks smaller than the given bytes; without a number defaults to 1000 bytes, 0 disables size filtering, omitted disables it",
         "help.output_dir": "Output CBZ to the given directory (auto-created); by default keeps the relative subdirectory structure of the input (e.g. One Piece/001.mobi -> DIR/One Piece/001.cbz), add --flatten to flatten into the root",
     "help.flatten": "Only with --output-dir: flatten all CBZ into the root of the output directory; same-name files are skipped (SKIP) unless --overwrite is given, which overwrites the preferred name; using it alone exits with an error",
@@ -882,14 +923,17 @@ LANGUAGES = {
         "help.inspect_all": "Inspect all ebooks (requires --inspect; using it alone will auto-enable --inspect)",
         "warn.inspect_all_auto_enable": "Note: --inspect-all automatically enabled --inspect",
         "help.no_comicinfo": "Do not generate ComicInfo.xml (default: write comic metadata into CBZ root)",
-        "help.setinfo": "Set ComicInfo field (repeatable, FIELD=VALUE; VALUE supports %%series/%%number/%%title/%%filename/%%leftN/%%rightN; split on comma only when followed by FIELD=)",
+        "help.setinfo": "Set ComicInfo field (repeatable, FIELD=VALUE; VALUE supports %%series/%%number/%%title/%%filename/%%leftN/%%rightN; split on comma only when followed by FIELD=; use multiple --setinfo for a value containing Key=; when enabled, existing .cbz inputs have their ComicInfo.xml modified in place)",
         "comicinfo.generating": "Generating ComicInfo.xml",
         "comicinfo.created": "ComicInfo.xml written",
         "comicinfo.disabled": "ComicInfo.xml disabled (--no-comicinfo)",
         "comicinfo.invalid": "ComicInfo.xml invalid or generation failed: {err}",
         "comicinfo.inferred": "inferred",
         "help.log": "Append all output to the given log file (omit filename to auto-generate a timestamped log)",
+        "help.json": "Print a single-line compact JSON result to stdout (for AI/pipe consumption); suppresses human-readable text when enabled; only emitted after conversion or CBZ modification (not in dry-run/inspect/unpack); the progress bar writes to stderr and stays separate, but 2>&1 combined redirection mixes it in",
+        "help.json_out": "Write conversion results to a JSON file (omit filename to auto-generate a timestamped file, or specify a path; like --json, only written in conversion/modify mode)",
         "log.auto_named": "Log file: {path} (auto-named)",
+        "json.written": "JSON result written to: {path}",
         "help.unpack": "Unpack mode: extract only without converting, output to a same-named subdirectory next to the source (auto-append number if exists)",
         "unpack.done": "Unpacked {name} -> {dir}",
         # ---- 输出标签 ----
@@ -928,7 +972,7 @@ LANGUAGES = {
         # ---- 【转换】转换流程 ----
         "convert.skip_exists": "  [Skip] Target already exists: {name}",
         "convert.skip_corrupt_reconvert": "  [Info] Target {name} exists but failed validation ({reason}), reconverting automatically",
-        "convert.overwrite": "  [Overwrite] Deleted old file, regenerating: {name}",
+        "convert.overwrite": "  [Overwrite] Old file will be replaced, regenerating: {name}",
         "convert.spine": "  [Sort] Using OPF spine order ({count} images)",
         "convert.spine_empty": "  [Sort] spine extraction empty, fell back to filename order ({count} images)",
         "convert.dedup_physical": "  [Dedup] Skipped {count} physically duplicate file(s) (same file appeared more than once, not written to CBZ)",
@@ -938,7 +982,7 @@ LANGUAGES = {
         "convert.drm_hint": "  [Info] Possibly a DRM-protected Kindle comic; the mobi library cannot decrypt it. Remove DRM first and retry",
         "convert.count_mismatch": "  [Info] Directory has {total} images but {collected} were collected; count mismatch",
         "convert.done": "  [Done] {name} ({count} images, {size} MB)",
-        "convert.verify_fail": "  [Verify Failed] {name}: {msg}; corrupted file deleted",
+        "convert.verify_fail": "  [Verify Failed] {name}: {msg}; old file kept",
         "convert.verify_ok": "  [Verify] {msg}",
         "convert.deleted_original": "  [Clean] Deleted original file: {name}",
         "convert.error": "  [Error] {name}: {err}",
@@ -1057,12 +1101,15 @@ LANGUAGES = {
     "modify.dryrun_end": "  Dry-run finished: no CBZ was actually modified",
     "progress.desc.modify": "Modifying",
     "setinfo.whitelist_skip": "  [Warning] {field} is not in the ComicInfo whitelist, ignored",
+    "setinfo.unknown_placeholder": "  [Warning] Unknown placeholder {raw}, written as-is",
     "convert.source_newer_reconvert": "  [Info] Target {name} exists but the source is newer, reconverting automatically",
     "inspect.pagecount_mismatch": "  [Info] ComicInfo PageCount={declared} does not match actual image count {actual}",
+    "inspect.pagecount_non_numeric": "  [Warn] ComicInfo PageCount is not numeric: {raw}",
     },
     "ja": {
         "error.missing_dependency": '【致命的エラー】必須依存ライブラリ mobi がありません。インストールを実行してください：',
         "error.log_write_failed": '【警告】ログの書き込みに失敗しました（{err}）、ログファイル: {path}、以降のログは書き込みません',
+        "error.json_write_failed": '【警告】JSON 結果の書き込みに失敗しました（{err}）、パス: {path}',
         "error.ext_priority_empty": "--ext-priority を空にすることはできません",
         "error.ext_priority_invalid": "--ext-priority は mobi/azw/azw3 のみ受け付けます。受信: {p}",
         # ---- --help 文案 ----
@@ -1074,7 +1121,7 @@ LANGUAGES = {
         "help.ext_priority": '同じディレクトリで同名（拡張子のみ異なる）の場合にどの形式を残すか：カンマ区切り、順序が優先度（高→低）、mobi/azw/azw3 のみ指定可能、デフォルト azw3；優先度がカバーしない場合は azw3→mobi→azw にフォールバック；--prefer（二重ディレクトリ選択）とは無関係',
         "help.drop_extra": 'ディレクトリ内で収集されなかった余分な画像を追加しない（デフォルトは cbz 末尾に追加）',
         "help.overwrite": '対象 cbz が既に存在する場合に強制的に再生成（デフォルトはスキップ）',
-        "help.timeout": 'ファイルごとの変換タイムアウト秒数。タイムアウトで自動スキップし失敗に計上（デフォルト 600、0 は制限なし）',
+        "help.timeout": 'ファイルごとの変換タイムアウト秒数。タイムアウトで自動スキップし失敗に計上（デフォルト 600、0 は制限なし。タイムアウト後、基盤の解凍スレッドがバックグラウンドに残る可能性あり）',
         "help.min_size": '指定バイト数未満の電子書籍を除外；数字なしでデフォルト 1000 バイト、0 でサイズフィルタ無効、未指定で無効',
         "help.output_dir": "CBZ を指定ディレクトリに出力（自動作成）、デフォルトでは入力の相対サブディレクトリ構造を保持（例: One Piece/001.mobi → DIR/One Piece/001.cbz）、--flatten でルートにフラット化",
     "help.flatten": "--output-dir との併用時のみ：全 CBZ を出力ディレクトリのルートにフラット化、同名ファイルは --overwrite 指定時のみ上書き、未指定時はスキップ（SKIP）；単独使用はエラー終了",
@@ -1088,14 +1135,17 @@ LANGUAGES = {
         "help.inspect_all": '全電子書籍を検査（--inspect と併用必須、単独指定時は自動的に --inspect を有効化）',
         "warn.inspect_all_auto_enable": '注意: --inspect-all により --inspect が自動的に有効化されました',
         "help.no_comicinfo": "ComicInfo.xml を生成しない（既定: CBZ ルートに漫画メタデータを書き込む）",
-        "help.setinfo": "ComicInfo フィールドを設定（複数可、形式 FIELD=VALUE；VALUE は %%series/%%number/%%title/%%filename/%%leftN/%%rightN をサポート；カンマ直後にフィールド名= がある場合のみ分割）",
+        "help.setinfo": "ComicInfo フィールドを設定（複数可、形式 FIELD=VALUE；VALUE は %%series/%%number/%%title/%%filename/%%leftN/%%rightN をサポート；カンマ直後にフィールド名= がある場合のみ分割、値に Key= 構造が含まれる場合は --setinfo を複数回指定；--setinfo 有効時、入力中の既存 .cbz は ComicInfo.xml を直接変更）",
         "comicinfo.generating": "ComicInfo.xml を生成中",
         "comicinfo.created": "ComicInfo.xml を書き込みました",
         "comicinfo.disabled": "ComicInfo.xml は無効です（--no-comicinfo）",
         "comicinfo.invalid": "ComicInfo.xml が無効、または生成に失敗しました: {err}",
         "comicinfo.inferred": "推定",
         "help.log": 'すべての出力を指定ログファイルに追記（ファイル名を省略するとタイムスタンプ付きログを自動生成）',
+        "help.json": '単一行のコンパクトな JSON 結果を stdout に出力（AI/パイプ読み取り用）。有効時は人間向けテキスト出力を抑制。変換または CBZ 変更の実行後にのみ出力（dry-run/inspect/unpack では出力しない）。プログレスバーは stderr に書き込まれ JSON と混ざらないが、2>&1 で結合リダイレクトすると混入する',
+        "help.json_out": '変換結果を JSON ファイルに書き出し（ファイル名省略でタイムスタンプ付きファイルを自動生成、またはパス指定。--json と同様、変換/変更モードのみ書き込み）',
         "log.auto_named": 'ログファイル: {path}（自動命名）',
+        "json.written": 'JSON 結果を書き込みました: {path}',
         "help.unpack": '解凍モード：解凍のみで変換は行わず、元ファイルと同じディレクトリの同名サブディレクトリに出力（既存の場合は自動で番号を付与）',
         "unpack.done": '解凍しました {name} -> {dir}',
         # ---- 输出标签 ----
@@ -1134,7 +1184,7 @@ LANGUAGES = {
         # ---- 【转换】转换流程 ----
         "convert.skip_exists": '  [スキップ] 対象は既に存在: {name}',
         "convert.skip_corrupt_reconvert": '  [情報] 対象 {name} は存在しますが検証に失敗したため（{reason}）、自動的に再変換します',
-        "convert.overwrite": '  [上書き] 古いファイルを削除し再生成: {name}',
+        "convert.overwrite": '  [上書き] 古いファイルを上書きし再生成: {name}',
         "convert.spine": '  [ソート] OPF spine 順に抽出（{count} 枚）',
         "convert.spine_empty": '  [ソート] spine 抽出が空のため、ファイル名順にフォールバック（{count} 枚）',
         "convert.dedup_physical": '  [重複排除] 物理的に重複する {count} ファイルをスキップ（同一ファイルが重複出現、CBZ に書き込みません）',
@@ -1144,7 +1194,7 @@ LANGUAGES = {
         "convert.drm_hint": '  [情報] DRM 暗号化された Kindle 漫画の可能性があります。mobi ライブラリでは復号できないため、DRM を除去してから再変換してください',
         "convert.count_mismatch": '  [情報] ディレクトリ内の画像は {total} 枚、収集は {collected} 枚で不一致',
         "convert.done": '  [完了] {name} ({count} 枚の画像, {size} MB)',
-        "convert.verify_fail": '  [検証失敗] {name}: {msg}、壊れたファイルを削除しました',
+        "convert.verify_fail": '  [検証失敗] {name}: {msg}、元ファイルを保持しました',
         "convert.verify_ok": '  [検証] {msg}',
         "convert.deleted_original": '  [クリーンアップ] 元ファイルを削除しました: {name}',
         "convert.error": '  [エラー] {name}: {err}',
@@ -1263,8 +1313,10 @@ LANGUAGES = {
     "modify.dryrun_end": '  試行終了：実際にはどの CBZ も変更されていません',
     "progress.desc.modify": '変更中',
     "setinfo.whitelist_skip": '  [警告] {field} は ComicInfo ホワイトリストにありません。無視します',
+    "setinfo.unknown_placeholder": '  [警告] 不明なプレースホルダ {raw}、そのまま書き込みます',
     "convert.source_newer_reconvert": '  [情報] 対象 {name} は存在しますがソースが新しいため、自動的に再変換します',
     "inspect.pagecount_mismatch": '  [情報] ComicInfo の PageCount={declared} は実際の画像数 {actual} と一致しません',
+    "inspect.pagecount_non_numeric": '  [警告] ComicInfo の PageCount が数値ではありません: {raw}',
     },
 }
 
@@ -1450,6 +1502,8 @@ _log_path = None
 _log_write_failed = False
 _short_summary = False
 _compress_level = 0
+_json_stdout = False
+_json_out_path = None
 
 
 def emit(msg: str, level: str = "info") -> None:
@@ -1478,8 +1532,38 @@ def emit(msg: str, level: str = "info") -> None:
             if not _log_write_failed:
                 _log_write_failed = True
                 print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] " + t("error.log_write_failed", err=e, path=_log_path))
-    if not _quiet_mode or level in ("summary", "error", "warning"):
+    if _json_stdout:
+        # --json 模式：stdout 只留 JSON，人类可读文本抑制（仍写日志文件）；错误/警告/汇总走 stderr
+        if level in ("summary", "error", "warning"):
+            print(line, file=sys.stderr)
+    elif not _quiet_mode or level in ("summary", "error", "warning"):
         print(line)
+
+
+def emit_json(files: list, success: int, skipped: int, failed: int, interrupted: bool, total_elapsed: float) -> None:
+    """--json / --json-out 统一结果输出：构造结构化结果并输出到 stdout 或落盘。"""
+    result = {
+        "version": __version__,
+        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "summary": {
+            "success": success,
+            "skipped": skipped,
+            "failed": failed,
+            "interrupted": interrupted,
+            "total_elapsed_sec": round(total_elapsed, 2),
+        },
+        "files": files,
+    }
+    if _json_out_path:
+        try:
+            with open(_json_out_path, "w", encoding="utf-8") as f:
+                json.dump(result, f, ensure_ascii=False, indent=2)
+            emit(t("json.written", path=_json_out_path), level="summary")
+        except Exception as e:
+            emit(t("error.json_write_failed", err=e, path=_json_out_path), level="error")
+    if _json_stdout:
+        # 单行紧凑 JSON；人类可读文本已被 emit 抑制（走 stderr），stdout 只留 JSON
+        print(json.dumps(result, ensure_ascii=False, separators=(",", ":")))
 
 
 def truncate_name(name: str, max_len: int = 40) -> str:
@@ -1582,7 +1666,7 @@ def validate_cbz(cbz_path: Path, require_comicinfo: bool = False) -> tuple[bool,
 def collect_ebook_files(target: Path, include_cbz: bool = False) -> list[Path]:
     """收集所有待转换的电子书文件（.mobi/.azw/.azw3），按路径排序保证处理顺序可预测。
 
-    include_cbz=True 时（--inspect 模式）额外收集 .cbz，供 --inspect 查看 CBZ 内部信息。"""
+    include_cbz=True 时（--inspect / --unpack / --setinfo 模式）额外收集 .cbz，供检查或修改。"""
     exts = SUPPORTED_INPUT_EXTENSIONS | ({".cbz"} if include_cbz else set())
     if target.is_file():
         if target.suffix.lower() in exts:
@@ -1692,8 +1776,10 @@ def dedupe_ebook_files(files: list[Path], ext_priority: list[str]) -> tuple[list
 
     # 输入：源电子书路径、输出目录、是否平铺、相对基准与已占用名集合；输出：目标 cbz 绝对路径
 def sanitize_filename_component(name: str) -> str:
-    """替换 Windows 文件名非法字符（<>:"/\|?*）为下划线，保证平铺文件名可写"""
-    return re.sub(r'[<>:"/\\|?*]', "_", name)
+    """替换 Windows 文件名非法字符（<>:"/\|?*）与 ASCII 控制字符（\x00-\x1f\x7f）为下划线，
+    并去除 Windows 资源管理器会隐藏的尾部点/空格，保证各平台文件名可写"""
+    name = re.sub(r'[<>:"/\\|?*\x00-\x1f\x7f]', "_", name)
+    return re.sub(r"[. ]+$", "", name)
 
 
 def flat_base_name(ebook_path: Path, input_root: Path | None) -> str:
@@ -1739,11 +1825,16 @@ def target_cbz_path(ebook_path: Path, output_dir: Path | None, flatten: bool = F
 
 
 def find_opf(base_dir: Path) -> Path | None:
-    """在目录下递归查找 .opf 文件；存在多个时输出 warning 并取第一个"""
+    """在目录下递归查找 .opf 文件；存在多个时优先 content.opf / package.opf
+    （EPUB/漫画 CBZ 的约定命名），无法区分才输出 warning 并取第一个"""
     found = list(base_dir.rglob("*.opf"))
     if not found:
         return None
     if len(found) > 1:
+        for pref in ("content.opf", "package.opf"):
+            for f in found:
+                if f.name.lower() == pref:
+                    return f
         emit(t("convert.multi_opf", count=len(found), first=found[0].name), level="warning")
     return found[0]
 
@@ -1967,7 +2058,7 @@ def select_mobi_dir(tempdir: Path, prefer: str) -> Path:
 
     # 输入：电子书路径与转换选项（delete/prefer/drop_extra/overwrite/output_dir/compress）；输出：(cbz 路径或 None, ConvStatus)
 def ebook_to_cbz(ebook_path: Path, delete_original: bool = False, prefer: str = "mobi8", drop_extra: bool = False, overwrite: bool = False, output_dir: Path | None = None, compress: int = 0, flatten: bool = False, input_root: Path | None = None, used_names: set | None = None, comicinfo: bool = True, setinfo_args: list | None = None) -> tuple[Path | None, ConvStatus, str | None]:
-    """将单个 mobi 文件转换为 cbz
+    """将单个电子书文件转换为 cbz
 
     prefer: "auto"（默认）双目录时优先 mobi8，mobi8 为空壳（无图片）自动回退 mobi7
     drop_extra: 目录中有未被收集的多余图片时放弃追加，默认追加到末尾
@@ -2005,10 +2096,10 @@ def ebook_to_cbz(ebook_path: Path, delete_original: bool = False, prefer: str = 
         output_dir.mkdir(parents=True, exist_ok=True)
     cbz_path.parent.mkdir(parents=True, exist_ok=True)
     if cbz_path.exists():
-        cbz_path.unlink()
         emit(t("convert.overwrite", name=cbz_path.name))
 
     extract_temp_paths = []  # 记录mobi库自动生成的临时文件夹
+    tmp_cbz = None  # 转换分支原子写入的临时文件（v2.2.1 原子替换）
 
     try:
         # mobi.extract 不支持 output_dir，仅传输入文件
@@ -2095,20 +2186,21 @@ def ebook_to_cbz(ebook_path: Path, delete_original: bool = False, prefer: str = 
                 comicinfo_xml = None
             if comicinfo_xml is None:
                 emit(t("comicinfo.invalid", err="build"), level="error")
-                if cbz_path.exists():
-                    cbz_path.unlink(missing_ok=True)
+                # 不删除已有目标：元数据生成失败不应毁掉磁盘上原有的有效 CBZ
                 return None, ConvStatus.FAIL, "comicinfo"
             emit(t("comicinfo.generating"))
 
         # Step 4: 打包为 cbz（默认 ZIP 无压缩，图片本身已压缩；--compress 1-9 启用 deflate）
+        # v2.2.1 原子替换：先写 cbz.tmp，全部成功后 os.replace，避免中途崩溃残留残缺 CBZ
+        tmp_cbz = cbz_path.with_name(cbz_path.name + ".tmp")
         seen = {}
         seen_paths = set()  # 归一化路径集合：判物理重复（同一物理文件重复出现则跳过不写入）
         skipped_dup = 0
         comicinfo_failed = None
         if compress > 0:
-            zf_obj = zipfile.ZipFile(str(cbz_path), "w", zipfile.ZIP_DEFLATED, compresslevel=compress)
+            zf_obj = zipfile.ZipFile(str(tmp_cbz), "w", zipfile.ZIP_DEFLATED, compresslevel=compress)
         else:
-            zf_obj = zipfile.ZipFile(str(cbz_path), "w", zipfile.ZIP_STORED)
+            zf_obj = zipfile.ZipFile(str(tmp_cbz), "w", zipfile.ZIP_STORED)
         with zf_obj as zf:
             for idx, img in enumerate(images, 1):
                 norm = norm_path(img)
@@ -2134,20 +2226,23 @@ def ebook_to_cbz(ebook_path: Path, delete_original: bool = False, prefer: str = 
         if skipped_dup:
             emit(t("convert.dedup_physical", count=skipped_dup))
         if comicinfo_failed is not None:
-            cbz_path.unlink(missing_ok=True)
+            tmp_cbz.unlink(missing_ok=True)
             emit(t("comicinfo.invalid", err=comicinfo_failed), level="error")
             return None, ConvStatus.FAIL, "comicinfo"
 
-        size_mb = cbz_path.stat().st_size / (1024 * 1024)
-        emit(t("convert.done", name=cbz_path.name, count=len(images), size=f"{size_mb:.1f}"))
-
-        # 完整性校验（ComicInfo 启用时追加 3 项校验）
-        ok, msg = validate_cbz(cbz_path, require_comicinfo=(comicinfo_xml is not None))
+        # 完整性校验：先对 tmp 校验，通过后才 os.replace 覆盖目标。
+        # 校验失败只删 tmp，旧 CBZ 原样保留（修复"先覆盖后校验、校验失败删旧包"导致新旧全丢）
+        ok, msg = validate_cbz(tmp_cbz, require_comicinfo=(comicinfo_xml is not None))
         if not ok:
-            cbz_path.unlink(missing_ok=True)
+            tmp_cbz.unlink(missing_ok=True)
             emit(t("convert.verify_fail", name=cbz_path.name, msg=msg), level="error")
             return None, ConvStatus.FAIL, "verify"
         emit(t("convert.verify_ok", msg=msg))
+
+        # 原子替换：校验通过后才覆盖目标 cbz
+        os.replace(str(tmp_cbz), str(cbz_path))
+        size_mb = cbz_path.stat().st_size / (1024 * 1024)
+        emit(t("convert.done", name=cbz_path.name, count=len(images), size=f"{size_mb:.1f}"))
 
         # Step 5: 可选删除原始 mobi
         if delete_original:
@@ -2156,9 +2251,9 @@ def ebook_to_cbz(ebook_path: Path, delete_original: bool = False, prefer: str = 
 
         return cbz_path, ConvStatus.OK, None
     except Exception as e:
-        # 转换失败仅清理半成品cbz
-        if cbz_path.exists():
-            cbz_path.unlink(missing_ok=True)
+        # 转换失败仅清理半成品 tmp，目标 cbz 保持原子性（旧文件不受影响）
+        if tmp_cbz is not None and tmp_cbz.exists():
+            tmp_cbz.unlink(missing_ok=True)
         emit(t("convert.error", name=ebook_path.name, err=e), level="error")
         err = str(e).lower()
         if any(k in err for k in ("drm", "encrypt", "decrypt", "protected", "kfx")):
@@ -2172,6 +2267,9 @@ def ebook_to_cbz(ebook_path: Path, delete_original: bool = False, prefer: str = 
         for p in extract_temp_paths:
             if p.exists():
                 shutil.rmtree(p, ignore_errors=True)
+        # KeyboardInterrupt（Ctrl+C）不被 except Exception 捕获，此处兜底清理半成品 tmp_cbz
+        if tmp_cbz is not None and tmp_cbz.exists():
+            tmp_cbz.unlink(missing_ok=True)
 
 
 def read_exth_metadata(p: Path) -> dict:
@@ -2474,6 +2572,7 @@ def _resolve_setinfo_value(raw: str, series, number, title, stem) -> str | None:
         if side == "left":
             return stem[:n]
         return stem[-n:] if n > 0 else ""
+    emit(t("setinfo.unknown_placeholder", raw=raw), level="warning")
     return raw
 
 
@@ -2539,14 +2638,28 @@ def parse_setinfo_args(setinfo_args: list, meta: dict, inferred: tuple, ebook_pa
     return result
 
 
+class _HtmlTextExtractor(HTMLParser):
+    """HTMLParser 子类：剥离标签并收集纯文本（Summary 字段用）。
+
+    convert_charrefs=True 时字符实体（&amp;、&#x20; 等）由 HTMLParser 自动解码。"""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.parts: list[str] = []
+
+    def handle_data(self, data: str) -> None:
+        self.parts.append(data)
+
+
 def _strip_html(text: str | None) -> str | None:
     """去除 HTML 标签与常见实体，返回纯文本（Summary 字段用）；异常时原样返回"""
     if not text:
         return text
     try:
-        text = re.sub(r"<[^>]+>", "", text)
-        text = html.unescape(text)
-        return re.sub(r"\s+", " ", text).strip()
+        parser = _HtmlTextExtractor()
+        parser.feed(text)
+        parser.close()
+        return re.sub(r"\s+", " ", "".join(parser.parts)).strip()
     except Exception:
         return text
 
@@ -2825,7 +2938,7 @@ def inspect_ebook(p: Path, min_bytes: int, prefer: str = "mobi8", setinfo_args: 
                                 if declared != total_in_dir:
                                     emit(t("inspect.pagecount_mismatch", declared=declared, actual=total_in_dir), level="warning")
                             except ValueError:
-                                pass
+                                emit(t("inspect.pagecount_non_numeric", raw=pc_node.text.strip()), level="warning")
                     except Exception:
                         pass
                 return "ok"
@@ -3110,6 +3223,7 @@ def modify_cbz_mode(cbz_files: list[Path], args) -> None:
 
     纳入 --dry-run / 进度条 / 汇总统计 / --log。
     """
+    total_start = time.perf_counter()
     emit(t("modify.header", count=len(cbz_files)), level="summary")
     if args.dry_run:
         pbar = create_progress_if_needed(args, cbz_files, t("progress.desc.modify"))
@@ -3132,6 +3246,7 @@ def modify_cbz_mode(cbz_files: list[Path], args) -> None:
     nochange = 0
     failed_files = []
     failed_reasons = Counter()
+    json_files: list = []
     pbar = create_progress_if_needed(args, cbz_files, t("progress.desc.modify"))
     try:
         for mf in cbz_files:
@@ -3141,13 +3256,29 @@ def modify_cbz_mode(cbz_files: list[Path], args) -> None:
                 if modify_cbz_comicinfo(mf, args.setinfo):
                     success += 1
                     emit(t("modify.done", name=mf.name), level="summary")
+                    json_status = "modified"
                 else:
                     nochange += 1
                     emit(t("modify.nochange", name=mf.name), level="summary")
+                    json_status = "nochange"
+                json_files.append({
+                    "source": str(mf),
+                    "status": json_status,
+                    "target": str(mf),
+                    "reason": None,
+                    "elapsed_sec": None,
+                })
             except Exception as e:
                 failed_files.append(mf)
                 failed_reasons[str(e)] += 1
                 emit(t("modify.fail", name=mf.name, err=e), level="error")
+                json_files.append({
+                    "source": str(mf),
+                    "status": "fail",
+                    "target": str(mf),
+                    "reason": str(e),
+                    "elapsed_sec": None,
+                })
             if pbar is not None:
                 pbar.update(1)
     finally:
@@ -3162,6 +3293,10 @@ def modify_cbz_mode(cbz_files: list[Path], args) -> None:
     if failed_reasons:
         parts = ", ".join(f"{k}={v}" for k, v in failed_reasons.items())
         emit(t("modify.failed_reasons", summary=parts), level="summary")
+    total_elapsed = time.perf_counter() - total_start
+    emit_json(json_files, success=success, skipped=nochange,
+              failed=len(failed_files), interrupted=False,
+              total_elapsed=total_elapsed)
 
 
 def unpack_ebook(p: Path, out_root: Path) -> Path:
@@ -3437,6 +3572,20 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="FILE",
         help=t("help.log"),
     )
+    # 输入：是否输出 JSON；输出：stdout 单行紧凑 JSON（给 AI/管道读取），开启时屏蔽人类可读文本（error 走 stderr）
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help=t("help.json"),
+    )
+    # 输入：JSON 输出文件路径；输出：转换结果写入 JSON 文件（省略时自动时间戳命名，对齐 --log auto）
+    parser.add_argument(
+        "--json-out",
+        nargs="?",
+        const="auto",
+        metavar="FILE",
+        help=t("help.json_out"),
+    )
     # 输入：是否解包查看；输出：只解压不转换，输出到源文件所在目录的同名子目录
     parser.add_argument(
         "--unpack",
@@ -3472,7 +3621,7 @@ def _main():
     elif last_progress_flag == "no_progress":
         args.progress, args.no_progress = False, True
 
-    global _quiet_mode, _log_path, _short_summary, _compress_level
+    global _quiet_mode, _log_path, _short_summary, _compress_level, _json_stdout, _json_out_path
     _quiet_mode = args.quiet
     if args.log == "auto":
         _log_path = f"manga-mobi2cbz_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
@@ -3481,6 +3630,11 @@ def _main():
         _log_path = args.log
     _short_summary = args.short_summary
     _compress_level = args.compress
+    _json_stdout = args.json
+    if args.json_out == "auto":
+        _json_out_path = f"manga-mobi2cbz_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+    else:
+        _json_out_path = args.json_out
 
     # 输入：--language auto（或未显式指定走默认 auto）；输出：提示实际识别的语种（quiet 时抑制）
     if known.language == "auto":
@@ -3603,6 +3757,7 @@ def _main():
     emit(t("run.start", count=len(ebook_files)))
 
     total_start = time.perf_counter()
+    json_files: list = []
     success = 0
     success_cbzs = []
     skipped_files = []
@@ -3625,21 +3780,37 @@ def _main():
                 comicinfo=not args.no_comicinfo, setinfo_args=args.setinfo,
             )
             file_elapsed = time.perf_counter() - file_start
+            json_status = "ok"
+            json_target = None
+            json_reason = None
             if timed_out:
                 emit(t("run.timeout", name=mf.name, seconds=args.timeout), level="error")
                 failed_files.append(mf)
                 failed_reasons["timeout"] += 1
+                json_status = "timeout"
+                json_reason = "timeout"
             else:
                 result, status, reason = converted
                 if status == ConvStatus.OK:
                     success += 1
                     success_cbzs.append(result)
+                    json_target = str(result)
                 elif status == ConvStatus.SKIP:
                     skipped_files.append(mf)
+                    json_status = "skip"
                 elif status == ConvStatus.FAIL:
                     failed_files.append(mf)
                     failed_reasons[reason] += 1
+                    json_status = "fail"
+                    json_reason = reason
             emit(t("run.elapsed", name=mf.name, seconds=f"{file_elapsed:.2f}"))
+            json_files.append({
+                "source": str(mf),
+                "status": json_status,
+                "target": json_target,
+                "reason": json_reason,
+                "elapsed_sec": round(file_elapsed, 3),
+            })
             if pbar is not None:
                 pbar.update(1)
     except KeyboardInterrupt:
@@ -3676,6 +3847,9 @@ def _main():
         parts = ", ".join(f"{k}={v}" for k, v in failed_reasons.items())
         emit(t("run.failed_reasons", summary=parts), level="summary")
     emit(t("run.total_elapsed", seconds=f"{total_elapsed:.2f}"), level="summary")
+    emit_json(json_files, success=success, skipped=len(skipped_files),
+              failed=len(failed_files), interrupted=interrupted,
+              total_elapsed=total_elapsed)
 
 
 if __name__ == "__main__":
