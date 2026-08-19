@@ -53,6 +53,7 @@ It natively follows the OPF spine reading order to extract images, and comes wit
 - **Auto-named log** — `--log` without a filename auto-generates `manga-mobi2cbz_YYYYMMDD_HHMMSS.log` (current directory)
 - **Unpack mode** — `--unpack` only extracts without converting, outputting to a same-name subdirectory next to each source file (auto-numbered `(2)(3)` if it already exists); mobi uses extract preserving the full structure, cbz uses extractall (with zip-slip path-traversal protection); `.cbz` inputs are also collected when `--unpack` or `--setinfo` is given
 - **Elapsed-time stats** — per-file conversion time is printed in real time, and the total elapsed time is shown at the bottom of the summary
+- **JSON structured output** — `--json` prints a single-line compact JSON to stdout (for AI / pipelines / scripts); `--json-out [FILE]` writes the structured result to a JSON file (indented format; omitting the filename auto-generates a timestamped file, behaving exactly like `--log`); both are supported in the conversion mode and the `--setinfo` modification mode, and can be used together
 
 ## Supported image formats
 
@@ -167,11 +168,26 @@ python manga-mobi2cbz.py "D:\Manga" --inspect --inspect-all
 python manga-mobi2cbz.py "D:\Manga\Vol1.mobi" --setinfo "Title=天是紅河岸" --setinfo "Number=%number" --setinfo "Summary=hello, world"
 ```
 
+> Note: `--setinfo` only splits when a comma is immediately followed by a `fieldname=`. If a value itself contains a `Key=...` structure, pass multiple `--setinfo` options to avoid accidental splitting. When the input directory mixes existing `.cbz` and `.mobi`, enabling `--setinfo` modifies the `.cbz` files' ComicInfo.xml in place (unspecified fields keep their original values), while other files are converted as usual.
+
 ### Unpack to view (extract only, no conversion; output to a same-name subdirectory)
 
 ```bash
 python manga-mobi2cbz.py "D:\Manga\Vol1.mobi" --unpack
 ```
+
+### JSON structured output
+
+```bash
+# Print a single-line JSON result to stdout
+python manga-mobi2cbz.py "D:\Manga" --json
+
+# Write the structured result to a file (indented); omitting the filename auto-generates a timestamped one
+python manga-mobi2cbz.py "D:\Manga" --json-out result.json
+python manga-mobi2cbz.py "D:\Manga" --json-out
+```
+
+> Note: `--json` / `--json-out` only emit structured results after a real conversion or CBZ modification; they output nothing in `--dry-run`, `--inspect` or `--unpack` mode. The progress bar and human-readable messages go to stderr while JSON goes to stdout, so they stay separate; using `2>&1` combined redirection mixes the progress bar into the JSON stream — add `--no-progress` in that case.
 
 ### Show version
 
@@ -203,9 +219,11 @@ python manga-mobi2cbz.py --version
 | `--inspect`             | Inspect mode: inspect the file directly when the positional argument is a single file, or randomly sample 1 ebook for a directory; unpack only to read internal info (metadata/structure/images/resolution/dual DRM judgment/NCX TOC), no CBZ produced, temp directory cleaned up automatically |
 | `--inspect-all`         | Inspect all ebooks (requires `--inspect`; using it alone will auto-enable `--inspect`)                                                                |
 | `--no-comicinfo`        | Do not generate ComicInfo.xml (default: generates it into the CBZ root with Title / Series / Number / Writer / Publisher / Year / LanguageISO / PageCount / Summary metadata)                                                          |
-| `--setinfo FIELD=VALUE` | Override/add ComicInfo fields (repeatable, highest priority): `FIELD` is a ComicInfo field name and must be in the standard-field whitelist (39 simple fields; out-of-whitelist fields emit a warning and are ignored); `VALUE` supports fixed values / `%series` / `%number` / `%title` / `%filename` / `%leftN` / `%rightN` placeholders (field omitted when the placeholder value is missing); smart splitting: only splits when a comma is followed by `fieldname=`, otherwise the comma is part of the value (e.g. `Summary=hello, world` is not split); when the input is an existing `.cbz`, its ComicInfo.xml is modified in place (unspecified fields keep their original values) |
+| `--setinfo FIELD=VALUE` | Override/add ComicInfo fields (repeatable, highest priority): `FIELD` is a ComicInfo field name and must be in the standard-field whitelist (39 simple fields; out-of-whitelist fields emit a warning and are ignored); `VALUE` supports fixed values / `%series` / `%number` / `%title` / `%filename` / `%leftN` / `%rightN` placeholders (field omitted when the placeholder value is missing); smart splitting: only splits when a comma is followed by `fieldname=`, otherwise the comma is part of the value (e.g. `Summary=hello, world` is not split); when the input is an existing `.cbz`, its ComicInfo.xml is modified in place (unspecified fields keep their original values); use multiple `--setinfo` when a value contains `Key=`; when enabled, `.cbz` files mixed into the input are modified in place while other files convert as usual |
 | `--unpack`              | Unpack to view: extract only, no conversion; outputs to a same-name subdirectory next to each source file (auto-numbered `(2)(3)` if it already exists); mobi uses extract preserving the full structure, cbz uses extractall (with zip-slip path-traversal protection); `.cbz` inputs are also collected |
 | `--log FILE`            | Append all output to the specified log file; without a filename, auto-generates `manga-mobi2cbz_YYYYMMDD_HHMMSS.log` (current directory)                                                                                       |
+| `--json`                | Print a single-line compact JSON of the run result to stdout (for AI / pipelines / scripts); suppresses human-readable text output when enabled; can be combined with `--json-out`; only emitted in conversion/modify mode (nothing in dry-run/inspect/unpack); progress bar goes to stderr and stays separate, but 2>&1 combined redirection mixes it in |
+| `--json-out [FILE]`     | Write the structured run result to a JSON file (indented format); without a filename, auto-generates a timestamped file (current directory, behaves exactly like `--log`); can be combined with `--json`; like `--json`, only written in conversion/modify mode                             |
 | `--version`             | Show version number                                                                                                               |
 
 ## Output
@@ -242,6 +260,33 @@ A: Since v1.9.0, `--output-dir` preserves the relative subdirectory structure of
 A: Yes. Since v1.8.0 the accepted input extensions are `.mobi` / `.azw` / `.azw3`, all three going through the same conversion pipeline; for same-name files with different extensions in the same directory, azw3 is kept by default, adjustable via `--ext-priority`.
 
 ## Changelog
+
+### [2.3.1] - 2026-08-19
+
+#### Fixed
+
+- **Hardened atomic replacement in the conversion branch** — the temp file is validated with validate_cbz before `os.replace` overwrites the target; on failure only the tmp is cleaned and the old CBZ is kept; a ComicInfo generation failure no longer deletes an existing target CBZ; Ctrl+C (KeyboardInterrupt) leftover `.tmp` files are cleaned up by a finally block
+- **Unknown `--setinfo` placeholder warning** — out-of-whitelist placeholders emit a warning and are written as-is (new i18n keys in all four languages)
+- **sanitize extended** — ASCII control characters stripped, trailing dots/spaces removed
+- **find_opf naming priority** — `content.opf` / `package.opf` preferred when multiple OPFs exist
+- **Maintenance** — stale docstrings cleaned; `_strip_html` switched to HTMLParser (dead `import html` removed)
+
+#### Docs
+
+- **`--help` wording extended (zh-CN/zh-TW/en/ja)** — `--setinfo`: use multiple options when a value contains `Key=`, existing `.cbz` inputs are modified in place when enabled; `--json`/`--json-out`: only emitted in conversion/modify mode (nothing in dry-run/inspect/unpack), progress bar goes to stderr and stays separate, but 2>&1 combined redirection mixes it in
+- **README usage notes synchronized** — setinfo / JSON sections and the parameter table updated accordingly
+
+### [2.3.0] - 2026-08-19
+
+#### Added
+
+- **JSON structured output** — `--json` prints a single-line compact JSON to stdout (for AI / pipelines / scripts; suppresses human-readable text output when enabled); `--json-out [FILE]` writes the structured result to a JSON file (indented format; omitting the filename auto-generates a timestamped file, behaving exactly like `--log`); the two can be combined; supported by both the conversion mode and the `--setinfo` modification mode
+
+#### Fixed (merged from the v2.2.1 interim fixes)
+
+- **Atomic replacement in the conversion path** — CBZ packaging now writes to a `xxx.cbz.tmp` temp file first and only `os.replace`s it over the target after everything succeeds; removed the unlink of the old CBZ before packaging and the deletion in failure branches, so only the half-written tmp is cleaned on exception. Eliminates the risk of a truncated CBZ left behind by Ctrl+C / mid-run crash, and the data-loss risk of losing the old file when overwrite fails (consistent with the existing atomic replacement in CBZ modification mode)
+- **`--inspect` non-numeric PageCount warning** — a non-numeric PageCount in ComicInfo now emits a warning instead of being silently ignored (new i18n key `inspect.pagecount_non_numeric`, synced across all four languages)
+- **`--timeout` help text** — now notes that the underlying unpack thread may linger in the background after a timeout; the `--overwrite` message now reads "old file will be replaced", matching the actual atomic-replacement behavior
 
 ### [2.2.0] - 2026-08-18
 
