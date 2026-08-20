@@ -197,7 +197,7 @@ python manga-mobi2cbz.py --version
 | `--prefer`            | 双目录 mobi 时保留哪份：`auto` / `mobi7` / `mobi8`（默认 `auto`）；`auto` 优先 mobi8、mobi8 无图片自动回退 mobi7；明确指定 `mobi7`/`mobi8` 时该目录无图片自动回退另一份                                                        |
 | `--drop-extra`        | 目录中有未被收集的多余图片时放弃追加（默认追加到 cbz 末尾）                                                                                                                                                 |
 | `--overwrite`         | 目标 cbz 已存在时强制重新生成（默认跳过）                                                                                                                                                          |
-| `--ext-priority EXTS` | 同目录同名（仅扩展名不同）时保留哪种格式：逗号分隔、顺序即优先级从高到低，仅接受 mobi/azw/azw3，默认 azw3；优先级未覆盖时回退兜底顺序 azw3→mobi→azw；与 `--prefer`（双目录选择）无关                                                                 |
+| `--ext-priority EXTS` | 同目录同名（仅扩展名不同）时保留哪种格式：逗号分隔、顺序即优先级从高到低，仅接受 mobi/azw/azw3/epub，默认 azw3；优先级未覆盖时回退兜底顺序 azw3→epub→mobi→azw；与 `--prefer`（双目录选择）无关                                                                 |
 | `--timeout`           | 单文件转换超时秒数，超时自动跳过并计入失败（默认 600，`0` 表示不限制）                                                                                                                                          |
 | `--min-size BYTES`    | 过滤小于指定字节的电子书；不带数字默认 1000，`0` 关闭，不传则关闭大小过滤                                                                                                                                        |
 | `--output-dir DIR`    | CBZ 输出到指定目录（自动创建），默认保留相对输入的子目录结构（如 `One Piece/001.mobi` → `DIR/One Piece/001.cbz`）；加 `--flatten` 可平铺到目录根下                                                                        |
@@ -211,9 +211,10 @@ python manga-mobi2cbz.py --version
 | `--inspect`           | 检查模式：位置参数为单个文件时直接检查该文件，为目录时随机抽查 1 个，只解包读取内部信息（元数据/结构/图片/分辨率/DRM 双重判断/NCX 目录），不生成 CBZ，结束自动清理临时目录                                                                                  |
 | `--inspect-all`       | 检查全部电子书（需配合 `--inspect` 使用，单独使用将自动启用 `--inspect`）                                                                                                                                |
 | `--no-comicinfo`      | 不生成 ComicInfo.xml（默认生成：向 CBZ 根目录写入 Title / Series / Number / Writer / Publisher / Year / LanguageISO / PageCount / Summary 漫画元数据）                                                |
-| `--setinfo FIELD=VALUE` | 覆盖/新增 ComicInfo 字段（可多次指定，优先级最高）：`FIELD` 为 ComicInfo 字段名（需在 ComicInfo 标准字段白名单内，白名单外 warning 忽略），`VALUE` 支持固定值 / `%series` / `%number` / `%title` / `%filename` / `%leftN` / `%rightN` 占位符（对应值缺失时该字段不写入）；智能拆分：仅当逗号后紧跟"字段名="时才拆分，否则逗号视为值的一部分（如 `Summary=hello, world` 不拆分）；值内含 `Key=` 结构请用多次 `--setinfo` 传入；开启 `--setinfo` 时输入目录中混有的已有 `.cbz` 会就地修改其 ComicInfo.xml（未指定字段保留原值），其余文件照常转换 |
+| `--setinfo FIELD=VALUE` | 覆盖/新增 ComicInfo 字段（可多次指定，优先级最高）：`FIELD` 为 ComicInfo 字段名（需在 ComicInfo 标准字段白名单内，白名单外 warning 忽略），`VALUE` 支持固定值 / `%series` / `%number` / `%title` / `%filename` / `%leftN` / `%rightN` 占位符（对应值缺失时该字段不写入）；智能拆分：仅当逗号后紧跟"字段名="时才拆分，否则逗号视为值的一部分（如 `Summary=hello, world` 不拆分）；值内含 `Key=` 结构请用多次 `--setinfo` 传入；`Manga` 默认不写入，需显式 `--setinfo Manga=Unknown\|No\|Yes\|YesAndRightToLeft`（限官方 v2.0 枚举）；另支持 `CommunityRating`（0-5）/ `MainCharacterOrTeam` / `Review` 三个官方字段；开启 `--setinfo` 时输入目录中混有的已有 `.cbz` 会就地修改其 ComicInfo.xml（未指定字段保留原值），其余文件照常转换 |
 | `--unpack`            | 解包查看：只解压不转换，输出到各源文件所在目录的同名子目录（已存在自动加序号避让）；mobi 走 extract 保留完整结构，cbz 走 extractall（含 zip-slip 路径穿越防护）；`--unpack` / `--setinfo` 时也会收集 `.cbz` 输入 |
-| `--double-page VALUE` | 双页检测：不传或 `auto` 开启（阈值 2.0，检测宽/高 ≥ 阈值的横幅跨页大图，ComicInfo 写入 `<Manga>Yes</Manga>` + 逐页 `Type="DoublePage"`）；传数值（如 `2.5`）开启并调整阈值；`off` / `no` / `0` 关闭；非法值报错 |
+| `--double-page VALUE` | 双页检测：不传或 `auto` 开启（阈值 2.0，检测宽/高 ≥ 阈值的横幅跨页大图，ComicInfo 写入逐页 `Type="DoublePage"`，`Manga` 不再自动声明）；传数值（如 `2.5`）开启并调整阈值；`off` / `no` / `0` 关闭；非法值报错 |
+| `--drop-small VALUE`  | 丢弃小图：转换时剔除尺寸明显偏小的图片（封面缩略图 / 版权页等）——宽和高均 < 中位数×比例 判为小图；不传或 `auto` 用默认比例 0.5，可传 `0~1` 数值（如 `0.4`）调比例；`off` / `no` / `0` 关闭（默认关闭，不改变现有行为）；丢弃后 ComicInfo `PageCount` 按实际剩余图数重算，汇总 / `--log` / `--json` 新增"丢弃小图"计数（`--json` 输出 `dropped_small` 字段）；`--inspect` 预览会提示"开启 --drop-small 时将丢弃 N 张"；横幅双页（宽不小）不会被误删；仅转换模式生效 |
 | `--log FILE`          | 将全部输出追加写入指定日志文件；不带文件名时自动生成 `manga-mobi2cbz_YYYYMMDD_HHMMSS.log`（当前目录）                                                                                                  |
 | `--json`              | stdout 输出单行紧凑 JSON（供 AI / 管道 / 脚本读取），开启时屏蔽人类可读文本输出（进度条 / emit 提示 / 汇总）；仅转换/修改模式输出（dry-run/inspect/unpack 不输出）；进度条写 stderr 不混流，但 `2>&1` 合并重定向会混入进度条 |
 | `--json-out FILE`     | 将结构化结果写入 JSON 文件（缩进格式）；不带文件名时自动生成时间戳文件（当前目录），带文件名写入指定路径，行为对齐 `--log`；与 `--json` 可共存；同 `--json` 仅转换/修改模式写入                                                                                  |
@@ -253,9 +254,27 @@ A: v1.9.0 起 `--output-dir` 默认保留相对输入的子目录结构（旧版
 A: 支持。v1.8.0 起输入扩展名扩展为 `.mobi` / `.azw` / `.azw3`，三种格式统一走同一转换链路；同目录同名不同扩展名时默认保留 azw3，可用 `--ext-priority` 调整。
 
 **Q: 支持 EPUB 吗？**
-A: 支持。v2.4.0 起输入扩展名扩展为 `.mobi` / `.azw` / `.azw3` / `.epub`。EPUB 本质为 ZIP 容器，直接走 zipfile 安全解包并复用 OPF spine 提取链路；封面自动识别支持 EPUB2（`<meta name="cover">`）与 EPUB3（`properties="cover-image"`）两种约定；无 EXTH 头时元数据从 OPF `dc:` 字段读取；`--prefer` 对 EPUB 静默忽略。
+A: 支持。v2.4.0 起输入扩展名扩展为 `.mobi` / `.azw` / `.azw3` / `.epub`。EPUB 本质为 ZIP 容器，直接走 zipfile 安全解包并复用 OPF spine 提取链路；封面自动识别支持 EPUB2（`<meta name="cover">`）与 EPUB3（`properties="cover-image"`）两种约定；无 EXTH 头时元数据从 OPF `dc:` 字段读取；`--prefer` 对 EPUB 静默忽略。加密 EPUB（Adobe DRM 等）无法解析内容，会提示无图片/无有效元数据并跳过，请先去除 DRM 再转换。
 
 ## 更新日志
+
+### [2.5.0] - 2026-08-20
+
+#### 变更
+
+- **Manga 不再自动写入** — 双页检测（`--double-page`）只生成 `<Pages>` 逐页 `Type="DoublePage"` 标记，不再自动附带 `<Manga>Yes</Manga>` 声明（Mihon 等阅读器不读该字段，且避免无跨页也声明）；`Manga` 改由 `--setinfo Manga=Unknown|No|Yes|YesAndRightToLeft` 显式指定，取值限官方 v2.0 枚举，非法值输出 warning 并忽略
+- **`--ext-priority` 支持 EPUB** — 仅接受 `mobi` / `azw` / `azw3` / `epub`；优先级未覆盖时兜底顺序调整为 `azw3 → epub → mobi → azw`（EPUB 优先于 mobi 族保留）
+- **无图提示按扩展名分流** — EPUB 无图时改用中性提示（确认含漫画图片且未加密），不再误报 Kindle DRM；mobi/azw/azw3 仍提示 DRM 可能
+
+#### 新增
+
+- **`--setinfo` 白名单扩展（39 → 42）** — 新增 `CommunityRating`（0-5 评分）/ `MainCharacterOrTeam` / `Review` 三个官方 ComicInfo v2.0 字段
+- **`--drop-small` 丢弃小图** — 默认关闭，开启后转换时剔除尺寸明显偏小的图片（封面缩略图 / 版权页等）：宽和高均 < 中位数 × 比例 判为小图（默认比例 0.5，可传 `0~1` 数值调整，`off`/`no`/`0` 关闭）；逐图读 PNG/JPEG 头部宽高，不引入新依赖；丢弃后 ComicInfo `PageCount` 按实际剩余图数重算；汇总 / `--log` / `--json` 新增"丢弃小图"计数（`--json` 输出 `dropped_small` 字段）；`--inspect` 预览提示"开启 --drop-small 时将丢弃 N 张"；横幅双页（宽不小）不会被误删
+
+#### 文档
+
+- **`--help` 四语言文案同步** — `help.description` / `help.target` / `help.ext_priority` 补充 `.epub`；`help.setinfo` 补充 Manga 枚举与显式指定说明
+- **加密 EPUB 说明** — FAQ 明确加密 EPUB（Adobe DRM 等）无法转换，需先去除 DRM
 
 ### [2.4.0] - 2026-08-20
 
