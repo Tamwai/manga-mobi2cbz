@@ -165,7 +165,7 @@ python manga-mobi2cbz.py "D:\Manga" --inspect --inspect-all
 ### Override/add ComicInfo fields (repeatable, highest priority)
 
 ```bash
-python manga-mobi2cbz.py "D:\Manga\Vol1.mobi" --setinfo "Title=天是紅河岸" --setinfo "Number=%number" --setinfo "Summary=hello, world"
+python manga-mobi2cbz.py "D:\Manga\Vol1.mobi" --setinfo "Title=My Manga" --setinfo "Number=%number" --setinfo "Summary=hello, world"
 ```
 
 > Note: `--setinfo` only splits when a comma is immediately followed by a `fieldname=`. If a value itself contains a `Key=...` structure, pass multiple `--setinfo` options to avoid accidental splitting. When the input directory mixes existing `.cbz` and `.mobi`, enabling `--setinfo` modifies the `.cbz` files' ComicInfo.xml in place (unspecified fields keep their original values), while other files are converted as usual.
