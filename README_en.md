@@ -165,7 +165,7 @@ python manga-mobi2cbz.py "D:\Manga" --inspect --inspect-all
 ### Override/add ComicInfo fields (repeatable, highest priority)
 
 ```bash
-python manga-mobi2cbz.py "D:\Manga\Vol1.mobi" --setinfo "Title=My Manga" --setinfo "Number=%number" --setinfo "Summary=hello, world"
+python manga-mobi2cbz.py "D:\Manga\Vol1.mobi" --setinfo "Title=My Magan" --setinfo "Number=%number" --setinfo "Summary=hello, world"
 ```
 
 > Note: `--setinfo` only splits when a comma is immediately followed by a `fieldname=`. If a value itself contains a `Key=...` structure, pass multiple `--setinfo` options to avoid accidental splitting. When the input directory mixes existing `.cbz` and `.mobi`, enabling `--setinfo` modifies the `.cbz` files' ComicInfo.xml in place (unspecified fields keep their original values), while other files are converted as usual.
@@ -265,6 +265,13 @@ A: Yes. Since v1.8.0 the accepted input extensions are `.mobi` / `.azw` / `.azw3
 A: Yes. Since v2.4.0 the accepted input extensions are `.mobi` / `.azw` / `.azw3` / `.epub`. EPUB is a ZIP container, so it is safely unpacked via zipfile and reuses the OPF spine extraction pipeline; cover detection supports both EPUB2 (`<meta name="cover">`) and EPUB3 (`properties="cover-image"`); without an EXTH header, metadata is read from OPF `dc:` fields; `--prefer` is silently ignored for EPUB. Encrypted EPUBs (e.g. Adobe DRM) cannot be parsed — they are reported as no images / no usable metadata and skipped; remove the DRM before converting.
 
 ## Changelog
+
+### [2.5.1] - 2026-08-20
+
+#### Fixed
+
+- **Deduplication no longer drops same-name `.cbz`** — in `--setinfo` / `--inspect` / `--unpack` modes, converted `.cbz` files no longer join same-name deduplication with mobi/azw/azw3/epub, so existing CBZ can be modified / checked normally
+- **Dedicated hint for flatten name conflicts** — when a second same-name source is skipped under flatten mode, it now clearly flags a flatten conflict instead of the generic "target already exists", and suggests `--overwrite`
 
 ### [2.5.0] - 2026-08-20
 
