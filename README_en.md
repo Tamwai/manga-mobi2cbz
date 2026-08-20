@@ -3,7 +3,7 @@
 
 # manga-mobi2cbz
 
-A batch-conversion CLI tool built for Kindle manga: convert DRM-free MOBI / AZW / AZW3 ebooks into standard CBZ comic packages with one command.
+A batch-conversion CLI tool built for Kindle manga: convert DRM-free MOBI / AZW / AZW3 / EPUB ebooks into standard CBZ comic packages with one command.
 It natively follows the OPF spine reading order to extract images, and comes with a full set of practical capabilities: automatic cover repair, same-volume multi-format deduplication, batch timeout protection, file integrity verification, and multi-language auto output. It also includes an `--inspect` exploration mode that lets you inspect comic metadata, resolution, NCX table of contents, and DRM status without packing. Cross-platform, efficient and stable for batch organizing your manga library.
 
 > ⚠️ Only supports DRM-free Kindle comics. Store-purchased DRM-protected eBooks cannot be parsed.
@@ -18,7 +18,7 @@ It natively follows the OPF spine reading order to extract images, and comes wit
 
 ## Features
 
-- **Batch conversion** — convert a single file or an entire directory recursively (`.mobi` / `.azw` / `.azw3`)
+- **Batch conversion** — convert a single file or an entire directory recursively (`.mobi` / `.azw` / `.azw3` / `.epub`)
 - **OPF spine ordering** — extract images in OPF spine order to preserve the real reading order; falls back to natural filename sorting when no OPF exists
 - **Cover fallback** — automatically scans for images whose filenames contain cover/front; if the cover is already in the spine list, the list order wins, and it is only inserted at the front when missing
 - **Directory alignment fallback** — when the image count in the directory differs from the collected count, extra images are appended to the end of the cbz in natural order by default; `--drop-extra` switches to dropping them instead, and the outcome is printed
@@ -78,7 +78,7 @@ pip install mobi
 python manga-mobi2cbz.py "D:\Manga\Vol1.mobi"
 ```
 
-### Batch-convert an entire directory (recursively searches all .mobi / .azw / .azw3)
+### Batch-convert an entire directory (recursively searches all .mobi / .azw / .azw3 / .epub)
 
 ```bash
 python manga-mobi2cbz.py "D:\Manga"
@@ -199,7 +199,7 @@ python manga-mobi2cbz.py --version
 
 | Parameter               | Description                                                                                                                      |
 | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| `target`                | Path to an ebook file or a directory containing ebooks (.mobi/.azw/.azw3) (required)                                              |
+| `target`                | Path to an ebook file or a directory containing ebooks (.mobi/.azw/.azw3/.epub) (required)                                              |
 | `--language LANG`       | Output language: `auto` selects by system locale (zh prefix → Chinese, zh-TW/zh-Hant → Traditional Chinese, ja/Japanese → Japanese, otherwise → English), or specify `zh-CN`/`zh-TW`/`ja`/`en` (default `auto`); tolerant of common spellings: `zh`/`cn`→zh-CN, `zhtw`/`tw`→zh-TW, `jp`→ja, `eng`→en |
 | `--delete`              | Delete the original ebook file after successful conversion (default: keep)                                                        |
 | `--prefer`              | Which copy to keep for dual-directory mobi: `auto` / `mobi7` / `mobi8` (default `auto`); `auto` prefers mobi8 and falls back to mobi7 when mobi8 has no images; explicitly specifying `mobi7`/`mobi8` falls back to the other when the chosen directory has no images |
@@ -221,6 +221,7 @@ python manga-mobi2cbz.py --version
 | `--no-comicinfo`        | Do not generate ComicInfo.xml (default: generates it into the CBZ root with Title / Series / Number / Writer / Publisher / Year / LanguageISO / PageCount / Summary metadata)                                                          |
 | `--setinfo FIELD=VALUE` | Override/add ComicInfo fields (repeatable, highest priority): `FIELD` is a ComicInfo field name and must be in the standard-field whitelist (39 simple fields; out-of-whitelist fields emit a warning and are ignored); `VALUE` supports fixed values / `%series` / `%number` / `%title` / `%filename` / `%leftN` / `%rightN` placeholders (field omitted when the placeholder value is missing); smart splitting: only splits when a comma is followed by `fieldname=`, otherwise the comma is part of the value (e.g. `Summary=hello, world` is not split); when the input is an existing `.cbz`, its ComicInfo.xml is modified in place (unspecified fields keep their original values); use multiple `--setinfo` when a value contains `Key=`; when enabled, `.cbz` files mixed into the input are modified in place while other files convert as usual |
 | `--unpack`              | Unpack to view: extract only, no conversion; outputs to a same-name subdirectory next to each source file (auto-numbered `(2)(3)` if it already exists); mobi uses extract preserving the full structure, cbz uses extractall (with zip-slip path-traversal protection); `.cbz` inputs are also collected |
+| `--double-page VALUE`   | Double-page spread detection: omitted or `auto` enables it (threshold 2.0; detects wide banner spread images with width/height ≥ threshold, writing `<Manga>Yes</Manga>` + per-page `Type="DoublePage"` to ComicInfo); a numeric value (e.g. `2.5`) enables it and adjusts the threshold; `off` / `no` / `0` disables it; invalid values error out |
 | `--log FILE`            | Append all output to the specified log file; without a filename, auto-generates `manga-mobi2cbz_YYYYMMDD_HHMMSS.log` (current directory)                                                                                       |
 | `--json`                | Print a single-line compact JSON of the run result to stdout (for AI / pipelines / scripts); suppresses human-readable text output when enabled; can be combined with `--json-out`; only emitted in conversion/modify mode (nothing in dry-run/inspect/unpack); progress bar goes to stderr and stays separate, but 2>&1 combined redirection mixes it in |
 | `--json-out [FILE]`     | Write the structured run result to a JSON file (indented format); without a filename, auto-generates a timestamped file (current directory, behaves exactly like `--log`); can be combined with `--json`; like `--json`, only written in conversion/modify mode                             |
@@ -259,7 +260,31 @@ A: Since v1.9.0, `--output-dir` preserves the relative subdirectory structure of
 **Q: Are .azw / .azw3 supported?**
 A: Yes. Since v1.8.0 the accepted input extensions are `.mobi` / `.azw` / `.azw3`, all three going through the same conversion pipeline; for same-name files with different extensions in the same directory, azw3 is kept by default, adjustable via `--ext-priority`.
 
+**Q: Are EPUB files supported?**
+A: Yes. Since v2.4.0 the accepted input extensions are `.mobi` / `.azw` / `.azw3` / `.epub`. EPUB is a ZIP container, so it is safely unpacked via zipfile and reuses the OPF spine extraction pipeline; cover detection supports both EPUB2 (`<meta name="cover">`) and EPUB3 (`properties="cover-image"`); without an EXTH header, metadata is read from OPF `dc:` fields; `--prefer` is silently ignored for EPUB.
+
 ## Changelog
+
+### [2.4.0] - 2026-08-20
+
+#### Added
+
+- **EPUB input support** — accepted input extensions expanded to `.mobi` / `.azw` / `.azw3` / `.epub`; `ebook_to_cbz` / `--inspect` / `--unpack` branch by extension: EPUB (a ZIP container) is safely unpacked via zipfile (with zip-slip path-traversal protection), while mobi/azw/azw3 still go through `mobi.extract`; the existing OPF spine extraction and ComicInfo metadata pipeline is reused, with no parallel implementations
+- **EPUB cover fallback enhanced** — `get_opf_guide_cover_href` now checks three sources in order: ① guide `type="cover"` ② manifest `properties="cover-image"` (EPUB3) ③ the item referenced by `<meta name="cover">` (EPUB2); cover href resolution corrected to be relative to the OPF directory (EPUB OPFs usually live in OEBPS/)
+- **EPUB metadata supplement** — without an EXTH header, `--inspect` reads title/author/language/date/publisher from OPF `dc:` fields instead; `get_drm_flag` passes EPUB through directly (a ZIP container has no PalmDB DRM field, avoiding false positives)
+- **`--prefer` silently ignored for EPUB** — EPUB has no mobi7/mobi8 dual directories and is naturally single-directory
+- **EPUB3 nav TOC recognition** — `--inspect` locates the nav document via OPF manifest `properties="nav"` (fallback: `*nav*.xhtml`), parses `<a>` titles inside `<nav epub:type="toc">` (nested levels included); shown alongside the EPUB2 `toc.ncx`, so a pure EPUB3 without .ncx still gets a TOC
+- **ComicInfo series/number read from metadata first** — when generating ComicInfo, Series/Number are now taken from OPF metadata first (`dc:series` / `dc:number`, EPUB3 `belongs-to-collection` / `group-position`, calibre's `meta[name=calibre:series/series_index]`); `dc:number` is auto-stripped of volume markers (`卷12` → `12`), and only falls back to filename inference when no OPF metadata exists
+- **Double-page detection (`--double-page`)** — on by default (threshold 2.0): detects wide banner spread images whose width/height ≥ threshold, and writes `<Manga>Yes</Manga>` top-level tag + per-page `Type="DoublePage"` into ComicInfo; `--double-page auto` equals the default, `--double-page 2.5` adjusts the threshold, `--double-page off` (or `no` / `0`) disables it, and invalid values error out
+- **ComicInfo field source annotation** — the `--inspect` preview annotates Series/Number with their source (`[setinfo]` / `[opf]` / `[inferred]`), so you can tell at a glance whether a field came from user specification, OPF metadata, or filename inference; `--json` also gains `series_source` / `number_source` / `cover_source` fields (values such as `setinfo` / `opf` / `inferred` / `filename`) for AI/pipeline trust assessment
+
+#### Changed
+
+- **Unified safe extraction for `--unpack`** — CBZ and EPUB share `_safe_zip_extract` (zip-slip protection), simplifying the logic
+- **Streaming rewrite for `--setinfo` CBZ modification** — `modify_cbz_comicinfo` no longer loads the whole archive into memory; it copies entries with dual handles (1MB chunks) and only reads `ComicInfo.xml` into memory; per-entry compression method / timestamps / attributes are preserved, and atomic replacement with exception cleanup is unchanged (memory for large archives drops from O(whole archive) to O(single entry))
+- **ComicInfo priority reordered (setinfo > OPF metadata > filename inference)** — previously Series/Number came straight from filename inference (`infer_series_number`); now user-specified `--setinfo` wins, then OPF metadata, and filename inference is only the last resort; files with a bare volume marker and no series name (e.g. `Vol.01.mobi`) now return the number only, not a fake series name
+- **Volume-inference regex expanded** — `infer_series_number` now covers: `卷N` prefix style, `vN`, `第N册`/`N册`, `巻N` prefix style, French `tome N`, Korean `권N`, Thai `เล่ม N`, Russian `Том N`, Chinese-numeral volumes (`第一卷`/`卷二`), and fractional volumes (`Vol 7.5`)
+- **CoverSource removed from Notes** — cover source is no longer written into the `Notes` field of ComicInfo (avoiding non-standard notes leaking into the cross-software shared ComicInfo.xml); it is now surfaced via the `--inspect` cover line and the `--json` `cover_source` field, and Notes keeps content fields only
 
 ### [2.3.1] - 2026-08-19
 
