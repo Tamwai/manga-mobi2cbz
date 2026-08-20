@@ -200,7 +200,7 @@ python manga-mobi2cbz.py --version
 | `--prefer` | 二重ディレクトリ mobi で保持する側: `auto` / `mobi7` / `mobi8`（デフォルト `auto`）。`auto` は mobi8 を優先し、mobi8 に画像がない場合は mobi7 に自動フォールバック。`mobi7`/`mobi8` を明示指定した場合も、選択ディレクトリに画像がないときはもう一方へフォールバック |
 | `--drop-extra` | 未収集の余分な画像を破棄（デフォルト: cbz 末尾に追記） |
 | `--overwrite` | 対象 cbz が既にある場合に強制再生成（デフォルト: スキップ） |
-| `--ext-priority EXTS` | 同一ディレクトリ・同名（拡張子のみ異なる）とき保持する形式。カンマ区切りで優先度が高い順。受け付ける値は `mobi` / `azw` / `azw3` のみ。デフォルト `azw3`。未指定分は azw3→mobi→azw にフォールバック。`--prefer`（mobi7/mobi8）とは無関係 |
+| `--ext-priority EXTS` | 同一ディレクトリ・同名（拡張子のみ異なる）とき保持する形式。カンマ区切りで優先度が高い順。受け付ける値は `mobi` / `azw` / `azw3` / `epub`。デフォルト `azw3`。未指定分は azw3→epub→mobi→azw にフォールバック。`--prefer`（mobi7/mobi8）とは無関係 |
 | `--timeout` | 1 ファイルあたりのタイムアウト秒数。超過分はスキップして失敗計上（デフォルト 600、`0` は無制限） |
 | `--min-size BYTES` | 指定バイト未満を除外。数値省略時は 1000、`0` で無効、オプション未指定でサイズフィルタオフ |
 | `--output-dir DIR` | CBZ の出力先（自動作成）。デフォルトで入力の相対サブディレクトリ構造を保持（例: `One Piece/001.mobi` → `DIR/One Piece/001.cbz`）。`--flatten` でルート直下にフラット化 |
@@ -214,9 +214,10 @@ python manga-mobi2cbz.py --version
 | `--inspect` | 位置引数が単一ファイルの場合はそのファイルを直接検査、ディレクトリの場合は 1 冊をランダム抽出して内部情報のみ読取（CBZ 非生成、一時ディレクトリは終了時に削除） |
 | `--inspect-all` | 全冊を検査（`--inspect` と併用が必要、単独指定時は自動的に `--inspect` を有効化） |
 | `--no-comicinfo` | ComicInfo.xml を生成しない（デフォルト: CBZ ルートに Title / Series / Number / Writer / Publisher / Year / LanguageISO / PageCount / Summary を書き込み） |
-| `--setinfo FIELD=VALUE` | ComicInfo フィールドを上書き/追加（複数指定可、最優先）。`FIELD` は ComicInfo 標準フィールドのホワイトリスト内である必要があります（単純フィールド 39 個、複雑な `Pages` は除外。ホワイトリスト外は warning を出して無視）。`VALUE` は固定値 / `%series` / `%number` / `%title` / `%filename` / `%leftN` / `%rightN` プレースホルダに対応（対応値が無い場合はそのフィールドを書き込まない）。スマート分割: カンマの直後に `フィールド名=` が続く場合のみ分割し、それ以外はカンマを値の一部とみなす（例: `Summary=hello, world` は分割しない）。入力が既存 `.cbz` の場合、その ComicInfo.xml を直接変更（未指定フィールドは元の値を保持）。値に `Key=` が含まれる場合は複数回の `--setinfo` で渡す。有効時は入力に混在する `.cbz` を直接変更し、他のファイルは通常どおり変換 |
+| `--setinfo FIELD=VALUE` | ComicInfo フィールドを上書き/追加（複数指定可、最優先）。`FIELD` は ComicInfo 標準フィールドのホワイトリスト内である必要があります（ホワイトリスト外は warning を出して無視）。`VALUE` は固定値 / `%series` / `%number` / `%title` / `%filename` / `%leftN` / `%rightN` プレースホルダに対応（対応値が無い場合はそのフィールドを書き込まない）。スマート分割: カンマの直後に `フィールド名=` が続く場合のみ分割し、それ以外はカンマを値の一部とみなす（例: `Summary=hello, world` は分割しない）。入力が既存 `.cbz` の場合、その ComicInfo.xml を直接変更（未指定フィールドは元の値を保持）。値に `Key=` が含まれる場合は複数回の `--setinfo` で渡す。有効時は入力に混在する `.cbz` を直接変更し、他のファイルは通常どおり変換。`Manga` はデフォルトで書き込まず、`--setinfo Manga=Unknown\|No\|Yes\|YesAndRightToLeft` で明示指定（公式 v2.0 の列挙のみ）。`CommunityRating`（0-5）/ `MainCharacterOrTeam` / `Review` の 3 つの公式フィールドにも対応 |
 | `--unpack` | 解凍表示: 変換せず解凍のみ。各ソースファイルと同じ名前のサブディレクトリへ出力（既存時は `(2)(3)` と自動採番）。mobi は extract で完全な構造を保持、cbz は extractall（zip-slip パストラバーサル対策付き）。`--unpack` 指定時は `.cbz` 入力も収集 |
-| `--double-page VALUE` | 見開きページ検出: 未指定または `auto` で有効（閾値 2.0。幅/高さ ≥ 閾値の横長見開き大画像を検出し、ComicInfo に `<Manga>Yes</Manga>` + ページごとの `Type="DoublePage"` を書き込む）。数値指定（例 `2.5`）で有効化し閾値を調整。`off` / `no` / `0` で無効化。不正値はエラー |
+| `--double-page VALUE` | 見開きページ検出: 未指定または `auto` で有効（閾値 2.0。幅/高さ ≥ 閾値の横長見開き大画像を検出し、ComicInfo にページごとの `Type="DoublePage"` を書き込む。`Manga` は自動で宣言しない）。数値指定（例 `2.5`）で有効化し閾値を調整。`off` / `no` / `0` で無効化。不正値はエラー |
+| `--drop-small [VALUE]` | 小画像の破棄: 変換時に他の画像より明らかに小さい画像（表紙サムネイル / 版権ページなど）を除外。幅・高さとも 中央値 × 比率 未満で小画像と判定。値なし/`auto` はデフォルト比率 0.5、`0~1` の数値（例 `0.4`）で比率調整、`off` / `no` / `0` で無効化（デフォルト無効、既存動作は不変）。破棄後は ComicInfo `PageCount` を実画像数で再計算。集計 / `--log` / `--json` に「破棄した小画像」カウントを追加（`--json` は `dropped_small` フィールド）。`--inspect` プレビューで「--drop-small 有効時は N 枚破棄されます」と表示。横長見開き（幅は小さくない）は誤破棄されない。変換モードのみ有効 |
 | `--log FILE` | 全出力を指定ログへ追記。ファイル名なしで指定すると `manga-mobi2cbz_YYYYMMDD_HHMMSS.log`（カレントディレクトリ）を自動生成 |
 | `--json` | 実行結果を 1 行のコンパクト JSON として stdout に出力（AI / パイプライン / スクリプト向け）。有効時は人間向けテキスト出力（プログレスバー / emit 表示 / 集計）を抑制。`--json-out` と併用可。変換/変更モードでのみ出力（dry-run/inspect/unpack では出力しない）。プログレスバーは stderr に書き込まれ混ざらないが、2>&1 結合リダイレクトでは混入する |
 | `--json-out [FILE]` | 構造化結果を JSON ファイルに書き込み（インデント形式）。ファイル名なしで指定するとタイムスタンプ付きファイル（カレントディレクトリ）を自動生成、`--log` と同一挙動。`--json` と併用可。`--json` と同様、変換/変更モードのみ書き込み |
@@ -256,9 +257,27 @@ A: v1.9.0 以降、`--output-dir` はデフォルトで入力の相対サブデ�
 A: 対応しています。v1.8.0 以降、入力は `.mobi` / `.azw` / `.azw3` で、同じ変換パイプラインを使います。同一ディレクトリで同名・異拡張子のときはデフォルトで azw3 を残し、`--ext-priority` で変更できます。
 
 **Q: EPUB には対応していますか？**
-A: 対応しています。v2.4.0 以降、入力は `.mobi` / `.azw` / `.azw3` / `.epub` です。EPUB は ZIP コンテナのため zipfile で安全に解凍し、OPF spine 抽出パイプラインを再利用します。表紙は EPUB2（`<meta name="cover">`）と EPUB3（`properties="cover-image"`）の両方に対応。EXTH ヘッダが無いため、メタデータは OPF の `dc:` フィールドから読み取ります。`--prefer` は EPUB では静かに無視されます。
+A: 対応しています。v2.4.0 以降、入力は `.mobi` / `.azw` / `.azw3` / `.epub` です。EPUB は ZIP コンテナのため zipfile で安全に解凍し、OPF spine 抽出パイプラインを再利用します。表紙は EPUB2（`<meta name="cover">`）と EPUB3（`properties="cover-image"`）の両方に対応。EXTH ヘッダが無いため、メタデータは OPF の `dc:` フィールドから読み取ります。`--prefer` は EPUB では静かに無視されます。暗号化された EPUB（Adobe DRM など）は内容を解析できず、画像なし/有効なメタデータなしとしてスキップされます。変換前に DRM を除去してください。
 
 ## 更新履歴
+
+### [2.5.0] - 2026-08-20
+
+#### 変更
+
+- **`Manga` を自動で書き込まない** — 見開きページ検出（`--double-page`）は `<Pages>` のページごとの `Type="DoublePage"` マーカーのみ生成し、`<Manga>Yes</Manga>` 宣言は自動付与しない（Mihon などのリーダーはこのフィールドを読まないため、見開きが無くても Manga と宣言されるのを回避）。`Manga` は `--setinfo Manga=Unknown|No|Yes|YesAndRightToLeft` で明示指定。公式 v2.0 の列挙のみ受け付け、不正値は warning を出して無視
+- **`--ext-priority` が EPUB に対応** — `mobi` / `azw` / `azw3` / `epub` を受け付け。優先度が未指定のグループのフォールバック順は `azw3 → epub → mobi → azw` に変更（EPUB を mobi 系より優先）
+- **画像なしヒントを拡張子で分岐** — 画像の無い EPUB には中立なヒント（漫画画像を含み暗号化されていないか確認）を出し、Kindle DRM の誤警告をやめる。mobi/azw/azw3 は従来どおり DRM の可能性を提示
+
+#### 追加
+
+- **`--setinfo` のホワイトリスト拡張（39 → 42）** — 公式 ComicInfo v2.0 の 3 フィールド `CommunityRating`（0-5 評価）/ `MainCharacterOrTeam` / `Review` を追加
+- **`--drop-small` で小画像を破棄** — デフォルト無効。有効にすると変換時に他の画像より明らかに小さい画像（表紙サムネイル / 版権ページなど）を除外: 幅・高さとも 中央値 × 比率 未満で小画像と判定（デフォルト比率 0.5、`0~1` の数値で調整、`off`/`no`/`0` で無効化）。画像ごとに PNG/JPEG ヘッダーの幅・高さを読むだけで、新規依存なし。破棄後は ComicInfo `PageCount` を実画像数で再計算。集計 / `--log` / `--json` に「破棄した小画像」カウントを追加（`--json` は `dropped_small` フィールド）。`--inspect` プレビューで「--drop-small 有効時は N 枚破棄されます」と表示。横長見開き（幅は小さくない）は誤破棄されない
+
+#### ドキュメント
+
+- **`--help` を 4 言語で同期** — `help.description` / `help.target` / `help.ext_priority` に `.epub` を追記。`help.setinfo` に Manga 列挙と明示指定の説明を追加
+- **暗号化 EPUB の注記** — FAQ に暗号化 EPUB（Adobe DRM など）は変換不可、先に DRM 除去と明記
 
 ### [2.4.0] - 2026-08-20
 
