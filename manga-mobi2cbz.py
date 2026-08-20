@@ -120,6 +120,12 @@ manga-mobi2cbz — 将 mobi/azw/azw3/epub 电子书漫画文件批量转换为 c
 要求: Python 3.10+
 
 更新日志:
+    v2.5.1 (2026-08-20)
+        - 修复 --setinfo/--inspect/--unpack 模式下去重误删同名 .cbz：
+          转换产物 .cbz 不参与 mobi/azw/azw3/epub 同名去重，保证已转
+          CBZ 可被修改/检查；flatten 平铺同名冲突跳过新增专用提示
+        - 维护性：清理实跑链路 used_names 死参数（dry-run 分支保留）
+        - 新增 LICENSE 文件（MIT）
     v2.5.0 (2026-08-20)
         - Manga 默认不再自动写入 ComicInfo：双页检测只生成 <Pages> 逐页
           DoublePage 标记，不再附带 <Manga>Yes</Manga> 声明；Manga 改由
@@ -478,7 +484,7 @@ manga-mobi2cbz — 将 mobi/azw/azw3/epub 电子书漫画文件批量转换为 c
           EOCD + testzip 完整性校验、失败清理半成品
 """
 
-__version__ = "2.5.0"
+__version__ = "2.5.1"
 
 SCRIPT_NAME = "manga-mobi2cbz"
 
@@ -597,6 +603,7 @@ LANGUAGES = {
         "align.append": "  [提示] 目录中 {count} 张图片未被收集，已追加到末尾",
         # ---- 【转换】转换流程 ----
         "convert.skip_exists": "  [跳过] 目标已存在: {name}",
+        "convert.flatten_conflict_skip": "  [警告] 平铺同名冲突: {src} 与已存在的 {name} 同名，已跳过；如确定覆盖请用 --overwrite",
         "convert.skip_corrupt_reconvert": "  [提示] 目标 {name} 已存在但校验失败（{reason}），自动重新转换",
         "convert.overwrite": "  [覆盖] 将覆盖旧文件，重新生成: {name}",
         "convert.spine": "  [排序] 按 OPF spine 顺序（{count} 张图片）",
@@ -820,6 +827,7 @@ LANGUAGES = {
         "align.append": "  [提示] 目錄中 {count} 張圖片未被收集，已追加到末尾",
         # ---- 【转换】转换流程 ----
         "convert.skip_exists": "  [跳過] 目標已存在: {name}",
+        "convert.flatten_conflict_skip": "  [警告] 平鋪同名衝突: {src} 與已存在的 {name} 同名，已跳過；如確定覆蓋請用 --overwrite",
         "convert.skip_corrupt_reconvert": "  [提示] 目標 {name} 已存在但校驗失敗，自動重新轉換",
         "convert.overwrite": "  [覆寫] 將覆蓋舊檔，重新生成: {name}",
         "convert.spine": "  [排序] 按 OPF spine 順序（{count} 張圖片）",
@@ -1043,6 +1051,7 @@ LANGUAGES = {
         "align.append": "  [Info] {count} images in the directory were not collected, appended to the end",
         # ---- 【转换】转换流程 ----
         "convert.skip_exists": "  [Skip] Target already exists: {name}",
+        "convert.flatten_conflict_skip": "  [Warning] Flatten name conflict: {src} collides with existing {name}, skipped; use --overwrite to force",
         "convert.skip_corrupt_reconvert": "  [Info] Target {name} exists but failed validation ({reason}), reconverting automatically",
         "convert.overwrite": "  [Overwrite] Old file will be replaced, regenerating: {name}",
         "convert.spine": "  [Sort] Using OPF spine order ({count} images)",
@@ -1266,6 +1275,7 @@ LANGUAGES = {
         "align.append": '  [情報] ディレクトリ内の未収集画像 {count} 枚を末尾に追加',
         # ---- 【转换】转换流程 ----
         "convert.skip_exists": '  [スキップ] 対象は既に存在: {name}',
+        "convert.flatten_conflict_skip": '  [警告] フラット同名衝突: {src} は既存の {name} と同名のためスキップ（flatten）。上書きする場合は --overwrite を指定してください',
         "convert.skip_corrupt_reconvert": '  [情報] 対象 {name} は存在しますが検証に失敗したため（{reason}）、自動的に再変換します',
         "convert.overwrite": '  [上書き] 古いファイルを上書きし再生成: {name}',
         "convert.spine": '  [ソート] OPF spine 順に抽出（{count} 枚）',
@@ -1820,13 +1830,17 @@ def dedupe_ebook_files(files: list[Path], ext_priority: list[str]) -> tuple[list
     返回 (kept, skipped)：skipped 为 [(path, reason)]。
     """
     groups: dict[tuple, list[Path]] = {}
+    kept: list[Path] = []
+    skipped: list[tuple[Path, str]] = []
     for p in files:
+        # .cbz 是转换产物，不参与 mobi/azw/azw3/epub 的同名去重，直接保留
+        if p.suffix.lower() == ".cbz":
+            kept.append(p)
+            continue
         groups.setdefault((p.parent.resolve(), p.stem.lower()), []).append(p)
 
     priority_exts = [f".{e.lstrip('.')}" for e in ext_priority]
     priority_desc = " > ".join(ext_priority)
-    kept: list[Path] = []
-    skipped: list[tuple[Path, str]] = []
 
     for key, group in groups.items():
         if len(group) == 1:
@@ -2144,7 +2158,7 @@ def select_mobi_dir(tempdir: Path, prefer: str) -> Path:
 
 
     # 输入：电子书路径与转换选项（delete/prefer/drop_extra/overwrite/output_dir/compress）；输出：(cbz 路径或 None, ConvStatus, 原因, 来源)
-def ebook_to_cbz(ebook_path: Path, delete_original: bool = False, prefer: str = "mobi8", drop_extra: bool = False, overwrite: bool = False, output_dir: Path | None = None, compress: int = 0, flatten: bool = False, input_root: Path | None = None, used_names: set | None = None, comicinfo: bool = True, setinfo_args: list | None = None, double_page: float | None = None, drop_small: float | None = None) -> tuple[Path | None, ConvStatus, str | None, dict | None]:
+def ebook_to_cbz(ebook_path: Path, delete_original: bool = False, prefer: str = "mobi8", drop_extra: bool = False, overwrite: bool = False, output_dir: Path | None = None, compress: int = 0, flatten: bool = False, input_root: Path | None = None, comicinfo: bool = True, setinfo_args: list | None = None, double_page: float | None = None, drop_small: float | None = None) -> tuple[Path | None, ConvStatus, str | None, dict | None]:
     """将单个电子书文件转换为 cbz
 
     prefer: "auto"（默认）双目录时优先 mobi8，mobi8 为空壳（无图片）自动回退 mobi7
@@ -2153,7 +2167,6 @@ def ebook_to_cbz(ebook_path: Path, delete_original: bool = False, prefer: str = 
     output_dir: 指定 CBZ 输出目录（自动创建），默认与源 mobi 同目录
     flatten: 与 output_dir 联用时平铺到输出目录根下（默认保留相对子目录结构）
     input_root: target 为目录时作为相对子目录结构计算的基准
-    used_names: 平铺唯一化已占用名集合（仅 dry-run 模拟占用，实跑以磁盘存在性为准）
     comicinfo: 是否生成 ComicInfo.xml（默认生成，--no-comicinfo 关闭）
     double_page: 双页检测阈值（宽/高 >= 该值判为跨页），None 表示关闭（--double-page off）
     drop_small: 丢弃小图比例（宽和高均 < 中位数×该值 判为小图），None 表示关闭（--drop-small off）
@@ -2163,7 +2176,7 @@ def ebook_to_cbz(ebook_path: Path, delete_original: bool = False, prefer: str = 
     - SKIP: 目标已存在且未指定 --overwrite，结果为 None，原因为 None，来源为 None
     - FAIL: 转换失败，结果为 None，原因为失败分类（no_images/drm/comicinfo/verify/other），来源为 None
     """
-    cbz_path = target_cbz_path(ebook_path, output_dir, flatten=flatten, input_root=input_root, used_names=used_names)
+    cbz_path = target_cbz_path(ebook_path, output_dir, flatten=flatten, input_root=input_root)
     # 断点续跑：目标已存在（磁盘）且未指定 --overwrite 时，校验有效才跳过；损坏自动重转
     if cbz_path.exists() and not overwrite:
         ok, err = validate_cbz(cbz_path, require_comicinfo=comicinfo)
@@ -2177,6 +2190,8 @@ def ebook_to_cbz(ebook_path: Path, delete_original: bool = False, prefer: str = 
                 emit(t("convert.source_newer_reconvert", name=cbz_path.name), level="warning")
             else:
                 emit(t("convert.skip_exists", name=cbz_path.name))
+                if flatten:
+                    emit(t("convert.flatten_conflict_skip", name=cbz_path.name, src=ebook_path.name), level="warning")
                 return None, ConvStatus.SKIP, None, None
         else:
             emit(t("convert.skip_corrupt_reconvert", name=cbz_path.name, reason=err), level="warning")
@@ -4272,7 +4287,6 @@ def _main():
     failed_files = []
     failed_reasons = Counter()
     interrupted = False
-    used_names: set = set()
     drop_total = 0
     pbar = create_progress_if_needed(args, ebook_files, t("progress.desc.convert"))
     try:
@@ -4285,7 +4299,7 @@ def _main():
                 mf, delete_original=args.delete, prefer=args.prefer,
                 drop_extra=args.drop_extra, overwrite=args.overwrite,
                 output_dir=output_dir, compress=_compress_level,
-                flatten=args.flatten, input_root=input_root, used_names=used_names,
+                flatten=args.flatten, input_root=input_root,
                 comicinfo=not args.no_comicinfo, setinfo_args=args.setinfo,
                 double_page=args.double_page, drop_small=args.drop_small,
             )
