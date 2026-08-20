@@ -2,7 +2,7 @@
 
 # manga-mobi2cbz
 
-Kindle 漫画向けの一括変換 CLI ツールです。ワンコマンドで DRM フリーの MOBI / AZW / AZW3 電子書籍を標準 CBZ コミックパッケージに書き出します。
+Kindle 漫画向けの一括変換 CLI ツールです。ワンコマンドで DRM フリーの MOBI / AZW / AZW3 / EPUB 電子書籍を標準 CBZ コミックパッケージに書き出します。
 OPF spine の標準的な読み順に従って画像を抽出し、表紙の自動補完、同一巻の複数形式の重複排除、バッチのタイムアウト保護、ファイル完全性の検証、多言語出力などの実用機能を備えています。パッケージ化せずにメタデータ・解像度・NCX 目次・DRM 状態を確認できる `--inspect` 検査モードも付属し、全プラットフォームで漫画ライブラリの一括整理を安定して効率化します。
 
 > ⚠️ 対応しているのはDRMフリーのKindle漫画のみです。ストア購入のDRM保護された電子書籍は解析できません。
@@ -16,7 +16,7 @@ OPF spine の標準的な読み順に従って画像を抽出し、表紙の自�
 
 ## 機能
 
-- **一括変換** — 単一ファイル、またはディレクトリ全体を再帰的に変換（`.mobi` / `.azw` / `.azw3`）
+- **一括変換** — 単一ファイル、またはディレクトリ全体を再帰的に変換（`.mobi` / `.azw` / `.azw3` / `.epub`）
 - **OPF spine 順** — OPF spine の順序で画像を抽出し、実際の読み順を保ちます。OPF が無い場合はファイル名の自然順ソートにフォールバックします
 - **表紙フォールバック** — ファイル名に cover/front を含む画像を自動スキャンします。表紙がすでに spine リスト内にあればリスト順を優先し、欠落時のみ先頭に補完します
 - **ディレクトリ整合フォールバック** — ディレクトリ内の画像数が収集数と一致しない場合、余分な画像はデフォルトで自然順に cbz 末尾へ追記します。`--drop-extra` で破棄に変更でき、処理結果は出力されます
@@ -76,7 +76,7 @@ pip install mobi
 python manga-mobi2cbz.py "D:\Manga\Vol1.mobi"
 ```
 
-### ディレクトリ全体を一括変換（.mobi / .azw / .azw3 を再帰検索）
+### ディレクトリ全体を一括変換（.mobi / .azw / .azw3 / .epub を再帰検索）
 
 ```bash
 python manga-mobi2cbz.py "D:\Manga"
@@ -194,7 +194,7 @@ python manga-mobi2cbz.py --version
 
 | パラメータ | 説明 |
 | --- | --- |
-| `target` | 電子書籍ファイルのパス、または `.mobi` / `.azw` / `.azw3` を含むディレクトリ（必須） |
+| `target` | 電子書籍ファイルのパス、または `.mobi` / `.azw` / `.azw3` / `.epub` を含むディレクトリ（必須） |
 | `--language LANG` | 出力言語。`auto` はシステム locale で自動選択（簡体字→zh-CN、繁体字 zh-TW/zh-Hant→zh-TW、日本語 ja/Japanese→ja、その他→en）。または `zh-CN` / `zh-TW` / `ja` / `en` を指定（デフォルト `auto`）。一般的な表記も許容: `zh`/`cn`→zh-CN、`zhtw`/`tw`→zh-TW、`jp`→ja、`eng`→en |
 | `--delete` | 変換成功後に元の電子書籍を削除（デフォルト: 削除しない） |
 | `--prefer` | 二重ディレクトリ mobi で保持する側: `auto` / `mobi7` / `mobi8`（デフォルト `auto`）。`auto` は mobi8 を優先し、mobi8 に画像がない場合は mobi7 に自動フォールバック。`mobi7`/`mobi8` を明示指定した場合も、選択ディレクトリに画像がないときはもう一方へフォールバック |
@@ -216,6 +216,7 @@ python manga-mobi2cbz.py --version
 | `--no-comicinfo` | ComicInfo.xml を生成しない（デフォルト: CBZ ルートに Title / Series / Number / Writer / Publisher / Year / LanguageISO / PageCount / Summary を書き込み） |
 | `--setinfo FIELD=VALUE` | ComicInfo フィールドを上書き/追加（複数指定可、最優先）。`FIELD` は ComicInfo 標準フィールドのホワイトリスト内である必要があります（単純フィールド 39 個、複雑な `Pages` は除外。ホワイトリスト外は warning を出して無視）。`VALUE` は固定値 / `%series` / `%number` / `%title` / `%filename` / `%leftN` / `%rightN` プレースホルダに対応（対応値が無い場合はそのフィールドを書き込まない）。スマート分割: カンマの直後に `フィールド名=` が続く場合のみ分割し、それ以外はカンマを値の一部とみなす（例: `Summary=hello, world` は分割しない）。入力が既存 `.cbz` の場合、その ComicInfo.xml を直接変更（未指定フィールドは元の値を保持）。値に `Key=` が含まれる場合は複数回の `--setinfo` で渡す。有効時は入力に混在する `.cbz` を直接変更し、他のファイルは通常どおり変換 |
 | `--unpack` | 解凍表示: 変換せず解凍のみ。各ソースファイルと同じ名前のサブディレクトリへ出力（既存時は `(2)(3)` と自動採番）。mobi は extract で完全な構造を保持、cbz は extractall（zip-slip パストラバーサル対策付き）。`--unpack` 指定時は `.cbz` 入力も収集 |
+| `--double-page VALUE` | 見開きページ検出: 未指定または `auto` で有効（閾値 2.0。幅/高さ ≥ 閾値の横長見開き大画像を検出し、ComicInfo に `<Manga>Yes</Manga>` + ページごとの `Type="DoublePage"` を書き込む）。数値指定（例 `2.5`）で有効化し閾値を調整。`off` / `no` / `0` で無効化。不正値はエラー |
 | `--log FILE` | 全出力を指定ログへ追記。ファイル名なしで指定すると `manga-mobi2cbz_YYYYMMDD_HHMMSS.log`（カレントディレクトリ）を自動生成 |
 | `--json` | 実行結果を 1 行のコンパクト JSON として stdout に出力（AI / パイプライン / スクリプト向け）。有効時は人間向けテキスト出力（プログレスバー / emit 表示 / 集計）を抑制。`--json-out` と併用可。変換/変更モードでのみ出力（dry-run/inspect/unpack では出力しない）。プログレスバーは stderr に書き込まれ混ざらないが、2>&1 結合リダイレクトでは混入する |
 | `--json-out [FILE]` | 構造化結果を JSON ファイルに書き込み（インデント形式）。ファイル名なしで指定するとタイムスタンプ付きファイル（カレントディレクトリ）を自動生成、`--log` と同一挙動。`--json` と併用可。`--json` と同様、変換/変更モードのみ書き込み |
@@ -254,7 +255,31 @@ A: v1.9.0 以降、`--output-dir` はデフォルトで入力の相対サブデ�
 **Q: .azw / .azw3 には対応していますか？**  
 A: 対応しています。v1.8.0 以降、入力は `.mobi` / `.azw` / `.azw3` で、同じ変換パイプラインを使います。同一ディレクトリで同名・異拡張子のときはデフォルトで azw3 を残し、`--ext-priority` で変更できます。
 
+**Q: EPUB には対応していますか？**
+A: 対応しています。v2.4.0 以降、入力は `.mobi` / `.azw` / `.azw3` / `.epub` です。EPUB は ZIP コンテナのため zipfile で安全に解凍し、OPF spine 抽出パイプラインを再利用します。表紙は EPUB2（`<meta name="cover">`）と EPUB3（`properties="cover-image"`）の両方に対応。EXTH ヘッダが無いため、メタデータは OPF の `dc:` フィールドから読み取ります。`--prefer` は EPUB では静かに無視されます。
+
 ## 更新履歴
+
+### [2.4.0] - 2026-08-20
+
+#### 追加
+
+- **EPUB 入力に対応** — 入力拡張子を `.mobi` / `.azw` / `.azw3` / `.epub` に拡大。`ebook_to_cbz` / `--inspect` / `--unpack` は拡張子で分岐: EPUB（ZIP コンテナ）は zipfile で安全に解凍（zip-slip 対策付き）、mobi/azw/azw3 は従来どおり `mobi.extract`。既存の OPF spine 抽出・ComicInfo メタデータのパイプラインを再利用し、形式ごとの別実装は持たない
+- **EPUB の表紙フォールバックを強化** — `get_opf_guide_cover_href` を 3 ソースに: ① guide `type="cover"` ② manifest `properties="cover-image"`（EPUB3）③ `<meta name="cover">` が指す item href（EPUB2）。表紙 href の解決を OPF ディレクトリ相対に修正（EPUB の OPF は通常 OEBPS/ 配下）
+- **EPUB のメタデータ補完** — EXTH ヘッダが無い場合、`--inspect` は OPF の `dc:` フィールドからタイトル/作者/言語/出版日/出版社を読み取る。`get_drm_flag` は EPUB では直接通過（ZIP コンテナに PalmDB DRM フィールドが無く、誤検出を回避）
+- **`--prefer` は EPUB では静かに無視** — EPUB に mobi7/mobi8 の二重ディレクトリは無く、自然に単一ディレクトリ
+- **EPUB3 nav 目次に対応** — `--inspect` は OPF manifest の `properties="nav"` から nav ドキュメントを特定（フォールバック: `*nav*.xhtml`）、`<nav epub:type="toc">` 内の `<a>` タイトルを解析（多段の入れ子を含む）。EPUB2 の `toc.ncx` と同時に表示され、.ncx が無い純粋な EPUB3 でも目次を表示
+- **ComicInfo のシリーズ/巻数をメタデータ優先で読み取り** — ComicInfo 生成時、Series/Number は OPF メタデータを優先（`dc:series` / `dc:number`、EPUB3 の `belongs-to-collection` / `group-position`、calibre の `meta[name=calibre:series/series_index]`）。`dc:number` は巻マーカーを自動除去（`卷12` → `12`）、OPF メタデータが無い場合のみファイル名推測にフォールバック
+- **見開きページ検出（`--double-page`）** — デフォルトで有効（閾値 2.0）: 幅/高さ ≥ 閾値の横長見開き大画像を検出し、ComicInfo に `<Manga>Yes</Manga>` トップレベルタグ + ページごとの `Type="DoublePage"` を書き込む。`--double-page auto` はデフォルトと同等、`--double-page 2.5` で閾値を調整、`--double-page off`（または `no` / `0`）で無効化。不正値はエラー
+- **ComicInfo フィールドの出所注記** — `--inspect` のプレビューで Series/Number に出所（`[setinfo]` / `[opf]` / `[inferred]`）を注記し、ユーザー指定・OPF メタデータ・ファイル名推測のどれ由来かを一目で判別できるように。`--json` 出力にも `series_source` / `number_source` / `cover_source` フィールドを追加（値は `setinfo` / `opf` / `inferred` / `filename` など）。AI / パイプラインがフィールドの信頼度を判断するためのもの
+
+#### 変更
+
+- **`--unpack` の安全解凍を統一** — CBZ と EPUB で `_safe_zip_extract`（zip-slip 対策）を共用し、ロジックを単一化
+- **`--setinfo` の CBZ 変更をストリーミング化** — `modify_cbz_comicinfo` はアーカイブ全体をメモリに読み込まず、双方向ハンドルで 1MB チャンクずつコピーし、`ComicInfo.xml` のみメモリに読み込む。各エントリの圧縮方式・タイムスタンプ・属性を保持し、アトミック置換と例外時のクリーンアップは従来どおり（大容量アーカイブのメモリ使用量が O(全体) から O(単一エントリ) に低減）
+- **ComicInfo の優先順位を変更（setinfo > OPF メタデータ > ファイル名推測）** — 従来 Series/Number はファイル名推測（`infer_series_number`）の結果をそのまま使っていた。現在はユーザー指定の `--setinfo` を最優先、次に OPF メタデータ、最後にファイル名推測。シリーズ名の無い純巻マーカーのファイル（例 `Vol.01.mobi`）は巻番号のみ返し、偽のシリーズ名は付けない
+- **巻番号推測の正規表現を拡充** — `infer_series_number` の対応を追加: `巻N` 前置式、`vN`、`第N册`/`N册`、`巻N` 前置式（日本語「巻N」）、フランス語 `tome N`、韓国語 `권N`、タイ語 `เล่ม N`、ロシア語 `Том N`、漢数字の巻（`第一卷`/`卷二`）、小数の巻（`Vol 7.5`）
+- **Notes から CoverSource を削除** — 表紙の出所を ComicInfo の `Notes` フィールドに書き込まない（非標準の注記がソフト間で共有される ComicInfo.xml に入らないように）。代わりに `--inspect` の表紙行と `--json` の `cover_source` フィールドで表示し、Notes は内容フィールドのみに
 
 ### [2.3.1] - 2026-08-19
 
