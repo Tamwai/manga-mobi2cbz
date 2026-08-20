@@ -2,7 +2,7 @@
 
 # manga-mobi2cbz
 
-一款专为Kindle漫画打造的批量转换CLI工具，一键将无DRM MOBI / AZW / AZW3 电子书导出标准CBZ漫画包。
+一款专为Kindle漫画打造的批量转换CLI工具，一键将无DRM MOBI / AZW / AZW3 / EPUB 电子书导出标准CBZ漫画包。
 原生遵循OPF Spine官方阅读顺序提取图片，内置封面自动修复、同卷多格式去重、批量超时防护、文件完整性校验、多语言自动输出等全套实用能力；附带 `--inspect` 探查模式，无需打包即可查看漫画元数据、分辨率、NCX目录与DRM状态，全平台通用，批量整理漫画库高效稳定。
 
 > ⚠️ 仅支持已去除 DRM 的 Kindle 漫画，商店加密电子书无法解析。
@@ -16,7 +16,7 @@
 
 ## 功能特点
 
-- **批量转换** — 支持单个文件或整个目录递归转换 `.mobi` / `.azw` / `.azw3` 电子书
+- **批量转换** — 支持单个文件或整个目录递归转换 `.mobi` / `.azw` / `.azw3` / `.epub` 电子书
 - **OPF spine 排序** — 优先按 OPF spine 顺序提取图片，保证真实阅读顺序；无 OPF 时兜底按文件名自然排序
 - **封面兜底** — 自动扫描文件名含 cover/front 的图片；封面已在 spine 列表中则以列表顺序为准，仅缺失时插入首位补齐
 - **目录对齐兜底** — 目录图片数与收集数不一致时，多出的图片默认按自然排序追加到 cbz 末尾；`--drop-extra` 可改为放弃，处理结果会打印输出
@@ -73,7 +73,7 @@ pip install mobi
 python manga-mobi2cbz.py "D:\Manga\Vol1.mobi"
 ```
 
-### 批量转换整个目录（递归搜索所有 .mobi / .azw / .azw3）
+### 批量转换整个目录（递归搜索所有 .mobi / .azw / .azw3 / .epub）
 
 ```bash
 python manga-mobi2cbz.py "D:\Manga"
@@ -191,7 +191,7 @@ python manga-mobi2cbz.py --version
 
 | 参数                    | 说明                                                                                                                                                                               |
 | --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `target`              | 电子书文件路径或包含电子书（.mobi/.azw/.azw3）的目录（必填）                                                                                                                                           |
+| `target`              | 电子书文件路径或包含电子书（.mobi/.azw/.azw3/.epub）的目录（必填）                                                                                                                                           |
 | `--language LANG`     | 输出语言：`auto` 按系统 locale 自动选择（zh 前缀→中文，zh-TW/zh-Hant→繁体中文，ja/Japanese→日文，否则→英文），或指定 `zh-CN`/`zh-TW`/`ja`/`en`（默认 `auto`）；兼容常见写法：`zh`/`cn`→zh-CN，`zhtw`/`tw`→zh-TW，`jp`→ja，`eng`→en |
 | `--delete`            | 转换成功后删除原始电子书文件（默认不删除）                                                                                                                                                            |
 | `--prefer`            | 双目录 mobi 时保留哪份：`auto` / `mobi7` / `mobi8`（默认 `auto`）；`auto` 优先 mobi8、mobi8 无图片自动回退 mobi7；明确指定 `mobi7`/`mobi8` 时该目录无图片自动回退另一份                                                        |
@@ -213,6 +213,7 @@ python manga-mobi2cbz.py --version
 | `--no-comicinfo`      | 不生成 ComicInfo.xml（默认生成：向 CBZ 根目录写入 Title / Series / Number / Writer / Publisher / Year / LanguageISO / PageCount / Summary 漫画元数据）                                                |
 | `--setinfo FIELD=VALUE` | 覆盖/新增 ComicInfo 字段（可多次指定，优先级最高）：`FIELD` 为 ComicInfo 字段名（需在 ComicInfo 标准字段白名单内，白名单外 warning 忽略），`VALUE` 支持固定值 / `%series` / `%number` / `%title` / `%filename` / `%leftN` / `%rightN` 占位符（对应值缺失时该字段不写入）；智能拆分：仅当逗号后紧跟"字段名="时才拆分，否则逗号视为值的一部分（如 `Summary=hello, world` 不拆分）；值内含 `Key=` 结构请用多次 `--setinfo` 传入；开启 `--setinfo` 时输入目录中混有的已有 `.cbz` 会就地修改其 ComicInfo.xml（未指定字段保留原值），其余文件照常转换 |
 | `--unpack`            | 解包查看：只解压不转换，输出到各源文件所在目录的同名子目录（已存在自动加序号避让）；mobi 走 extract 保留完整结构，cbz 走 extractall（含 zip-slip 路径穿越防护）；`--unpack` / `--setinfo` 时也会收集 `.cbz` 输入 |
+| `--double-page VALUE` | 双页检测：不传或 `auto` 开启（阈值 2.0，检测宽/高 ≥ 阈值的横幅跨页大图，ComicInfo 写入 `<Manga>Yes</Manga>` + 逐页 `Type="DoublePage"`）；传数值（如 `2.5`）开启并调整阈值；`off` / `no` / `0` 关闭；非法值报错 |
 | `--log FILE`          | 将全部输出追加写入指定日志文件；不带文件名时自动生成 `manga-mobi2cbz_YYYYMMDD_HHMMSS.log`（当前目录）                                                                                                  |
 | `--json`              | stdout 输出单行紧凑 JSON（供 AI / 管道 / 脚本读取），开启时屏蔽人类可读文本输出（进度条 / emit 提示 / 汇总）；仅转换/修改模式输出（dry-run/inspect/unpack 不输出）；进度条写 stderr 不混流，但 `2>&1` 合并重定向会混入进度条 |
 | `--json-out FILE`     | 将结构化结果写入 JSON 文件（缩进格式）；不带文件名时自动生成时间戳文件（当前目录），带文件名写入指定路径，行为对齐 `--log`；与 `--json` 可共存；同 `--json` 仅转换/修改模式写入                                                                                  |
@@ -251,7 +252,31 @@ A: v1.9.0 起 `--output-dir` 默认保留相对输入的子目录结构（旧版
 **Q: 支持 .azw / .azw3 吗？**
 A: 支持。v1.8.0 起输入扩展名扩展为 `.mobi` / `.azw` / `.azw3`，三种格式统一走同一转换链路；同目录同名不同扩展名时默认保留 azw3，可用 `--ext-priority` 调整。
 
+**Q: 支持 EPUB 吗？**
+A: 支持。v2.4.0 起输入扩展名扩展为 `.mobi` / `.azw` / `.azw3` / `.epub`。EPUB 本质为 ZIP 容器，直接走 zipfile 安全解包并复用 OPF spine 提取链路；封面自动识别支持 EPUB2（`<meta name="cover">`）与 EPUB3（`properties="cover-image"`）两种约定；无 EXTH 头时元数据从 OPF `dc:` 字段读取；`--prefer` 对 EPUB 静默忽略。
+
 ## 更新日志
+
+### [2.4.0] - 2026-08-20
+
+#### 新增
+
+- **EPUB 输入支持** — 输入扩展名扩展为 `.mobi` / `.azw` / `.azw3` / `.epub`；`ebook_to_cbz` / `--inspect` / `--unpack` 按扩展名分流：EPUB（ZIP 容器）走 zipfile 安全解包（含 zip-slip 路径穿越防护），mobi/azw/azw3 仍走 `mobi.extract`；复用现有 OPF spine 提取与 ComicInfo 元数据链路，无平行实现
+- **EPUB 封面兜底增强** — `get_opf_guide_cover_href` 三来源：① guide `type="cover"` ② manifest `properties="cover-image"`（EPUB3）③ `<meta name="cover">` 对应 item href（EPUB2）；封面 href 解析修正为相对 OPF 目录（EPUB 的 OPF 常在 OEBPS/ 子目录）
+- **EPUB 元数据补充** — 无 EXTH 头时 `--inspect` 改从 OPF `dc:` 字段读取标题/作者/语言/出版日期/出版社；`get_drm_flag` 对 EPUB 直接放行（ZIP 容器无 PalmDB DRM 字段，避免误报）
+- **`--prefer` 对 EPUB 静默忽略** — EPUB 无 mobi7/mobi8 双目录，天然单目录
+- **EPUB3 nav 目录识别** — `--inspect` 优先从 OPF manifest `properties="nav"` 定位 nav 文档（兜底 `*nav*.xhtml`），解析 `<nav epub:type="toc">` 内 `<a>` 标题（含多级嵌套）；与 EPUB2 `toc.ncx` 同时显示，纯 EPUB3 无 .ncx 也能出目录
+- **ComicInfo 系列/卷号元数据优先读取** — 生成 ComicInfo 时 Series/Number 优先取自 OPF 元数据（`dc:series` / `dc:number`、EPUB3 `belongs-to-collection` / `group-position`、calibre 的 `meta[name=calibre:series/series_index]`），`dc:number` 自动剥离卷标记（`卷12` → `12`），无 OPF 元数据时才回退文件名推测
+- **双页检测（`--double-page`）** — 默认开启（阈值 2.0）：检测宽/高 ≥ 阈值的横幅跨页大图，ComicInfo 写入 `<Manga>Yes</Manga>` 顶层标记 + 逐页 `Type="DoublePage"`；`--double-page auto` 等同默认；`--double-page 2.5` 调整阈值；`--double-page off`（或 `no`/`0`）关闭；非法值报错
+- **ComicInfo 字段来源标注** — `--inspect` 预览块为 Series/Number 标注来源（`[setinfo]` / `[opf]` / `[inferred]`），一眼分辨字段是用户指定、OPF 元数据还是文件名推测；`--json` 输出新增 `series_source` / `number_source` / `cover_source` 字段（取值 `setinfo` / `opf` / `inferred` / `filename` 等），供 AI/管道判断字段可信度
+
+#### 变更
+
+- **`--unpack` 安全解压统一** — CBZ 与 EPUB 共用 `_safe_zip_extract`（zip-slip 防护），逻辑单一化
+- **`--setinfo` 修改 CBZ 改流式复制** — `modify_cbz_comicinfo` 不再整包读入内存，改为双句柄边读边写（1MB 块），仅 `ComicInfo.xml` 读入内存；保留各条目原始压缩方式/时间戳/属性，原子替换与异常清理不变（大包修改内存占用由 O(整包) 降至 O(单条目)）
+- **ComicInfo 优先级重排（setinfo > OPF 元数据 > 文件名推测）** — 之前 Series/Number 直接吃文件名推断结果（`infer_series_number`）；现在优先用户 `--setinfo` 指定，其次 OPF 元数据，最后才文件名推测；无系列名纯卷标记文件（如 `Vol.01.mobi`）只回卷号不回系列名
+- **卷号推测正则补全** — `infer_series_number` 新增覆盖：`卷N` 前缀式、`vN`、`第N册`/`N册`、`巻N` 前缀式、法文 `tome N`、韩文 `권N`、泰文 `เล่ม N`、俄文 `Том N`、中文数字卷（`第一卷`/`卷二`）、小数卷（`Vol 7.5`）
+- **CoverSource 从 Notes 移除** — 封面来源不再写入 ComicInfo 的 `Notes` 字段（避免非标准备注进入跨软件共享的 ComicInfo.xml）；改由 `--inspect` 封面行与 `--json` 的 `cover_source` 字段展示，ComicInfo 只保留内容字段
 
 ### [2.3.1] - 2026-08-19
 
