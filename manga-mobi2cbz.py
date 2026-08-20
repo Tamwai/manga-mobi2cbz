@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-manga-mobi2cbz — 将 mobi/azw/azw3 电子书漫画文件批量转换为 cbz 格式（OPF spine 排序 + 封面兜底增强版）
+manga-mobi2cbz — 将 mobi/azw/azw3/epub 电子书漫画文件批量转换为 cbz 格式（OPF spine 排序 + 封面兜底增强版）
 
 用法:
     python manga-mobi2cbz.py <目录或文件路径> [--language auto|zh-CN|zh-TW|ja|en] [--delete] [--prefer mobi7|mobi8|auto] [--ext-priority EXTS] [--drop-extra] [--overwrite] [--timeout SECONDS] [--output-dir DIR] [--flatten] [--dry-run] [--progress|--no-progress] [--quiet] [--short-summary] [--compress LEVEL] [--inspect] [--inspect-all] [--no-comicinfo] [--setinfo FIELD=VALUE] [--unpack] [--log FILE]
 
 示例:
-    # 转换整个文件夹（递归搜索所有 .mobi/.azw/.azw3）
+    # 转换整个文件夹（递归搜索所有 .mobi/.azw/.azw3/.epub）
     python manga-mobi2cbz.py "D:\\Manga\\"
 
     # 转换单个文件
@@ -113,6 +113,21 @@ manga-mobi2cbz — 将 mobi/azw/azw3 电子书漫画文件批量转换为 cbz �
 要求: Python 3.10+
 
 更新日志:
+    v2.4.0 (2026-08-20)
+        - 新增 EPUB 输入支持：SUPPORTED_INPUT_EXTENSIONS 扩展 .epub；
+          ebook_to_cbz / inspect / unpack 按扩展名分流（epub 走 zipfile
+          安全解包，mobi/azw/azw3 仍走 mobi.extract），复用现有 OPF spine
+          提取与 ComicInfo 元数据链路
+        - EPUB 封面兜底增强：get_opf_guide_cover_href 新增
+          <meta name="cover"> 与 manifest properties="cover-image" 两来源
+          （EPUB2/EPUB3 约定），并修正封面 href 相对 OPF 目录解析
+        - EPUB 无 EXTH 头：read_exth_metadata 自然返回空，inspect 改从
+          OPF dc:metadata 补充标题/作者/语言等；get_drm_flag 对 epub 直接
+          放行（zip 容器无 PalmDB DRM 字段，避免误报）
+        - --prefer 对 epub 静默忽略（无 mobi7/mobi8 双目录，天然单目录）
+        - EPUB3 nav 目录识别：--inspect 优先从 OPF manifest
+          properties="nav" 定位 nav 文档（兜底 *nav*.xhtml），解析
+          <nav epub:type="toc"> 内 <a> 标题；与 EPUB2 toc.ncx 同时显示
     v2.3.1 (2026-08-19)
         - 修复校验顺序：先对临时文件 validate_cbz 校验、通过后才
           os.replace 覆盖目标；失败仅清理 tmp，旧 CBZ 保留；ComicInfo
@@ -437,7 +452,7 @@ manga-mobi2cbz — 将 mobi/azw/azw3 电子书漫画文件批量转换为 cbz �
           EOCD + testzip 完整性校验、失败清理半成品
 """
 
-__version__ = "2.3.1"
+__version__ = "2.4.0"
 
 SCRIPT_NAME = "manga-mobi2cbz"
 
@@ -450,6 +465,7 @@ import time
 import random
 import struct
 import shutil
+import tempfile
 import zipfile
 import argparse
 import traceback
@@ -499,6 +515,8 @@ LANGUAGES = {
         "help.inspect_all": "检查全部电子书（需配合 --inspect 使用，单独使用将自动启用 --inspect）",
         "warn.inspect_all_auto_enable": "注意: --inspect-all 已自动启用 --inspect",
         "help.no_comicinfo": "不生成 ComicInfo.xml（默认生成：向 CBZ 根目录写入漫画元数据）",
+        "help.double_page": "双页检测：不传/auto 开启（阈值 2.0）；数值调阈值；off/no/0 关闭（写入 <Manga>Yes</Manga> 与逐页 DoublePage 标记）",
+        "error.double_page_invalid": "无效的 --double-page 值 '{value}'：支持 auto/数值/off/no/0",
         "help.setinfo": "设置 ComicInfo 字段（可多次，格式 FIELD=VALUE；VALUE 支持 %%series/%%number/%%title/%%filename/%%leftN/%%rightN；逗号后紧跟字段名=才拆分，值内含 Key= 结构请用多次 --setinfo 传入；--setinfo 开启时输入中的已有 .cbz 会就地修改其 ComicInfo.xml）",
         "comicinfo.generating": "生成 ComicInfo.xml",
         "comicinfo.created": "已写入 ComicInfo.xml",
@@ -603,6 +621,8 @@ LANGUAGES = {
         "inspect.spine_count": "  Spine提取图片: {count} 张",
         "inspect.ncx_count": "  目录(NCX): {count} 个条目 | 预览: {preview}",
         "inspect.ncx_missing": "  目录(NCX): 未找到或解析失败",
+        "inspect.nav_count": "  目录(EPUB3 nav): {count} 个条目 | 预览: {preview}",
+        "inspect.nav_missing": "  目录(EPUB3 nav): 未找到",
         "inspect.dir_images": "  目录全部图片: {count} 张",
         "inspect.drm_suspected": "  DRM: 疑似(头部标记无但图片0张)",
         "inspect.cover_missing": "  封面文件未找到",
@@ -711,6 +731,8 @@ LANGUAGES = {
         "help.inspect_all": "檢查全部電子書（需配合 --inspect 使用，單獨使用將自動啟用 --inspect）",
         "warn.inspect_all_auto_enable": "注意: --inspect-all 已自動啟用 --inspect",
         "help.no_comicinfo": "不生成 ComicInfo.xml（預設生成：向 CBZ 根目錄寫入漫畫元資料）",
+        "help.double_page": "雙頁偵測：不傳/auto 開啟（閾值 2.0）；數值調閾值；off/no/0 關閉（寫入 <Manga>Yes</Manga> 與逐頁 DoublePage 標記）",
+        "error.double_page_invalid": "無效的 --double-page 值 '{value}'：支援 auto/數值/off/no/0",
         "help.setinfo": "設定 ComicInfo 欄位（可多次，格式 FIELD=VALUE；VALUE 支援 %%series/%%number/%%title/%%filename/%%leftN/%%rightN；逗號後緊跟欄位名=才拆分，值內含 Key= 結構請用多次 --setinfo 傳入；--setinfo 開啟時輸入中的既有 .cbz 會就地修改其 ComicInfo.xml）",
         "comicinfo.generating": "生成 ComicInfo.xml",
         "comicinfo.created": "已寫入 ComicInfo.xml",
@@ -815,6 +837,8 @@ LANGUAGES = {
         "inspect.spine_count": "  Spine 提取圖片: {count} 張",
         "inspect.ncx_count": "  目錄(NCX): {count} 個條目 | 預覽: {preview}",
         "inspect.ncx_missing": "  目錄(NCX): 未找到或解析失敗",
+        "inspect.nav_count": "  目錄(EPUB3 nav): {count} 個條目 | 預覽: {preview}",
+        "inspect.nav_missing": "  目錄(EPUB3 nav): 未找到",
         "inspect.dir_images": "  目錄全部圖片: {count} 張",
         "inspect.drm_suspected": "  DRM: 疑似(檔頭標記無但圖片0張)",
         "inspect.cover_missing": "  封面檔案未找到",
@@ -923,6 +947,8 @@ LANGUAGES = {
         "help.inspect_all": "Inspect all ebooks (requires --inspect; using it alone will auto-enable --inspect)",
         "warn.inspect_all_auto_enable": "Note: --inspect-all automatically enabled --inspect",
         "help.no_comicinfo": "Do not generate ComicInfo.xml (default: write comic metadata into CBZ root)",
+        "help.double_page": "Double-page detection: no value/auto enable (ratio 2.0); a number sets ratio; off/no/0 disable (writes <Manga>Yes</Manga> and per-page DoublePage)",
+        "error.double_page_invalid": "Invalid --double-page value '{value}': use auto, a number, or off/no/0",
         "help.setinfo": "Set ComicInfo field (repeatable, FIELD=VALUE; VALUE supports %%series/%%number/%%title/%%filename/%%leftN/%%rightN; split on comma only when followed by FIELD=; use multiple --setinfo for a value containing Key=; when enabled, existing .cbz inputs have their ComicInfo.xml modified in place)",
         "comicinfo.generating": "Generating ComicInfo.xml",
         "comicinfo.created": "ComicInfo.xml written",
@@ -1027,6 +1053,8 @@ LANGUAGES = {
         "inspect.spine_count": "  Spine images: {count}",
         "inspect.ncx_count": "  TOC (NCX): {count} entries | preview: {preview}",
         "inspect.ncx_missing": "  TOC (NCX): not found or parse failed",
+        "inspect.nav_count": "  TOC (EPUB3 nav): {count} entries | preview: {preview}",
+        "inspect.nav_missing": "  TOC (EPUB3 nav): not found",
         "inspect.dir_images": "  All images in directory: {count}",
         "inspect.drm_suspected": "  DRM: suspected (no header flag but 0 images)",
         "inspect.cover_missing": "  Cover image not found",
@@ -1135,6 +1163,8 @@ LANGUAGES = {
         "help.inspect_all": '全電子書籍を検査（--inspect と併用必須、単独指定時は自動的に --inspect を有効化）',
         "warn.inspect_all_auto_enable": '注意: --inspect-all により --inspect が自動的に有効化されました',
         "help.no_comicinfo": "ComicInfo.xml を生成しない（既定: CBZ ルートに漫画メタデータを書き込む）",
+        "help.double_page": "見開き検出：値なし/auto で有効（閾値 2.0）；数値で閾値調整；off/no/0 で無効（<Manga>Yes</Manga> とページ毎の DoublePage を書き込む）",
+        "error.double_page_invalid": "無効な --double-page 値 '{value}'：auto/数値/off/no/0 のいずれか",
         "help.setinfo": "ComicInfo フィールドを設定（複数可、形式 FIELD=VALUE；VALUE は %%series/%%number/%%title/%%filename/%%leftN/%%rightN をサポート；カンマ直後にフィールド名= がある場合のみ分割、値に Key= 構造が含まれる場合は --setinfo を複数回指定；--setinfo 有効時、入力中の既存 .cbz は ComicInfo.xml を直接変更）",
         "comicinfo.generating": "ComicInfo.xml を生成中",
         "comicinfo.created": "ComicInfo.xml を書き込みました",
@@ -1239,6 +1269,8 @@ LANGUAGES = {
         "inspect.spine_count": '  Spine 抽出画像: {count} 枚',
         "inspect.ncx_count": '  目次(NCX): {count} エントリ | プレビュー: {preview}',
         "inspect.ncx_missing": '  目次(NCX): 見つからないか解析失敗',
+        "inspect.nav_count": '  目次(EPUB3 nav): {count} エントリ | プレビュー: {preview}',
+        "inspect.nav_missing": '  目次(EPUB3 nav): 見つからない',
         "inspect.dir_images": '  ディレクトリ内の全画像: {count} 枚',
         "inspect.drm_suspected": '  DRM: 疑いあり（ヘッダーフラグなし、画像 0 枚）',
         "inspect.cover_missing": '  カバー画像が見つかりません',
@@ -1431,7 +1463,7 @@ EOCD_SIGNATURE = b"\x50\x4b\x05\x06"  # End of Central Directory 签名
 OPF_NS = {"opf": "http://www.idpf.org/2007/opf"}
 
 # 支持的电子书输入扩展名（大小写不敏感）；同名去重未覆盖时的兜底优先级
-SUPPORTED_INPUT_EXTENSIONS = {".mobi", ".azw", ".azw3"}
+SUPPORTED_INPUT_EXTENSIONS = {".mobi", ".azw", ".azw3", ".epub"}
 KEEP_EXT_ORDER = (".azw3", ".mobi", ".azw")  # --ext-priority 未覆盖时的兜底顺序
 
 
@@ -1664,7 +1696,7 @@ def validate_cbz(cbz_path: Path, require_comicinfo: bool = False) -> tuple[bool,
 
     # 输入：目录或文件路径 target；输出：待转换的电子书文件路径列表（按路径排序保证顺序可预测）
 def collect_ebook_files(target: Path, include_cbz: bool = False) -> list[Path]:
-    """收集所有待转换的电子书文件（.mobi/.azw/.azw3），按路径排序保证处理顺序可预测。
+    """收集所有待转换的电子书文件（.mobi/.azw/.azw3/.epub），按路径排序保证处理顺序可预测。
 
     include_cbz=True 时（--inspect / --unpack / --setinfo 模式）额外收集 .cbz，供检查或修改。"""
     exts = SUPPORTED_INPUT_EXTENSIONS | ({".cbz"} if include_cbz else set())
@@ -1682,7 +1714,7 @@ def collect_ebook_files(target: Path, include_cbz: bool = False) -> list[Path]:
 
 
 def precheck_ebook(p: Path, min_bytes: int) -> str | None:
-    """预处理检查电子书文件（.mobi/.azw/.azw3），返回跳过原因；正常返回 None。
+    """预处理检查电子书文件（.mobi/.azw/.azw3/.epub），返回跳过原因；正常返回 None。
 
     检查项：
     - 大小下限：min_bytes > 0 时，小于该字节数的文件直接跳过
@@ -1696,8 +1728,8 @@ def precheck_ebook(p: Path, min_bytes: int) -> str | None:
     （文件头正常但内容深层损坏的，仍会在转换阶段解压失败并计入失败列表）
     """
     try:
-        if p.suffix.lower() == ".cbz":
-            # CBZ 为 zip 容器，无 BOOKMOBI 魔数；仍做大小下限与 0 字节检查
+        if p.suffix.lower() in (".cbz", ".epub"):
+            # CBZ/EPUB 为 zip 容器，无 BOOKMOBI 魔数；仍做大小下限与 0 字节检查
             size = p.stat().st_size
             if min_bytes > 0 and size < min_bytes:
                 return t("precheck.small", size=size, min=min_bytes)
@@ -2056,8 +2088,8 @@ def select_mobi_dir(tempdir: Path, prefer: str) -> Path:
     return tempdir
 
 
-    # 输入：电子书路径与转换选项（delete/prefer/drop_extra/overwrite/output_dir/compress）；输出：(cbz 路径或 None, ConvStatus)
-def ebook_to_cbz(ebook_path: Path, delete_original: bool = False, prefer: str = "mobi8", drop_extra: bool = False, overwrite: bool = False, output_dir: Path | None = None, compress: int = 0, flatten: bool = False, input_root: Path | None = None, used_names: set | None = None, comicinfo: bool = True, setinfo_args: list | None = None) -> tuple[Path | None, ConvStatus, str | None]:
+    # 输入：电子书路径与转换选项（delete/prefer/drop_extra/overwrite/output_dir/compress）；输出：(cbz 路径或 None, ConvStatus, 原因, 来源)
+def ebook_to_cbz(ebook_path: Path, delete_original: bool = False, prefer: str = "mobi8", drop_extra: bool = False, overwrite: bool = False, output_dir: Path | None = None, compress: int = 0, flatten: bool = False, input_root: Path | None = None, used_names: set | None = None, comicinfo: bool = True, setinfo_args: list | None = None, double_page: float | None = None) -> tuple[Path | None, ConvStatus, str | None, dict | None]:
     """将单个电子书文件转换为 cbz
 
     prefer: "auto"（默认）双目录时优先 mobi8，mobi8 为空壳（无图片）自动回退 mobi7
@@ -2068,11 +2100,12 @@ def ebook_to_cbz(ebook_path: Path, delete_original: bool = False, prefer: str = 
     input_root: target 为目录时作为相对子目录结构计算的基准
     used_names: 平铺唯一化已占用名集合（仅 dry-run 模拟占用，实跑以磁盘存在性为准）
     comicinfo: 是否生成 ComicInfo.xml（默认生成，--no-comicinfo 关闭）
+    double_page: 双页检测阈值（宽/高 >= 该值判为跨页），None 表示关闭（--double-page off）
 
-    返回 (结果, 状态, 原因)：状态为 ConvStatus 枚举，
-    - OK: 转换成功，结果为 cbz 路径，原因为 None
-    - SKIP: 目标已存在且未指定 --overwrite，结果为 None，原因为 None
-    - FAIL: 转换失败，结果为 None，原因为失败分类（no_images/drm/comicinfo/verify/other）
+    返回 (结果, 状态, 原因, 来源)：状态为 ConvStatus 枚举，
+    - OK: 转换成功，结果为 cbz 路径，原因为 None，来源为 {series_source/number_source/cover_source} 字典
+    - SKIP: 目标已存在且未指定 --overwrite，结果为 None，原因为 None，来源为 None
+    - FAIL: 转换失败，结果为 None，原因为失败分类（no_images/drm/comicinfo/verify/other），来源为 None
     """
     cbz_path = target_cbz_path(ebook_path, output_dir, flatten=flatten, input_root=input_root, used_names=used_names)
     # 断点续跑：目标已存在（磁盘）且未指定 --overwrite 时，校验有效才跳过；损坏自动重转
@@ -2088,7 +2121,7 @@ def ebook_to_cbz(ebook_path: Path, delete_original: bool = False, prefer: str = 
                 emit(t("convert.source_newer_reconvert", name=cbz_path.name), level="warning")
             else:
                 emit(t("convert.skip_exists", name=cbz_path.name))
-                return None, ConvStatus.SKIP, None
+                return None, ConvStatus.SKIP, None, None
         else:
             emit(t("convert.skip_corrupt_reconvert", name=cbz_path.name, reason=err), level="warning")
     # SKIP 判断之后才创建输出目录，避免为跳过文件产生空目录
@@ -2102,9 +2135,12 @@ def ebook_to_cbz(ebook_path: Path, delete_original: bool = False, prefer: str = 
     tmp_cbz = None  # 转换分支原子写入的临时文件（v2.2.1 原子替换）
 
     try:
-        # mobi.extract 不支持 output_dir，仅传输入文件
-        tempdir_raw, _ = mobi.extract(str(ebook_path))
-        tempdir = Path(tempdir_raw)
+        # mobi.extract 不支持 output_dir，仅传输入文件；epub 为 zip 容器走 zipfile 安全解包
+        if ebook_path.suffix.lower() == ".epub":
+            tempdir = extract_epub_to_temp(ebook_path)
+        else:
+            tempdir_raw, _ = mobi.extract(str(ebook_path))
+            tempdir = Path(tempdir_raw)
         extract_temp_paths.append(tempdir)
 
         # Step 2: 选择目录（mobi7/mobi8 去重）
@@ -2126,7 +2162,7 @@ def ebook_to_cbz(ebook_path: Path, delete_original: bool = False, prefer: str = 
         if not images:
             emit(t("convert.no_images", name=ebook_path.name), level="error")
             emit(t("convert.drm_hint"), level="error")
-            return None, ConvStatus.FAIL, "no_images"
+            return None, ConvStatus.FAIL, "no_images", None
 
         # 确保封面在第一位（兼容 cover/front 命名，封面可能未被 spine 引用）
         images = ensure_cover_first(images, base_dir)
@@ -2153,7 +2189,7 @@ def ebook_to_cbz(ebook_path: Path, delete_original: bool = False, prefer: str = 
             emit(t("convert.dedup_physical", count=len(images) - len(deduped)))
         images = deduped
 
-        # 封面来源判定（Notes 标记用）：OPF guide > 文件名关键字 > spine > first
+        # 封面来源判定（json/inspect 来源标注用）：OPF guide > 文件名关键字 > spine > first
         cover_source = None
         if images:
             first = images[0]
@@ -2163,7 +2199,11 @@ def ebook_to_cbz(ebook_path: Path, delete_original: bool = False, prefer: str = 
             if guide_cover:
                 try:
                     clean = guide_cover.split("#", 1)[0]
-                    if norm_path((base_dir / clean).resolve()) == norm_path(first):
+                    # href 相对 OPF 所在目录（epub 的 OPF 常在 OEBPS/ 子目录）
+                    cand = (opf_path.parent / clean).resolve()
+                    if not cand.is_file():
+                        cand = (base_dir / clean).resolve()
+                    if norm_path(cand) == norm_path(first):
                         cover_source = "OPF guide"
                 except Exception:
                     pass
@@ -2174,6 +2214,7 @@ def ebook_to_cbz(ebook_path: Path, delete_original: bool = False, prefer: str = 
 
         # Step 3.6: 生成 ComicInfo.xml（默认启用，--no-comicinfo 关闭）
         comicinfo_xml = None
+        conv_sources = None
         if comicinfo:
             try:
                 opf_meta = read_opf_metadata(opf_path) if opf_path else {}
@@ -2181,13 +2222,17 @@ def ebook_to_cbz(ebook_path: Path, delete_original: bool = False, prefer: str = 
                 meta = collect_comicinfo_meta(opf_meta, exth_meta, ebook_path)
                 inferred = infer_series_number(ebook_path)
                 setinfo = parse_setinfo_args(setinfo_args, meta, inferred, ebook_path)
-                comicinfo_xml = build_comicinfo(meta, images, inferred, setinfo, cover_source=cover_source)
+                built = build_comicinfo(meta, images, inferred, setinfo, cover_source=cover_source, double_page=double_page)
+                if built is not None:
+                    comicinfo_xml, conv_sources = built
+                else:
+                    comicinfo_xml = None
             except Exception:
                 comicinfo_xml = None
             if comicinfo_xml is None:
                 emit(t("comicinfo.invalid", err="build"), level="error")
                 # 不删除已有目标：元数据生成失败不应毁掉磁盘上原有的有效 CBZ
-                return None, ConvStatus.FAIL, "comicinfo"
+                return None, ConvStatus.FAIL, "comicinfo", None
             emit(t("comicinfo.generating"))
 
         # Step 4: 打包为 cbz（默认 ZIP 无压缩，图片本身已压缩；--compress 1-9 启用 deflate）
@@ -2228,7 +2273,7 @@ def ebook_to_cbz(ebook_path: Path, delete_original: bool = False, prefer: str = 
         if comicinfo_failed is not None:
             tmp_cbz.unlink(missing_ok=True)
             emit(t("comicinfo.invalid", err=comicinfo_failed), level="error")
-            return None, ConvStatus.FAIL, "comicinfo"
+            return None, ConvStatus.FAIL, "comicinfo", None
 
         # 完整性校验：先对 tmp 校验，通过后才 os.replace 覆盖目标。
         # 校验失败只删 tmp，旧 CBZ 原样保留（修复"先覆盖后校验、校验失败删旧包"导致新旧全丢）
@@ -2236,7 +2281,7 @@ def ebook_to_cbz(ebook_path: Path, delete_original: bool = False, prefer: str = 
         if not ok:
             tmp_cbz.unlink(missing_ok=True)
             emit(t("convert.verify_fail", name=cbz_path.name, msg=msg), level="error")
-            return None, ConvStatus.FAIL, "verify"
+            return None, ConvStatus.FAIL, "verify", None
         emit(t("convert.verify_ok", msg=msg))
 
         # 原子替换：校验通过后才覆盖目标 cbz
@@ -2249,7 +2294,7 @@ def ebook_to_cbz(ebook_path: Path, delete_original: bool = False, prefer: str = 
             ebook_path.unlink()
             emit(t("convert.deleted_original", name=ebook_path.name))
 
-        return cbz_path, ConvStatus.OK, None
+        return cbz_path, ConvStatus.OK, None, conv_sources
     except Exception as e:
         # 转换失败仅清理半成品 tmp，目标 cbz 保持原子性（旧文件不受影响）
         if tmp_cbz is not None and tmp_cbz.exists():
@@ -2258,10 +2303,10 @@ def ebook_to_cbz(ebook_path: Path, delete_original: bool = False, prefer: str = 
         err = str(e).lower()
         if any(k in err for k in ("drm", "encrypt", "decrypt", "protected", "kfx")):
             emit(t("convert.error_drm_hint"), level="error")
-            return None, ConvStatus.FAIL, "drm"
+            return None, ConvStatus.FAIL, "drm", None
         if any(k in err for k in ("corrupt", "bad", "invalid", "truncat", "eof", "zipfile", "not a zip")):
-            return None, ConvStatus.FAIL, "corrupt"
-        return None, ConvStatus.FAIL, "other"
+            return None, ConvStatus.FAIL, "corrupt", None
+        return None, ConvStatus.FAIL, "other", None
     finally:
         # 无论正常/异常，强制删除 mobi 解压出来的临时目录，解决 Ctrl+C 残留
         for p in extract_temp_paths:
@@ -2270,6 +2315,37 @@ def ebook_to_cbz(ebook_path: Path, delete_original: bool = False, prefer: str = 
         # KeyboardInterrupt（Ctrl+C）不被 except Exception 捕获，此处兜底清理半成品 tmp_cbz
         if tmp_cbz is not None and tmp_cbz.exists():
             tmp_cbz.unlink(missing_ok=True)
+
+
+def _safe_zip_extract(zf: zipfile.ZipFile, out_dir: Path) -> None:
+    """将 zip 内条目安全解压到 out_dir（含 zip-slip 路径穿越防护）。
+
+    cbz / epub 共用；拒绝绝对路径与 .. 跳转条目，目录条目仅建目录。"""
+    for member in zf.infolist():
+        name = member.filename
+        # 路径穿越防护：拒绝绝对路径与 .. 跳转，防止 zip-slip
+        norm_name = name.replace("\\", "/")
+        if norm_name.startswith("/") or ".." in norm_name.split("/"):
+            emit(t("unpack.path_skip", name=Path(zf.filename).name, entry=name), level="warning")
+            continue
+        if member.is_dir() or norm_name.endswith("/"):
+            (out_dir / norm_name).mkdir(parents=True, exist_ok=True)
+            continue
+        target = out_dir / norm_name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with zf.open(member) as src, open(target, "wb") as dst:
+            shutil.copyfileobj(src, dst)
+
+
+def extract_epub_to_temp(epub_path: Path) -> Path:
+    """将 EPUB（zip 容器）安全解包到临时目录，返回临时目录路径。
+
+    与 mobi.extract 的临时目录同等待遇，由调用方在 finally 中清理。
+    损坏 zip 由 zipfile.BadZipFile 抛出（走转换失败分类 corrupt）。"""
+    tempdir = Path(tempfile.mkdtemp(prefix="manga_mobi2cbz_epub_"))
+    with zipfile.ZipFile(str(epub_path)) as zf:
+        _safe_zip_extract(zf, tempdir)
+    return tempdir
 
 
 def read_exth_metadata(p: Path) -> dict:
@@ -2312,9 +2388,25 @@ def read_exth_metadata(p: Path) -> dict:
 
 
 # 输入：OPF 文件路径；输出：dc:metadata 字段字典（title/creator/publisher/date/language/description）
-def read_opf_metadata(opf_path: Path) -> dict:
-    """读取 OPF 的 dc:metadata 元数据（title/creator/publisher/date/language/description）。
+def _clean_volume_number(raw: str) -> str | None:
+    """从卷数字符串中剥离卷标记，提取纯数字（可含小数）。
 
+    '卷12'->'12'、'Vol. 12'->'12'、'12巻'->'12'、'第5册'->'5'、'7.5'->'7.5'；
+    无法提取返回 None。
+    """
+    if not raw:
+        return None
+    m = re.search(r"\d+(?:\.\d+)?", raw)
+    return m.group(0) if m else None
+
+
+def read_opf_metadata(opf_path: Path) -> dict:
+    """读取 OPF 的 dc:metadata 元数据（title/creator/publisher/date/language/description/series/number）。
+
+    Series 来源优先级：dc:series → EPUB3 meta[property=belongs-to-collection]
+    → meta[name=calibre:series]；Number 来源优先级：dc:number → EPUB3
+    group-position → meta[name=calibre:series_index]。dc:number 等原始值
+    （如 "卷12"/"Vol. 12"/"12巻"）会剥离卷标记提取纯数字。
     仅返回实际存在的字段，供 ComicInfo.xml 字段映射使用。
     """
     try:
@@ -2330,6 +2422,45 @@ def read_opf_metadata(opf_path: Path) -> dict:
             el = root.find(f".//{tag}", ns)
             if el is not None and el.text and el.text.strip():
                 out[key] = el.text.strip()
+
+        # --- Series / Number：EPUB3 标准 + 常见厂商扩展 ---
+        el = root.find(".//dc:series", ns)
+        if el is not None and el.text and el.text.strip():
+            out["series"] = el.text.strip()
+        el = root.find(".//dc:number", ns)
+        if el is not None and el.text and el.text.strip():
+            num = _clean_volume_number(el.text)
+            if num is not None:
+                out["number"] = num
+
+        # 遍历 meta：belongs-to-collection / group-position / calibre 系列
+        series_fallback = None
+        number_fallback = None
+        for m in root.iter():
+            tag = m.tag.rsplit("}", 1)[-1]
+            if tag != "meta":
+                continue
+            prop = m.get("property")
+            name = m.get("name")
+            text = (m.text or "").strip()
+            content = (m.get("content") or "").strip() or text
+            if prop == "belongs-to-collection" and series_fallback is None and content:
+                series_fallback = content
+            elif prop == "group-position" and number_fallback is None and content:
+                num = _clean_volume_number(content)
+                if num is not None:
+                    number_fallback = num
+            elif name and name.lower() in ("calibre:series", "series") and series_fallback is None and content:
+                series_fallback = content
+            elif name and name.lower() in ("calibre:series_index", "series_index") and number_fallback is None and content:
+                num = _clean_volume_number(content)
+                if num is not None:
+                    number_fallback = num
+
+        if "series" not in out and series_fallback:
+            out["series"] = series_fallback
+        if "number" not in out and number_fallback:
+            out["number"] = number_fallback
         return out
     except Exception:
         return {}
@@ -2386,6 +2517,11 @@ def collect_comicinfo_meta(opf_meta: dict, exth_meta: dict, ebook_path: Path) ->
             meta["language"] = norm
     if opf_meta.get("description"):
         meta["summary"] = opf_meta["description"]
+    # Series/Number：优先 OPF 元数据（用户显式指定优先于两者，见 build_comicinfo）
+    if opf_meta.get("series"):
+        meta["series"] = opf_meta["series"]
+    if opf_meta.get("number"):
+        meta["number"] = opf_meta["number"]
     return meta
 
 
@@ -2481,7 +2617,7 @@ def normalize_language(code: str) -> str | None:
 
 
 # 卷标记词：无实际系列名时，series 若为这些词或纯数字则视为无法推断（宁缺勿错）
-_VOLUME_MARKERS = {"vol", "volume", "v", "第", "巻", "卷"}
+_VOLUME_MARKERS = {"vol", "volume", "v", "第", "巻", "卷", "册", "冊"}
 
 
 def _is_volume_marker(series: str) -> bool:
@@ -2490,12 +2626,60 @@ def _is_volume_marker(series: str) -> bool:
     return s in _VOLUME_MARKERS or s.isdigit()
 
 
+# 中文数字（一/二/…/十/百）转阿拉伯数字，无法解析返回 None
+_CN_DIGITS = {"一": 1, "二": 2, "两": 2, "三": 3, "四": 4,
+              "五": 5, "六": 6, "七": 7, "八": 8, "九": 9}
+
+
+def _cn_to_int(s: str) -> int | None:
+    """把中文数字（如 "十二" / "二十" / "五"）转为阿拉伯数字，无法解析返回 None。"""
+    s = s.strip()
+    if not s or not all(c in "一二三四五六七八九十百零两" for c in s):
+        return None
+    total, section = 0, 0
+    for c in s:
+        if c in _CN_DIGITS:
+            section = _CN_DIGITS[c]
+        elif c == "十":
+            total += (section if section else 1) * 10
+            section = 0
+        elif c == "百":
+            total += (section if section else 1) * 100
+            section = 0
+        else:  # 零
+            section = 0
+    total += section
+    return total or None
+
+
+# 卷标记模式表：(正则, 类别)。系列名在 ?P<series>，数字在 ?P<num> 或 ?P<cn>。
+# 覆盖 Vol/Volume/v1、第N卷、卷N（前缀式）、01巻/第1巻、第5册/册N、
+# tome N、권N、시즌 N、เล่ม N、Том N、中文数字卷（第一卷/卷二）。
+_VOLUME_PATTERNS = [
+    (r"^(?P<series>.*?)[\s_\-\.]*[Vv]ol(?:ume)?[\s_\-\.]*(?P<num>\d{1,4}(?:\.\d+)?)\s*$", "vol"),
+    (r"^(?P<series>.*?)[\s_\-\.]*[Vv][\s_\-\.]*(?P<num>\d{1,4})\s*$", "v"),
+    (r"^(?P<series>.*?)[\s_\-\.]*第[\s_\-\.]*(?P<num>\d{1,4})[\s_\-\.]*卷\s*$", "cn"),
+    (r"^(?P<series>.*?)[\s_\-\.]*卷[\s_\-\.]*(?P<num>\d{1,4})\s*$", "cn"),
+    (r"^(?P<series>.*?)[\s_\-\.]*第?[\s_\-\.]*(?P<num>\d{1,4})[\s_\-\.]*巻\s*$", "jp"),
+    (r"^(?P<series>.*?)[\s_\-\.]*巻[\s_\-\.]*(?P<num>\d{1,4})\s*$", "jp"),
+    (r"^(?P<series>.*?)[\s_\-\.]*第?[\s_\-\.]*(?P<num>\d{1,4})[\s_\-\.]*[册冊]\s*$", "cn"),
+    (r"^(?P<series>.*?)[\s_\-\.]*[Tt](?:ome)?[\s_\-\.]*(?P<num>\d{1,4})\s*$", "fr"),
+    (r"^(?P<series>.*?)[\s_\-\.]*권[\s_\-\.]*(?P<num>\d{1,4})\s*$", "ko"),
+    (r"^(?P<series>.*?)[\s_\-\.]*시즌[\s_\-\.]*(?P<num>\d{1,4})\s*$", "ko"),
+    (r"^(?P<series>.*?)[\s_\-\.]*เล่มที่?[\s_\-\.]*(?P<num>\d{1,4})\s*$", "th"),
+    (r"^(?P<series>.*?)[\s_\-\.]*Том(?:а)?[\s_\-\.]*(?P<num>\d{1,4})\s*$", "ru"),
+    (r"^(?P<series>.*?)[\s_\-\.]*第?[\s_\-\.]*(?P<cn>[一二三四五六七八九十百零两]+)[\s_\-\.]*[卷巻]\s*$", "cn_cn"),
+    (r"^(?P<series>.*?)[\s_\-\.]*[卷巻][\s_\-\.]*(?P<cn>[一二三四五六七八九十百零两]+)\s*$", "cn_cn"),
+]
+
+
 # 输入：电子书文件路径；输出：(series, number) 高置信度推断结果，无法判断返回 (None, None)
 def infer_series_number(path: Path) -> tuple[str | None, str | None]:
     """从文件名高置信度推断漫画 Series/Number。
 
-    支持形式：001 / 01 / 1 / Vol.01 / Vol 01 / Volume 01 / 第 01 卷 /
-    01巻 等；纯数字结尾（如 "One Piece 108"）也视为高置信度。
+    支持形式：001 / 01 / 1 / Vol.01 / Vol 01 / Volume 01 / v1 / 第 01 卷 /
+    卷12（前缀式）/ 01巻 / 第5册 / tome 2 / 권N / เล่มN / ТомN / 第一卷
+    （中文数字卷）等；纯数字结尾（如 "One Piece 108"）也视为高置信度。
     文件名可带括号后缀（如 "天是紅河岸 - 第23卷 (筱原千繪)"），
     括号内容不影响推断。4 位年份（19xx/20xx）与纯数字文件名
     （如 "108"）会被排除，宁缺勿错；无系列名的纯卷标记
@@ -2514,28 +2698,24 @@ def infer_series_number(path: Path) -> tuple[str | None, str | None]:
     s = stem.strip()
     # 括号后缀（如 "(作者)" / "(scan)"）不影响推断，统一剥离
     s = re.sub(r"\s*\([^)]*\)\s*$", "", s).strip()
-    # 1) Vol.01 / Vol 01 / Volume 01 / vol.1 / v01 形式
-    m = re.match(r"^(?P<series>.*?)[\s_\-\.]*[Vv]ol(?:ume)?[\s_\-\.]*(\d{1,4})\s*$", s)
-    if m:
+    # 1) 各类卷标记（含前缀式、多语言与中文数字卷）
+    for pattern, kind in _VOLUME_PATTERNS:
+        m = re.match(pattern, s)
+        if not m:
+            continue
         series = m.group("series").strip()
+        if "num" in m.groupdict() and m.group("num"):
+            num_raw = m.group("num")
+            num = num_raw if "." in num_raw else str(int(float(num_raw)))
+        else:
+            cn = _cn_to_int(m.group("cn"))
+            if cn is None:
+                continue
+            num = str(cn)
         if not series or _is_volume_marker(series):
-            return None, str(int(m.group(2)))
-        return series, str(int(m.group(2)))
-    # 2) 中文卷：第 01 卷 / 第1卷（阿拉伯数字）
-    m = re.match(r"^(?P<series>.*?)[\s_\-\.]*第[\s_\-\.]*(\d{1,4})[\s_\-\.]*卷\s*$", s)
-    if m:
-        series = m.group("series").strip()
-        if not series or _is_volume_marker(series):
-            return None, str(int(m.group(2)))
-        return series, str(int(m.group(2)))
-    # 3) 日文卷：01巻 / 第1巻
-    m = re.match(r"^(?P<series>.*?)[\s_\-\.]*第?[\s_\-\.]*(\d{1,4})[\s_\-\.]*巻\s*$", s)
-    if m:
-        series = m.group("series").strip()
-        if not series or _is_volume_marker(series):
-            return None, str(int(m.group(2)))
-        return series, str(int(m.group(2)))
-    # 4) 纯数字结尾（空格/连字符/下划线/点分隔）：如 "One Piece 108"
+            return None, num
+        return series, num
+    # 2) 纯数字结尾（空格/连字符/下划线/点分隔）：如 "One Piece 108"
     m = re.match(r"^(?P<series>.+?)[\s_\-\.]+(\d{1,4})$", s)
     if m:
         num = m.group(2)
@@ -2664,25 +2844,33 @@ def _strip_html(text: str | None) -> str | None:
         return text
 
 
-def build_comicinfo(meta: dict, images: list, inferred: tuple, setinfo: dict | None = None, cover_source: str | None = None) -> str | None:
+def build_comicinfo(meta: dict, images: list, inferred: tuple, setinfo: dict | None = None,
+                    cover_source: str | None = None, double_page: float | None = None) -> tuple[str, dict] | None:
     """用 xml.etree.ElementTree 生成 ComicInfo.xml（禁止手工拼接字符串）。
 
     PageCount 必写（=最终写入 CBZ 的实际图片数）；其余字段有可靠来源
     才写入，无来源直接省略，不生成空标签。setinfo 为 --setinfo 解析结果，
-    优先级最高（覆盖 meta 与 inferred）。cover_source 非空时在 Notes 追加
-    "CoverSource: <来源>" 标记封面来源。返回含 XML 声明的 UTF-8 文本。
+    优先级最高（覆盖 meta 与 inferred）。
+    double_page 非 None 时为双页检测阈值（图片宽/高 >= 该值判为跨页）：
+    追加顶层 <Manga>Yes</Manga> 与 <Pages> 逐页 DoublePage 标记；None 时不写这两项。
+    CoverSource 不再写入 Notes（来源改由 --inspect / --json 展示，避免污染 ComicInfo）。
+
+    返回 (xml 文本, sources)：sources 记录 series/number/cover 三者来源
+    （series_source/number_source: setinfo/opf/inferred；cover_source: OPF guide/filename/spine/first），
+    供 --json 输出；xml 生成失败返回 None。
     """
     try:
         root = ET.Element("ComicInfo")
         setinfo = setinfo or {}
-        series, number = inferred if isinstance(inferred, tuple) else (None, None)
-        if "Series" in setinfo:
-            series = setinfo["Series"]
-        if "Number" in setinfo:
-            number = setinfo["Number"]
+        inferred_s, inferred_n = inferred if isinstance(inferred, tuple) else (None, None)
+        # 优先级：setinfo（用户指定）> meta（OPF 元数据）> inferred（文件名推测）
+        series = setinfo.get("Series") or meta.get("series") or inferred_s
+        number = setinfo.get("Number") or meta.get("number") or inferred_n
+        series_source = ("setinfo" if setinfo.get("Series")
+                         else ("opf" if meta.get("series") else ("inferred" if inferred_s else None)))
+        number_source = ("setinfo" if setinfo.get("Number")
+                         else ("opf" if meta.get("number") else ("inferred" if inferred_n else None)))
         notes = setinfo.get("Notes")
-        if cover_source:
-            notes = (notes + "\n" if notes else "") + f"CoverSource: {cover_source}"
         ordered = [
             ("Title", setinfo.get("Title", meta.get("title"))),
             ("Series", series),
@@ -2695,19 +2883,37 @@ def build_comicinfo(meta: dict, images: list, inferred: tuple, setinfo: dict | N
             ("Summary", _strip_html(setinfo.get("Summary", meta.get("summary")))),
             ("Notes", notes),
         ]
+        # 双页检测：#25 开启时追加 <Manga>Yes</Manga>（简单字段末尾）与 <Pages> 逐页标记
+        if double_page is not None:
+            ordered.append(("Manga", "Yes"))
         for tag, val in ordered:
             if val is None:
                 continue
             el = ET.SubElement(root, tag)
             el.text = str(val)
+        if double_page is not None:
+            pages_el = ET.SubElement(root, "Pages")
+            for img in images:
+                page = ET.SubElement(pages_el, "Page")
+                page.set("Image", img.name)
+                dim = image_dimensions(img)
+                if dim and dim[0] > 0 and dim[1] > 0 and dim[0] / dim[1] >= double_page:
+                    page.set("Type", "DoublePage")
         xml_bytes = ET.tostring(root, encoding="utf-8", xml_declaration=True)
-        return xml_bytes.decode("utf-8")
+        sources = {
+            "series_source": series_source,
+            "number_source": number_source,
+            "cover_source": cover_source,
+        }
+        return xml_bytes.decode("utf-8"), sources
     except Exception:
         return None
 
 
 def get_drm_flag(p: Path) -> bool:
     """读取 PalmDB 头偏移 12 处的加密字段，非 0 表示 DRM 加密"""
+    if p.suffix.lower() == ".epub":
+        return False
     try:
         with open(p, "rb") as f:
             f.seek(12)
@@ -2780,11 +2986,16 @@ def image_dimensions(img: Path) -> tuple[int, int] | None:
 
 
 def get_opf_guide_cover_href(opf_path: Path) -> str | None:
-    """解析 OPF 文件中 <guide><reference type="cover" href="..."> 的封面引用。
+    """解析 OPF 文件中的封面引用（返回 href 字符串），命中优先级：
 
-    兼容 type/href 属性顺序互换；找不到 type="cover" 引用时返回 None。"""
+    1. <guide><reference type="cover" href="...">
+    2. <manifest><item properties="cover-image" href="...">（EPUB3 约定）
+    3. <meta name="cover" content="{id}"> 对应的 manifest item href（EPUB2 约定）
+
+    全程文本正则扫描（兼容属性顺序互换、无命名空间 OPF），均未命中返回 None。"""
     try:
         text = opf_path.read_text("utf-8", errors="replace")
+        # 1) guide reference type=cover
         m = re.search(
             r'<reference\s+[^>]*type=["\']cover["\'][^>]*href=["\']([^"\']+)["\']',
             text, re.I,
@@ -2794,7 +3005,45 @@ def get_opf_guide_cover_href(opf_path: Path) -> str | None:
                 r'<reference\s+[^>]*href=["\']([^"\']+)["\'][^>]*type=["\']cover["\']',
                 text, re.I,
             )
-        return m.group(1) if m else None
+        if m:
+            return m.group(1)
+        # 2) manifest item properties 含 cover-image
+        m = re.search(
+            r'<item\b[^>]*properties=["\'][^"\']*cover-image[^"\']*["\'][^>]*href=["\']([^"\']+)["\']',
+            text, re.I,
+        )
+        if not m:
+            m = re.search(
+                r'<item\b[^>]*href=["\']([^"\']+)["\'][^>]*properties=["\'][^"\']*cover-image[^"\']*["\']',
+                text, re.I,
+            )
+        if m:
+            return m.group(1)
+        # 3) meta name=cover content={id} → 查 manifest 对应 item 的 href
+        m = re.search(
+            r'<meta\b[^>]*name=["\']cover["\'][^>]*content=["\']([^"\']+)["\']',
+            text, re.I,
+        )
+        if not m:
+            m = re.search(
+                r'<meta\b[^>]*content=["\']([^"\']+)["\'][^>]*name=["\']cover["\']',
+                text, re.I,
+            )
+        if m:
+            cover_id = m.group(1)
+            for it in re.finditer(
+                r'<item\b[^>]*id=["\']([^"\']+)["\'][^>]*href=["\']([^"\']+)["\']',
+                text, re.I,
+            ):
+                if it.group(1) == cover_id:
+                    return it.group(2)
+            for it in re.finditer(
+                r'<item\b[^>]*href=["\']([^"\']+)["\'][^>]*id=["\']([^"\']+)["\']',
+                text, re.I,
+            ):
+                if it.group(2) == cover_id:
+                    return it.group(1)
+        return None
     except Exception:
         return None
 
@@ -2817,6 +3066,54 @@ def parse_ncx_toc(base_dir: Path) -> tuple[int, list[str]]:
         return len(titles), titles[:3]
     except Exception:
         return 0, []
+
+
+def parse_nav_toc(base_dir: Path) -> tuple[int, list[str]]:
+    """解析 EPUB3 nav 目录条目数并预览前 3 条标题。
+
+    优先从 OPF manifest properties="nav" 定位 nav 文档（EPUB3 官方
+    约定），解析 <nav epub:type="toc"> 内 <a> 文本（含多级嵌套展开）；
+    找不到时兜底按文件名 *nav*.xhtml 递归搜索。
+    返回 (条目数, 标题预览列表)；找不到或解析失败返回 (0, [])。"""
+    try:
+        opf_path = find_opf(base_dir)
+        nav = None
+        if opf_path:
+            tree = ET.parse(opf_path)
+            root = tree.getroot()
+            for item in root.findall(".//opf:manifest/opf:item", OPF_NS):
+                if "nav" in (item.get("properties") or "").split():
+                    href = item.get("href")
+                    if href:
+                        cand = (opf_path.parent / href.split("#", 1)[0]).resolve()
+                        if cand.exists():
+                            nav = cand
+                            break
+        if nav is None:
+            for f in base_dir.rglob("*.xhtml"):
+                if "nav" in f.stem.lower():
+                    nav = f
+                    break
+        if nav is None:
+            return 0, []
+        text = nav.read_text("utf-8", errors="replace")
+        nav_blocks = re.findall(r"<nav\b[^>]*>.*?</nav>", text, re.I | re.S)
+        block = None
+        for nb in nav_blocks:
+            if re.search(r"epub:type\s*=\s*[\"']toc[\"']", nb, re.I):
+                block = nb
+                break
+        if block is None and nav_blocks:
+            block = nav_blocks[0]
+        if block is None:
+            return 0, []
+        titles = re.findall(r"<a\b[^>]*>(.*?)</a>", block, re.I | re.S)
+        titles = [re.sub(r"<[^>]+>", "", t).strip() for t in titles]
+        titles = [t for t in titles if t]
+        return len(titles), titles[:3]
+    except Exception:
+        return 0, []
+
 
 
     # 输入：电子书文件路径、最小字节数过滤与 prefer；输出：状态字符串 ok/invalid/noimg/drm/fail（供汇总计数）
@@ -2994,8 +3291,11 @@ def inspect_ebook(p: Path, min_bytes: int, prefer: str = "mobi8", setinfo_args: 
 
     extract_temp_paths = []
     try:
-        tempdir_raw, _ = mobi.extract(str(p))
-        tempdir = Path(tempdir_raw)
+        if p.suffix.lower() == ".epub":
+            tempdir = extract_epub_to_temp(p)
+        else:
+            tempdir_raw, _ = mobi.extract(str(p))
+            tempdir = Path(tempdir_raw)
         extract_temp_paths.append(tempdir)
 
         has7 = (tempdir / "mobi7").is_dir()
@@ -3005,6 +3305,22 @@ def inspect_ebook(p: Path, min_bytes: int, prefer: str = "mobi8", setinfo_args: 
 
         opf_path = find_opf(base_dir)
         emit(t("inspect.opf_exists") if opf_path else t("inspect.opf_missing"))
+        # EPUB 无 EXTH 头：改从 OPF dc:metadata 补充标题/作者/语言等（复用已有 i18n 键）
+        if opf_path and p.suffix.lower() == ".epub":
+            opf_meta = read_opf_metadata(opf_path)
+            opf_parts = []
+            if opf_meta.get("title"):
+                opf_parts.append(t("inspect.meta_title", value=opf_meta["title"]))
+            if opf_meta.get("creator"):
+                opf_parts.append(t("inspect.meta_author", value=opf_meta["creator"]))
+            if opf_meta.get("language"):
+                opf_parts.append(t("inspect.meta_language", value=opf_meta["language"]))
+            if opf_meta.get("date"):
+                opf_parts.append(t("inspect.meta_publish_date", value=opf_meta["date"]))
+            if opf_meta.get("publisher"):
+                opf_parts.append(t("inspect.meta_publisher", value=opf_meta["publisher"]))
+            if opf_parts:
+                emit(t("inspect.meta_line", parts=" | ".join(opf_parts)))
         spine_count = 0
         spine_images = []
         if opf_path:
@@ -3021,6 +3337,11 @@ def inspect_ebook(p: Path, min_bytes: int, prefer: str = "mobi8", setinfo_args: 
             emit(t("inspect.ncx_count", count=ncx_count, preview=" | ".join(ncx_preview)))
         else:
             emit(t("inspect.ncx_missing"))
+        nav_count, nav_preview = parse_nav_toc(base_dir)
+        if nav_count:
+            emit(t("inspect.nav_count", count=nav_count, preview=" | ".join(nav_preview)))
+        else:
+            emit(t("inspect.nav_missing"))
 
         total_in_dir = count_images_in_dir(base_dir)
         emit(t("inspect.dir_images", count=total_in_dir))
@@ -3039,7 +3360,10 @@ def inspect_ebook(p: Path, min_bytes: int, prefer: str = "mobi8", setinfo_args: 
         if opf_path:
             href = get_opf_guide_cover_href(opf_path)
             if href:
-                cand = (base_dir / href).resolve()
+                # href 相对 OPF 所在目录（epub 的 OPF 常在 OEBPS/ 子目录），未命中回退解压根目录
+                cand = (opf_path.parent / href).resolve()
+                if not (cand.is_file() and cand.suffix.lower() in IMAGE_EXTENSIONS):
+                    cand = (base_dir / href).resolve()
                 if cand.is_file() and cand.suffix.lower() in IMAGE_EXTENSIONS:
                     cover = cand
                     cover_src = t("inspect.cover_src_guide")
@@ -3125,19 +3449,20 @@ def inspect_ebook(p: Path, min_bytes: int, prefer: str = "mobi8", setinfo_args: 
         # ComicInfo.xml 预览块（inspect 不写文件，仅展示即将生成的元数据）
         opf_meta = read_opf_metadata(opf_path) if opf_path else {}
         cmeta = collect_comicinfo_meta(opf_meta, meta, p)
-        cseries, cnumber = infer_series_number(p)
-        csetinfo = parse_setinfo_args(setinfo_args or [], cmeta, (cseries, cnumber), p)
-        if "Series" in csetinfo:
-            cseries = csetinfo["Series"]
-        if "Number" in csetinfo:
-            cnumber = csetinfo["Number"]
+        # 来源标注与 build_comicinfo 优先级一致：setinfo > OPF 元数据 > 文件名推断
+        cinf_s, cinf_n = infer_series_number(p)
+        csetinfo = parse_setinfo_args(setinfo_args or [], cmeta, (cinf_s, cinf_n), p)
+        series_src = "setinfo" if "Series" in csetinfo else ("opf" if cmeta.get("series") else ("inferred" if cinf_s else None))
+        number_src = "setinfo" if "Number" in csetinfo else ("opf" if cmeta.get("number") else ("inferred" if cinf_n else None))
+        cseries = csetinfo.get("Series") or cmeta.get("series") or cinf_s
+        cnumber = csetinfo.get("Number") or cmeta.get("number") or cinf_n
         emit("ComicInfo.xml:")
         if csetinfo.get("Title") or cmeta.get("title"):
             emit(f"  Title: {csetinfo.get('Title') or cmeta.get('title')}")
         if cseries:
-            emit(f"  Series: {cseries} [{t('comicinfo.inferred')}]")
+            emit(f"  Series: {cseries} [{series_src}]")
         if cnumber:
-            emit(f"  Number: {cnumber} [{t('comicinfo.inferred')}]")
+            emit(f"  Number: {cnumber} [{number_src}]")
         if csetinfo.get("Writer") or cmeta.get("writer"):
             emit(f"  Writer: {csetinfo.get('Writer') or cmeta.get('writer')}")
         if csetinfo.get("Publisher") or cmeta.get("publisher"):
@@ -3165,14 +3490,18 @@ def modify_cbz_comicinfo(cbz_path: Path, setinfo_args: list) -> bool:
     无 ComicInfo.xml 时新建（PageCount 由 CBZ 实际图片数决定）。
     返回是否实际发生修改；白名单外字段已在 parse_setinfo_args 过滤。
     """
+    # 第一遍仅扫描元信息（不读图片数据）：定位 ComicInfo.xml（KB 级小文件，读入无妨）并统计图片数
     with zipfile.ZipFile(str(cbz_path)) as zf:
         infos = zf.infolist()
-        entries = {info.filename: (info, zf.read(info.filename)) for info in infos}
-    img_count = sum(1 for n in entries if Path(n).suffix.lower() in IMAGE_EXTENSIONS)
+        img_count = sum(1 for it in infos if Path(it.filename).suffix.lower() in IMAGE_EXTENSIONS)
+        existing_data = None
+        for it in infos:
+            if it.filename == "ComicInfo.xml":
+                existing_data = zf.read(it)
+                break
 
-    existing = entries.get("ComicInfo.xml")
-    if existing is not None and existing[1]:
-        root = ET.fromstring(existing[1])
+    if existing_data:
+        root = ET.fromstring(existing_data)
     else:
         root = ET.Element("ComicInfo")
         pc = ET.SubElement(root, "PageCount")
@@ -3193,23 +3522,34 @@ def modify_cbz_comicinfo(cbz_path: Path, setinfo_args: list) -> bool:
         return False
 
     xml_bytes = ET.tostring(root, encoding="utf-8", xml_declaration=True)
-    # 重建 zip：替换 ComicInfo.xml，其余条目原样保留（保留各条目原始压缩方式与属性）
+    # 重建 zip：流式复制原包全部条目（内存 O(单条目)），仅替换 ComicInfo.xml；
+    # 保留各条目原始压缩方式与属性
     tmp = cbz_path.with_name(cbz_path.name + ".tmp")
     try:
-        with zipfile.ZipFile(str(tmp), "w") as zf:
-            if existing is None or not existing[1]:
-                # 原 zip 无 ComicInfo.xml：先写入新建的 XML
+        with zipfile.ZipFile(str(cbz_path)) as zin, zipfile.ZipFile(str(tmp), "w") as zout:
+            wrote_xml = False
+            for it in zin.infolist():
+                if it.filename == "ComicInfo.xml":
+                    zi = zipfile.ZipInfo("ComicInfo.xml")
+                    zi.compress_type = zipfile.ZIP_DEFLATED
+                    zi.date_time = tuple(datetime.now().timetuple()[:6])
+                    zout.writestr(zi, xml_bytes)
+                    wrote_xml = True
+                    continue
+                zi = zipfile.ZipInfo(it.filename)
+                zi.compress_type = it.compress_type
+                zi.date_time = it.date_time
+                zi.external_attr = it.external_attr
+                zi.internal_attr = it.internal_attr
+                zi.create_system = it.create_system
+                with zin.open(it) as src, zout.open(zi, "w") as dst:
+                    shutil.copyfileobj(src, dst, length=1024 * 1024)
+            if not wrote_xml:
+                # 原 zip 无 ComicInfo.xml：追加新建的 XML
                 zi = zipfile.ZipInfo("ComicInfo.xml")
                 zi.compress_type = zipfile.ZIP_DEFLATED
                 zi.date_time = tuple(datetime.now().timetuple()[:6])
-                zf.writestr(zi, xml_bytes)
-            for name, (info, data) in entries.items():
-                zi = zipfile.ZipInfo(name)
-                zi.compress_type = zipfile.ZIP_DEFLATED if name == "ComicInfo.xml" else info.compress_type
-                zi.date_time = info.date_time
-                zi.external_attr = info.external_attr
-                zi.internal_attr = info.internal_attr
-                zf.writestr(zi, xml_bytes if name == "ComicInfo.xml" else data)
+                zout.writestr(zi, xml_bytes)
         os.replace(str(tmp), str(cbz_path))
     except Exception:
         if tmp.exists():
@@ -3302,8 +3642,8 @@ def modify_cbz_mode(cbz_files: list[Path], args) -> None:
 def unpack_ebook(p: Path, out_root: Path) -> Path:
     """解包电子书到 out_root 下的同名子目录（已存在自动加序号避让）。
 
-    mobi 走 mobi.extract 保留完整结构（mobi7/mobi8 等），cbz 逐条目安全解压
-    （含 zip-slip 路径穿越防护）。返回实际解包到的目录。
+    mobi 走 mobi.extract 保留完整结构（mobi7/mobi8 等），cbz/epub 逐条目
+    安全解压（含 zip-slip 路径穿越防护）。返回实际解包到的目录。
     """
     out_dir = out_root / p.stem
     n = 2
@@ -3311,22 +3651,9 @@ def unpack_ebook(p: Path, out_root: Path) -> Path:
         out_dir = out_root / f"{p.stem} ({n})"
         n += 1
     out_dir.mkdir(parents=True, exist_ok=True)
-    if p.suffix.lower() == ".cbz":
+    if p.suffix.lower() in (".cbz", ".epub"):
         with zipfile.ZipFile(str(p)) as zf:
-            for member in zf.infolist():
-                name = member.filename
-                # 路径穿越防护：拒绝绝对路径与 .. 跳转，防止 zip-slip
-                norm_name = name.replace("\\", "/")
-                if norm_name.startswith("/") or ".." in norm_name.split("/"):
-                    emit(t("unpack.path_skip", name=p.name, entry=name), level="warning")
-                    continue
-                if member.is_dir() or norm_name.endswith("/"):
-                    (out_dir / norm_name).mkdir(parents=True, exist_ok=True)
-                    continue
-                target = out_dir / norm_name
-                target.parent.mkdir(parents=True, exist_ok=True)
-                with zf.open(member) as src, open(target, "wb") as dst:
-                    shutil.copyfileobj(src, dst)
+            _safe_zip_extract(zf, out_dir)
     else:
         tempdir_raw, _ = mobi.extract(str(p))
         tempdir = Path(tempdir_raw)
@@ -3421,6 +3748,29 @@ def main():
         emit(t("main.crash"), level="error")
         emit(traceback.format_exc().rstrip(), level="error")
         sys.exit(1)
+
+
+# 双页检测默认阈值：图片宽/高 >= 该值判为跨页（ComicInfo 标准推荐 2.0）
+DEFAULT_DOUBLE_PAGE_RATIO = 2.0
+
+
+def _parse_double_page_arg(s: str) -> float | None:
+    """--double-page 参数值解析：off/no/0/false → None（关闭）；auto 或数值 → 阈值。
+
+    数值必须 > 0；非法值抛 ArgumentTypeError 由 argparse 统一报错。
+    """
+    v = (s or "").strip().lower()
+    if v in ("off", "no", "0", "false", "none"):
+        return None
+    if v in ("auto", ""):
+        return DEFAULT_DOUBLE_PAGE_RATIO
+    try:
+        ratio = float(v)
+    except ValueError:
+        raise argparse.ArgumentTypeError(t("error.double_page_invalid", value=s))
+    if ratio <= 0:
+        raise argparse.ArgumentTypeError(t("error.double_page_invalid", value=s))
+    return ratio
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -3555,6 +3905,17 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-comicinfo",
         action="store_true",
         help=t("help.no_comicinfo"),
+    )
+    # 输入：双页检测（nargs='?'，可选值）；输出：ComicInfo 写入 <Manga>Yes</Manga> 与逐页 DoublePage 标记
+    # 取值：不传/auto → 开启（阈值 2.0）；数值 → 开启并调阈值；off/no/0/false → 关闭
+    parser.add_argument(
+        "--double-page",
+        nargs="?",
+        const="auto",
+        default="auto",
+        metavar="VALUE",
+        type=_parse_double_page_arg,
+        help=t("help.double_page"),
     )
     # 输入：设置 ComicInfo 字段（可多次）；输出：覆盖/新增对应字段
     parser.add_argument(
@@ -3778,11 +4139,13 @@ def _main():
                 output_dir=output_dir, compress=_compress_level,
                 flatten=args.flatten, input_root=input_root, used_names=used_names,
                 comicinfo=not args.no_comicinfo, setinfo_args=args.setinfo,
+                double_page=args.double_page,
             )
             file_elapsed = time.perf_counter() - file_start
             json_status = "ok"
             json_target = None
             json_reason = None
+            conv_sources = None
             if timed_out:
                 emit(t("run.timeout", name=mf.name, seconds=args.timeout), level="error")
                 failed_files.append(mf)
@@ -3790,7 +4153,7 @@ def _main():
                 json_status = "timeout"
                 json_reason = "timeout"
             else:
-                result, status, reason = converted
+                result, status, reason, conv_sources = converted
                 if status == ConvStatus.OK:
                     success += 1
                     success_cbzs.append(result)
@@ -3804,12 +4167,16 @@ def _main():
                     json_status = "fail"
                     json_reason = reason
             emit(t("run.elapsed", name=mf.name, seconds=f"{file_elapsed:.2f}"))
+            conv_sources = conv_sources or {}
             json_files.append({
                 "source": str(mf),
                 "status": json_status,
                 "target": json_target,
                 "reason": json_reason,
                 "elapsed_sec": round(file_elapsed, 3),
+                "series_source": conv_sources.get("series_source"),
+                "number_source": conv_sources.get("number_source"),
+                "cover_source": conv_sources.get("cover_source"),
             })
             if pbar is not None:
                 pbar.update(1)
