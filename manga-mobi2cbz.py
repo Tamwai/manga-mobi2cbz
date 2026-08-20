@@ -67,8 +67,8 @@ manga-mobi2cbz — 将 mobi/azw/azw3/epub 电子书漫画文件批量转换为 c
                      也自动回退另一份（默认 auto）
     --ext-priority EXTS 同目录同名（仅扩展名不同）时保留哪种格式，
                      逗号分隔、顺序即优先级从高到低，仅接受
-                     mobi/azw/azw3，默认 azw3；优先级未覆盖时
-                     回退兜底顺序 azw3→mobi→azw；与 --prefer（双目录）无关
+                     mobi/azw/azw3/epub，默认 azw3；优先级未覆盖时
+                     回退兜底顺序 azw3→epub→mobi→azw；与 --prefer（双目录）无关
     --drop-extra     目录中有未被收集的多余图片时放弃追加，默认追加到末尾
     --overwrite      目标 cbz 已存在时强制重新生成（默认跳过）
     --timeout SECONDS 单文件转换超时秒数，超时自动跳过并计入失败（默认 600，0 表示不限制）
@@ -96,13 +96,20 @@ manga-mobi2cbz — 将 mobi/azw/azw3/epub 电子书漫画文件批量转换为 c
     --no-comicinfo  不生成 ComicInfo.xml（默认生成：向 CBZ 根目录写入
                      Title/Series/Number/Writer/Publisher/Year/
                      LanguageISO/PageCount/Summary 等漫画元数据）
+    --double-page   双页检测：图片宽/高 ≥ 阈值（默认 2.0）判为跨页横幅，
+                     在 ComicInfo 写入逐页 <Page Type="DoublePage"/> 标记；
+                     传数值调阈值，off/no/0 关闭（默认 auto 开启）
+    --drop-small    丢弃小图：开启时"宽和高均小于中位数×比例"的图被丢弃
+                     （默认比例 0.5，传数值调比例，off/no/0 关闭，默认关闭）；
+                     封面小缩略图等自动命中，丢弃后 PageCount 按实际图数重算
     --setinfo FIELD=VALUE 设置 ComicInfo 字段（可多次，后出现覆盖先出现；
                      优先级最高，覆盖自动推断/元数据来源）。VALUE 支持
                      固定值或占位符：%series/%number/%title/%filename/
                      %leftN/%rightN（%leftN=文件名前 N 字符，%rightN=后 N
                      字符；占位符对应值缺失时该字段不写入）。智能拆分：
                      仅当逗号后紧跟"字段名="时才拆分，否则逗号视为值的
-                     一部分（如 Summary=hello, world 不拆分）
+                     一部分（如 Summary=hello, world 不拆分）。Manga 默认
+                     不写入，需显式 --setinfo Manga=Unknown|No|Yes|YesAndRightToLeft
     --unpack        解包查看：只解压不转换，输出到各源文件所在目录的
                      同名子目录（已存在自动加序号避让）；mobi 走 extract
                      保留完整结构，cbz 走 extractall
@@ -113,6 +120,25 @@ manga-mobi2cbz — 将 mobi/azw/azw3/epub 电子书漫画文件批量转换为 c
 要求: Python 3.10+
 
 更新日志:
+    v2.5.0 (2026-08-20)
+        - Manga 默认不再自动写入 ComicInfo：双页检测只生成 <Pages> 逐页
+          DoublePage 标记，不再附带 <Manga>Yes</Manga> 声明；Manga 改由
+          --setinfo Manga= 显式指定，取值限官方 v2.0 枚举
+          Unknown/No/Yes/YesAndRightToLeft，非法值 warning 忽略
+        - --setinfo 白名单扩展：新增 CommunityRating（0-5 评分）/
+          MainCharacterOrTeam / Review 三个官方 v2.0 字段（39→42）
+        - --ext-priority 支持 epub：仅接受 mobi/azw/azw3/epub，优先级
+          未覆盖时兜底顺序调整为 azw3→epub→mobi→azw
+        - 无图提示按扩展名分流：epub 无图时改用中性文案（确认含漫画图
+          且未加密），不再误报 Kindle DRM；mobi 族仍提示 DRM
+        - --help 四语言文案同步 .epub（help.description/help.target/
+          help.ext_priority），docstring 说明同步
+        - 新增 --drop-small 丢弃小图：默认关闭，开启时按"宽和高均小于
+          中位数×比例"丢弃异常小图（默认比例 0.5，可用 --drop-small 数值
+          调比例，off/no/0 关闭）。逐图读宽高复用 image_dimensions（不引
+          新依赖）；丢弃后 ComicInfo PageCount 按实际剩余图数重算；
+          汇总/--log/--json 新增『丢弃小图』计数；--inspect 预览标记
+          『开启 --drop-small 时将丢弃 N 张』；封面小缩略图等自动命中
     v2.4.0 (2026-08-20)
         - 新增 EPUB 输入支持：SUPPORTED_INPUT_EXTENSIONS 扩展 .epub；
           ebook_to_cbz / inspect / unpack 按扩展名分流（epub 走 zipfile
@@ -452,7 +478,7 @@ manga-mobi2cbz — 将 mobi/azw/azw3/epub 电子书漫画文件批量转换为 c
           EOCD + testzip 完整性校验、失败清理半成品
 """
 
-__version__ = "2.4.0"
+__version__ = "2.5.0"
 
 SCRIPT_NAME = "manga-mobi2cbz"
 
@@ -469,6 +495,7 @@ import tempfile
 import zipfile
 import argparse
 import traceback
+import statistics
 import xml.etree.ElementTree as ET
 from html.parser import HTMLParser
 from urllib.parse import unquote
@@ -491,14 +518,14 @@ LANGUAGES = {
         "error.log_write_failed": "【警告】日志写入失败（{err}），日志文件: {path}，后续日志不再写入",
         "error.json_write_failed": "【警告】JSON 结果写入失败（{err}），路径: {path}",
         "error.ext_priority_empty": "--ext-priority 不能为空",
-        "error.ext_priority_invalid": "--ext-priority 仅接受 mobi/azw/azw3，收到: {p}",
+        "error.ext_priority_invalid": "--ext-priority 仅接受 mobi/azw/azw3/epub，收到: {p}",
         # ---- --help 文案 ----
-        "help.description": "mobi/azw/azw3 漫画批量转 cbz",
+        "help.description": "mobi/azw/azw3/epub 漫画批量转 cbz",
         "help.language": "输出语言：auto 按系统语言自动选择（zh 前缀→中文，zh-TW/zh-Hant→繁体中文，ja/Japanese→日文，否则→英文），或指定 zh-CN/zh-TW/ja/en（兼容 zh/cn/zhtw/jp 等常见写法）",
-        "help.target": "电子书文件路径或包含电子书（.mobi/.azw/.azw3）的目录",
+        "help.target": "电子书文件路径或包含电子书（.mobi/.azw/.azw3/.epub）的目录",
         "help.delete": "转换成功后删除原始电子书文件",
         "help.prefer": "双目录 mobi（mobi7/mobi8）时保留哪份：auto 默认优先 mobi8、空壳自动回退 mobi7；指定 mobi7/mobi8 时，指定目录为空也自动回退另一份",
-        "help.ext_priority": "同目录同名（仅扩展名不同）时保留哪种格式：逗号分隔、顺序即优先级从高到低，仅接受 mobi/azw/azw3，默认 azw3；优先级未覆盖时回退兜底顺序 azw3→mobi→azw；与 --prefer（双目录选择）无关",
+        "help.ext_priority": "同目录同名（仅扩展名不同）时保留哪种格式：逗号分隔、顺序即优先级从高到低，仅接受 mobi/azw/azw3/epub，默认 azw3；优先级未覆盖时回退兜底顺序 azw3→epub→mobi→azw；与 --prefer（双目录选择）无关",
         "help.drop_extra": "目录中有未被收集的多余图片时放弃追加（默认追加到 cbz 末尾）",
         "help.overwrite": "目标 cbz 已存在时强制重新生成（默认跳过）",
         "help.timeout": "单文件转换超时秒数，超时自动跳过并计入失败（默认 600，0 表示不限制；超时后底层解包线程可能后台残留）",
@@ -515,9 +542,14 @@ LANGUAGES = {
         "help.inspect_all": "检查全部电子书（需配合 --inspect 使用，单独使用将自动启用 --inspect）",
         "warn.inspect_all_auto_enable": "注意: --inspect-all 已自动启用 --inspect",
         "help.no_comicinfo": "不生成 ComicInfo.xml（默认生成：向 CBZ 根目录写入漫画元数据）",
-        "help.double_page": "双页检测：不传/auto 开启（阈值 2.0）；数值调阈值；off/no/0 关闭（写入 <Manga>Yes</Manga> 与逐页 DoublePage 标记）",
+        "help.double_page": "双页检测：不传/auto 开启（阈值 2.0）；数值调阈值；off/no/0 关闭（开启时写入逐页 DoublePage 标记，不写 Manga 声明；如需 Manga 请用 --setinfo Manga=）",
         "error.double_page_invalid": "无效的 --double-page 值 '{value}'：支持 auto/数值/off/no/0",
-        "help.setinfo": "设置 ComicInfo 字段（可多次，格式 FIELD=VALUE；VALUE 支持 %%series/%%number/%%title/%%filename/%%leftN/%%rightN；逗号后紧跟字段名=才拆分，值内含 Key= 结构请用多次 --setinfo 传入；--setinfo 开启时输入中的已有 .cbz 会就地修改其 ComicInfo.xml）",
+        "help.drop_small": "丢弃小图：转换时剔除尺寸明显偏小的图片（宽和高均 < 中位数×比例 判为小图；不传/auto=0.5，可传 0~1 数值调比例，off/no/0 关闭）；丢弃后 PageCount 按实际剩余图数重算",
+        "error.drop_small_invalid": "无效的 --drop-small 值 '{value}'：支持 auto/数值(0~1)/off/no/0",
+        "convert.drop_small": "  [清理] 丢弃小图 {count} 张: {names}",
+        "run.drop_small_total": "丢弃小图合计: {count} 张",
+        "inspect.drop_small_preview": "  [提示] 图片中 {count} 张为小图（开启 --drop-small 时将被丢弃）",
+        "help.setinfo": "设置 ComicInfo 字段（可多次，格式 FIELD=VALUE；VALUE 支持 %%series/%%number/%%title/%%filename/%%leftN/%%rightN；逗号后紧跟字段名=才拆分，值内含 Key= 结构请用多次 --setinfo 传入；Manga 取值限 Unknown/No/Yes/YesAndRightToLeft，默认不写；--setinfo 开启时输入中的已有 .cbz 会就地修改其 ComicInfo.xml）",
         "comicinfo.generating": "生成 ComicInfo.xml",
         "comicinfo.created": "已写入 ComicInfo.xml",
         "comicinfo.disabled": "ComicInfo.xml 已禁用（--no-comicinfo）",
@@ -574,6 +606,7 @@ LANGUAGES = {
         "convert.multi_opf": "  [排序] 检测到 {count} 个 OPF 文件，使用第一个: {first}",
         "convert.no_images": "  [失败] 未找到图片: {name}",
         "convert.drm_hint": "  [提示] 可能为 DRM 加密的 Kindle 漫画，mobi 库无法解密，请先去除 DRM 后再转换",
+        "convert.drm_hint_epub": "  [提示] 该 EPUB 未解析出图片，请确认其包含漫画图片、且未加密",
         "convert.count_mismatch": "  [提示] 目录共 {total} 张图片，收集 {collected} 张，数量不一致",
         "convert.done": "  [完成] {name} ({count} 张图片, {size} MB)",
         "convert.verify_fail": "  [校验失败] {name}: {msg}，旧文件已保留",
@@ -698,6 +731,7 @@ LANGUAGES = {
     "progress.desc.modify": "修改中",
     "setinfo.whitelist_skip": "  [警告] {field} 不在 ComicInfo 白名单，已忽略",
     "setinfo.unknown_placeholder": "  [警告] 未知占位符 {raw}，按原样写入",
+    "setinfo.invalid_manga": "  [警告] 无效的 Manga 取值 '{value}'（限 Unknown/No/Yes/YesAndRightToLeft），已忽略",
     "convert.source_newer_reconvert": "  [提示] 目标 {name} 已存在但源文件更新，自动重新转换",
     "inspect.pagecount_mismatch": "  [提示] ComicInfo PageCount={declared} 与实际图片数 {actual} 不一致",
     "inspect.pagecount_non_numeric": "  [警告] ComicInfo PageCount 非数字: {raw}",
@@ -707,14 +741,14 @@ LANGUAGES = {
         "error.log_write_failed": "【警告】日誌寫入失敗（{err}），日誌檔案: {path}，後續日誌不再寫入",
         "error.json_write_failed": "【警告】JSON 結果寫入失敗（{err}），路徑: {path}",
         "error.ext_priority_empty": "--ext-priority 不能為空",
-        "error.ext_priority_invalid": "--ext-priority 僅接受 mobi/azw/azw3，收到: {p}",
+        "error.ext_priority_invalid": "--ext-priority 僅接受 mobi/azw/azw3/epub，收到: {p}",
         # ---- --help 文案 ----
-        "help.description": "mobi/azw/azw3 漫畫批量轉 cbz",
+        "help.description": "mobi/azw/azw3/epub 漫畫批量轉 cbz",
         "help.language": "輸出語言：auto 按系統語言自動選擇（zh 前綴→中文，zh-TW/zh-Hant→繁體中文，ja/Japanese→日文，否則→英文），或指定 zh-CN/zh-TW/ja/en（相容 zh/cn/zhtw/jp 等常見寫法）",
-        "help.target": "電子書檔案路徑或包含電子書（.mobi/.azw/.azw3）的目錄",
+        "help.target": "電子書檔案路徑或包含電子書（.mobi/.azw/.azw3/.epub）的目錄",
         "help.delete": "轉換成功後刪除原始電子書檔案",
         "help.prefer": "雙目錄 mobi（mobi7/mobi8）時保留哪份：auto 預設優先 mobi8、空殼自動回退 mobi7；指定 mobi7/mobi8 時，指定目錄為空也自動回退另一份",
-        "help.ext_priority": "同目錄同名（僅副檔名不同）時保留哪種格式：逗號分隔、順序即優先級從高到低，僅接受 mobi/azw/azw3，預設 azw3；優先級未覆蓋時回退兜底順序 azw3→mobi→azw；與 --prefer（雙目錄選擇）無關",
+        "help.ext_priority": "同目錄同名（僅副檔名不同）時保留哪種格式：逗號分隔、順序即優先級從高到低，僅接受 mobi/azw/azw3/epub，預設 azw3；優先級未覆蓋時回退兜底順序 azw3→epub→mobi→azw；與 --prefer（雙目錄選擇）無關",
         "help.drop_extra": "目錄中有未被收集的多餘圖片時放棄追加（預設追加到 cbz 末尾）",
         "help.overwrite": "目標 cbz 已存在時強制重新生成（預設跳過）",
         "help.timeout": "單檔轉換逾時秒數，逾時自動跳過並計入失敗（預設 600，0 表示不限制；逾時後底層解包執行緒可能於背景殘留）",
@@ -731,9 +765,14 @@ LANGUAGES = {
         "help.inspect_all": "檢查全部電子書（需配合 --inspect 使用，單獨使用將自動啟用 --inspect）",
         "warn.inspect_all_auto_enable": "注意: --inspect-all 已自動啟用 --inspect",
         "help.no_comicinfo": "不生成 ComicInfo.xml（預設生成：向 CBZ 根目錄寫入漫畫元資料）",
-        "help.double_page": "雙頁偵測：不傳/auto 開啟（閾值 2.0）；數值調閾值；off/no/0 關閉（寫入 <Manga>Yes</Manga> 與逐頁 DoublePage 標記）",
+        "help.double_page": "雙頁偵測：不傳/auto 開啟（閾值 2.0）；數值調閾值；off/no/0 關閉（開啟時寫入逐頁 DoublePage 標記，不寫 Manga 宣告；如需 Manga 請用 --setinfo Manga=）",
         "error.double_page_invalid": "無效的 --double-page 值 '{value}'：支援 auto/數值/off/no/0",
-        "help.setinfo": "設定 ComicInfo 欄位（可多次，格式 FIELD=VALUE；VALUE 支援 %%series/%%number/%%title/%%filename/%%leftN/%%rightN；逗號後緊跟欄位名=才拆分，值內含 Key= 結構請用多次 --setinfo 傳入；--setinfo 開啟時輸入中的既有 .cbz 會就地修改其 ComicInfo.xml）",
+        "help.drop_small": "丟棄小圖：轉換時剔除尺寸明顯偏小的圖片（寬和高均 < 中位數×比例 判為小圖；不傳/auto=0.5，可傳 0~1 數值調比例，off/no/0 關閉）；丟棄後 PageCount 按實際剩餘圖數重算",
+        "error.drop_small_invalid": "無效的 --drop-small 值 '{value}'：支援 auto/數值(0~1)/off/no/0",
+        "convert.drop_small": "  [清理] 丟棄小圖 {count} 張: {names}",
+        "run.drop_small_total": "丟棄小圖合計: {count} 張",
+        "inspect.drop_small_preview": "  [提示] 圖片中 {count} 張為小圖（開啟 --drop-small 時將被丟棄）",
+        "help.setinfo": "設定 ComicInfo 欄位（可多次，格式 FIELD=VALUE；VALUE 支援 %%series/%%number/%%title/%%filename/%%leftN/%%rightN；逗號後緊跟欄位名=才拆分，值內含 Key= 結構請用多次 --setinfo 傳入；Manga 取值限 Unknown/No/Yes/YesAndRightToLeft，預設不寫；--setinfo 開啟時輸入中的既有 .cbz 會就地修改其 ComicInfo.xml）",
         "comicinfo.generating": "生成 ComicInfo.xml",
         "comicinfo.created": "已寫入 ComicInfo.xml",
         "comicinfo.disabled": "ComicInfo.xml 已停用（--no-comicinfo）",
@@ -790,6 +829,7 @@ LANGUAGES = {
         "convert.multi_opf": "  [排序] 偵測到 {count} 個 OPF 檔案，使用第一個: {first}",
         "convert.no_images": "  [失敗] 未找到圖片: {name}",
         "convert.drm_hint": "  [提示] 可能為 DRM 加密的 Kindle 漫畫，mobi 函式庫無法解密，請先去除 DRM 後再轉換",
+        "convert.drm_hint_epub": "  [提示] 該 EPUB 未解析出圖片，請確認其包含漫畫圖片、且未加密",
         "convert.count_mismatch": "  [提示] 目錄共 {total} 張圖片，收集 {collected} 張，數量不一致",
         "convert.done": "  [完成] {name} ({count} 張圖片, {size} MB)",
         "convert.verify_fail": "  [校驗失敗] {name}: {msg}，舊檔案已保留",
@@ -914,6 +954,7 @@ LANGUAGES = {
     "progress.desc.modify": "修改中",
     "setinfo.whitelist_skip": "  [警告] {field} 不在 ComicInfo 白名單，已忽略",
     "setinfo.unknown_placeholder": "  [警告] 未知佔位符 {raw}，按原樣寫入",
+    "setinfo.invalid_manga": "  [警告] 無效的 Manga 取值 '{value}'（限 Unknown/No/Yes/YesAndRightToLeft），已忽略",
     "convert.source_newer_reconvert": "  [提示] 目標 {name} 已存在但來源檔案更新，自動重新轉換",
     "inspect.pagecount_mismatch": "  [提示] ComicInfo PageCount={declared} 與實際圖片數 {actual} 不一致",
     "inspect.pagecount_non_numeric": "  [警告] ComicInfo PageCount 非數字: {raw}",
@@ -923,14 +964,14 @@ LANGUAGES = {
         "error.log_write_failed": "[Warning] Failed to write log ({err}), log file: {path}, further log entries will be skipped",
         "error.json_write_failed": "[Warning] Failed to write JSON result ({err}), path: {path}",
         "error.ext_priority_empty": "--ext-priority must not be empty",
-        "error.ext_priority_invalid": "--ext-priority accepts only mobi/azw/azw3, got: {p}",
+        "error.ext_priority_invalid": "--ext-priority accepts only mobi/azw/azw3/epub, got: {p}",
         # ---- --help 文案 ----
-        "help.description": "Batch convert mobi/azw/azw3 ebooks to cbz",
+        "help.description": "Batch convert mobi/azw/azw3/epub ebooks to cbz",
         "help.language": "Output language: auto picks by system locale (zh prefix->Chinese, zh-TW/zh-Hant->Traditional Chinese, ja/Japanese->Japanese, otherwise->English), or choose zh-CN/zh-TW/ja/en (tolerant of common variants like zh/cn/zhtw/jp)",
-        "help.target": "Path to an ebook file or a directory containing ebooks (.mobi/.azw/.azw3)",
+        "help.target": "Path to an ebook file or a directory containing ebooks (.mobi/.azw/.azw3/.epub)",
         "help.delete": "Delete the original ebook file after successful conversion",
         "help.prefer": "Which directory to keep when both mobi7/mobi8 exist: auto (default) prefers mobi8 and falls back to mobi7 if empty; when mobi7/mobi8 is specified, falls back to the other if the chosen one is empty",
-        "help.ext_priority": "When same-name files differ only by extension in the same directory, which format to keep: comma-separated, order is priority high->low, only mobi/azw/azw3 accepted, default azw3; falls back to azw3->mobi->azw when not covered; unrelated to --prefer (mobi7/mobi8 selection)",
+        "help.ext_priority": "When same-name files differ only by extension in the same directory, which format to keep: comma-separated, order is priority high->low, only mobi/azw/azw3/epub accepted, default azw3; falls back to azw3->epub->mobi->azw when not covered; unrelated to --prefer (mobi7/mobi8 selection)",
         "help.drop_extra": "Drop extra images not collected from the directory (default: append them to the end of the cbz)",
         "help.overwrite": "Force regenerate when the target cbz already exists (default: skip)",
         "help.timeout": "Per-file conversion timeout in seconds; on timeout the file is skipped and counted as failed (default 600, 0 = no limit; on timeout the underlying unpack thread may linger in the background)",
@@ -947,9 +988,14 @@ LANGUAGES = {
         "help.inspect_all": "Inspect all ebooks (requires --inspect; using it alone will auto-enable --inspect)",
         "warn.inspect_all_auto_enable": "Note: --inspect-all automatically enabled --inspect",
         "help.no_comicinfo": "Do not generate ComicInfo.xml (default: write comic metadata into CBZ root)",
-        "help.double_page": "Double-page detection: no value/auto enable (ratio 2.0); a number sets ratio; off/no/0 disable (writes <Manga>Yes</Manga> and per-page DoublePage)",
+        "help.double_page": "Double-page detection: no value/auto enable (ratio 2.0); a number sets ratio; off/no/0 disable (when enabled, writes per-page DoublePage marks but no Manga element; use --setinfo Manga= for Manga)",
         "error.double_page_invalid": "Invalid --double-page value '{value}': use auto, a number, or off/no/0",
-        "help.setinfo": "Set ComicInfo field (repeatable, FIELD=VALUE; VALUE supports %%series/%%number/%%title/%%filename/%%leftN/%%rightN; split on comma only when followed by FIELD=; use multiple --setinfo for a value containing Key=; when enabled, existing .cbz inputs have their ComicInfo.xml modified in place)",
+        "help.drop_small": "Drop small images: exclude images clearly smaller than others during conversion (an image is small if both its width and height are below median x ratio; no value/auto = 0.5, a 0~1 number sets ratio, off/no/0 disables). PageCount is recalculated after dropping",
+        "error.drop_small_invalid": "Invalid --drop-small value '{value}': use auto, a number (0~1), or off/no/0",
+        "convert.drop_small": "  [Clean] Dropped {count} small image(s): {names}",
+        "run.drop_small_total": "Total small images dropped: {count}",
+        "inspect.drop_small_preview": "  [Note] {count} small image(s) found (will be dropped when --drop-small is enabled)",
+        "help.setinfo": "Set ComicInfo field (repeatable, FIELD=VALUE; VALUE supports %%series/%%number/%%title/%%filename/%%leftN/%%rightN; split on comma only when followed by FIELD=; use multiple --setinfo for a value containing Key=; Manga accepts Unknown/No/Yes/YesAndRightToLeft, not written by default; when enabled, existing .cbz inputs have their ComicInfo.xml modified in place)",
         "comicinfo.generating": "Generating ComicInfo.xml",
         "comicinfo.created": "ComicInfo.xml written",
         "comicinfo.disabled": "ComicInfo.xml disabled (--no-comicinfo)",
@@ -1006,6 +1052,7 @@ LANGUAGES = {
         "convert.multi_opf": "  [Sort] {count} OPF files detected, using the first: {first}",
         "convert.no_images": "  [Failed] No images found: {name}",
         "convert.drm_hint": "  [Info] Possibly a DRM-protected Kindle comic; the mobi library cannot decrypt it. Remove DRM first and retry",
+        "convert.drm_hint_epub": "  [Info] No images parsed from this EPUB. Confirm it contains comic images and is not encrypted",
         "convert.count_mismatch": "  [Info] Directory has {total} images but {collected} were collected; count mismatch",
         "convert.done": "  [Done] {name} ({count} images, {size} MB)",
         "convert.verify_fail": "  [Verify Failed] {name}: {msg}; old file kept",
@@ -1130,6 +1177,7 @@ LANGUAGES = {
     "progress.desc.modify": "Modifying",
     "setinfo.whitelist_skip": "  [Warning] {field} is not in the ComicInfo whitelist, ignored",
     "setinfo.unknown_placeholder": "  [Warning] Unknown placeholder {raw}, written as-is",
+    "setinfo.invalid_manga": "  [Warning] Invalid Manga value '{value}' (allowed: Unknown/No/Yes/YesAndRightToLeft), ignored",
     "convert.source_newer_reconvert": "  [Info] Target {name} exists but the source is newer, reconverting automatically",
     "inspect.pagecount_mismatch": "  [Info] ComicInfo PageCount={declared} does not match actual image count {actual}",
     "inspect.pagecount_non_numeric": "  [Warn] ComicInfo PageCount is not numeric: {raw}",
@@ -1139,14 +1187,14 @@ LANGUAGES = {
         "error.log_write_failed": '【警告】ログの書き込みに失敗しました（{err}）、ログファイル: {path}、以降のログは書き込みません',
         "error.json_write_failed": '【警告】JSON 結果の書き込みに失敗しました（{err}）、パス: {path}',
         "error.ext_priority_empty": "--ext-priority を空にすることはできません",
-        "error.ext_priority_invalid": "--ext-priority は mobi/azw/azw3 のみ受け付けます。受信: {p}",
+        "error.ext_priority_invalid": "--ext-priority は mobi/azw/azw3/epub のみ受け付けます。受信: {p}",
         # ---- --help 文案 ----
-        "help.description": 'mobi/azw/azw3 漫画を一括で cbz に変換',
+        "help.description": 'mobi/azw/azw3/epub 漫画を一括で cbz に変換',
         "help.language": '出力言語：auto はシステム言語で自動判定（zh プレフィックス→中国語、zh-TW/zh-Hant→繁体字中国語、ja/Japanese→日本語、それ以外→英語）、または zh-CN/zh-TW/ja/en を指定（zh/cn/zhtw/jp などの一般的な表記も許容）',
-        "help.target": '電子書籍ファイルのパス、または電子書籍（.mobi/.azw/.azw3）を含むディレクトリ',
+        "help.target": '電子書籍ファイルのパス、または電子書籍（.mobi/.azw/.azw3/.epub）を含むディレクトリ',
         "help.delete": '変換成功後に元の電子書籍ファイルを削除',
         "help.prefer": '二重ディレクトリ mobi（mobi7/mobi8）がある場合にどちらを残すか：auto（デフォルト）は mobi8 優先、空なら mobi7 に自動フォールバック。mobi7/mobi8 指定時も、指定先が空ならもう一方に自動フォールバック',
-        "help.ext_priority": '同じディレクトリで同名（拡張子のみ異なる）の場合にどの形式を残すか：カンマ区切り、順序が優先度（高→低）、mobi/azw/azw3 のみ指定可能、デフォルト azw3；優先度がカバーしない場合は azw3→mobi→azw にフォールバック；--prefer（二重ディレクトリ選択）とは無関係',
+        "help.ext_priority": '同じディレクトリで同名（拡張子のみ異なる）の場合にどの形式を残すか：カンマ区切り、順序が優先度（高→低）、mobi/azw/azw3/epub のみ指定可能、デフォルト azw3；優先度がカバーしない場合は azw3→epub→mobi→azw にフォールバック；--prefer（二重ディレクトリ選択）とは無関係',
         "help.drop_extra": 'ディレクトリ内で収集されなかった余分な画像を追加しない（デフォルトは cbz 末尾に追加）',
         "help.overwrite": '対象 cbz が既に存在する場合に強制的に再生成（デフォルトはスキップ）',
         "help.timeout": 'ファイルごとの変換タイムアウト秒数。タイムアウトで自動スキップし失敗に計上（デフォルト 600、0 は制限なし。タイムアウト後、基盤の解凍スレッドがバックグラウンドに残る可能性あり）',
@@ -1163,9 +1211,14 @@ LANGUAGES = {
         "help.inspect_all": '全電子書籍を検査（--inspect と併用必須、単独指定時は自動的に --inspect を有効化）',
         "warn.inspect_all_auto_enable": '注意: --inspect-all により --inspect が自動的に有効化されました',
         "help.no_comicinfo": "ComicInfo.xml を生成しない（既定: CBZ ルートに漫画メタデータを書き込む）",
-        "help.double_page": "見開き検出：値なし/auto で有効（閾値 2.0）；数値で閾値調整；off/no/0 で無効（<Manga>Yes</Manga> とページ毎の DoublePage を書き込む）",
+        "help.double_page": "見開き検出：値なし/auto で有効（閾値 2.0）；数値で閾値調整；off/no/0 で無効（有効時はページ毎の DoublePage を書き込むが Manga 要素は書かない；Manga が必要なら --setinfo Manga= を使用）",
         "error.double_page_invalid": "無効な --double-page 値 '{value}'：auto/数値/off/no/0 のいずれか",
-        "help.setinfo": "ComicInfo フィールドを設定（複数可、形式 FIELD=VALUE；VALUE は %%series/%%number/%%title/%%filename/%%leftN/%%rightN をサポート；カンマ直後にフィールド名= がある場合のみ分割、値に Key= 構造が含まれる場合は --setinfo を複数回指定；--setinfo 有効時、入力中の既存 .cbz は ComicInfo.xml を直接変更）",
+        "help.drop_small": "小画像を破棄：明らかに小さい画像を変換時に除外（幅・高さとも 中央値×比率 未満で小画像と判定；値なし/auto=0.5、0〜1 の数値で比率調整、off/no/0 で無効）。破棄後は PageCount を実画像数で再計算",
+        "error.drop_small_invalid": "無効な --drop-small 値 '{value}'：auto/数値(0〜1)/off/no/0 のいずれか",
+        "convert.drop_small": "  [クリーン] 小画像を {count} 枚破棄: {names}",
+        "run.drop_small_total": "破棄した小画像の合計: {count} 枚",
+        "inspect.drop_small_preview": "  [注意] 小画像が {count} 枚（--drop-small 有効時は破棄されます）",
+        "help.setinfo": "ComicInfo フィールドを設定（複数可、形式 FIELD=VALUE；VALUE は %%series/%%number/%%title/%%filename/%%leftN/%%rightN をサポート；カンマ直後にフィールド名= がある場合のみ分割、値に Key= 構造が含まれる場合は --setinfo を複数回指定；Manga は Unknown/No/Yes/YesAndRightToLeft のみ有効、デフォルトでは書かない；--setinfo 有効時、入力中の既存 .cbz は ComicInfo.xml を直接変更）",
         "comicinfo.generating": "ComicInfo.xml を生成中",
         "comicinfo.created": "ComicInfo.xml を書き込みました",
         "comicinfo.disabled": "ComicInfo.xml は無効です（--no-comicinfo）",
@@ -1222,6 +1275,7 @@ LANGUAGES = {
         "convert.multi_opf": '  [ソート] OPF ファイルが {count} 個検出、最初のものを使用: {first}',
         "convert.no_images": '  [失敗] 画像が見つかりません: {name}',
         "convert.drm_hint": '  [情報] DRM 暗号化された Kindle 漫画の可能性があります。mobi ライブラリでは復号できないため、DRM を除去してから再変換してください',
+        "convert.drm_hint_epub": '  [情報] この EPUB から画像を解析できませんでした。漫画画像が含まれ、暗号化されていないことを確認してください',
         "convert.count_mismatch": '  [情報] ディレクトリ内の画像は {total} 枚、収集は {collected} 枚で不一致',
         "convert.done": '  [完了] {name} ({count} 枚の画像, {size} MB)',
         "convert.verify_fail": '  [検証失敗] {name}: {msg}、元ファイルを保持しました',
@@ -1346,6 +1400,7 @@ LANGUAGES = {
     "progress.desc.modify": '変更中',
     "setinfo.whitelist_skip": '  [警告] {field} は ComicInfo ホワイトリストにありません。無視します',
     "setinfo.unknown_placeholder": '  [警告] 不明なプレースホルダ {raw}、そのまま書き込みます',
+    "setinfo.invalid_manga": '  [警告] 無効な Manga 値 \'{value}\'（指定可能: Unknown/No/Yes/YesAndRightToLeft）。無視します',
     "convert.source_newer_reconvert": '  [情報] 対象 {name} は存在しますがソースが新しいため、自動的に再変換します',
     "inspect.pagecount_mismatch": '  [情報] ComicInfo の PageCount={declared} は実際の画像数 {actual} と一致しません',
     "inspect.pagecount_non_numeric": '  [警告] ComicInfo の PageCount が数値ではありません: {raw}',
@@ -1464,11 +1519,11 @@ OPF_NS = {"opf": "http://www.idpf.org/2007/opf"}
 
 # 支持的电子书输入扩展名（大小写不敏感）；同名去重未覆盖时的兜底优先级
 SUPPORTED_INPUT_EXTENSIONS = {".mobi", ".azw", ".azw3", ".epub"}
-KEEP_EXT_ORDER = (".azw3", ".mobi", ".azw")  # --ext-priority 未覆盖时的兜底顺序
+KEEP_EXT_ORDER = (".azw3", ".epub", ".mobi", ".azw")  # --ext-priority 未覆盖时的兜底顺序
 
 
 def parse_ext_priority(value: str) -> list[str]:
-    """解析 --ext-priority：逗号分隔、仅接受 mobi/azw/azw3、顺序即优先级（高→低）。
+    """解析 --ext-priority：逗号分隔、仅接受 mobi/azw/azw3/epub、顺序即优先级（高→低）。
 
     输入：命令行传入的原始字符串（如 "azw3,mobi"）。
     输出：规范化后的扩展名优先级列表（如 ["azw3", "mobi"]）；
@@ -1478,7 +1533,7 @@ def parse_ext_priority(value: str) -> list[str]:
     if not parts:
         raise argparse.ArgumentTypeError(t("error.ext_priority_empty"))
     for p in parts:
-        if p not in ("mobi", "azw", "azw3"):
+        if p not in ("mobi", "azw", "azw3", "epub"):
             raise argparse.ArgumentTypeError(t("error.ext_priority_invalid", p=p))
     return parts
 
@@ -2089,7 +2144,7 @@ def select_mobi_dir(tempdir: Path, prefer: str) -> Path:
 
 
     # 输入：电子书路径与转换选项（delete/prefer/drop_extra/overwrite/output_dir/compress）；输出：(cbz 路径或 None, ConvStatus, 原因, 来源)
-def ebook_to_cbz(ebook_path: Path, delete_original: bool = False, prefer: str = "mobi8", drop_extra: bool = False, overwrite: bool = False, output_dir: Path | None = None, compress: int = 0, flatten: bool = False, input_root: Path | None = None, used_names: set | None = None, comicinfo: bool = True, setinfo_args: list | None = None, double_page: float | None = None) -> tuple[Path | None, ConvStatus, str | None, dict | None]:
+def ebook_to_cbz(ebook_path: Path, delete_original: bool = False, prefer: str = "mobi8", drop_extra: bool = False, overwrite: bool = False, output_dir: Path | None = None, compress: int = 0, flatten: bool = False, input_root: Path | None = None, used_names: set | None = None, comicinfo: bool = True, setinfo_args: list | None = None, double_page: float | None = None, drop_small: float | None = None) -> tuple[Path | None, ConvStatus, str | None, dict | None]:
     """将单个电子书文件转换为 cbz
 
     prefer: "auto"（默认）双目录时优先 mobi8，mobi8 为空壳（无图片）自动回退 mobi7
@@ -2101,9 +2156,10 @@ def ebook_to_cbz(ebook_path: Path, delete_original: bool = False, prefer: str = 
     used_names: 平铺唯一化已占用名集合（仅 dry-run 模拟占用，实跑以磁盘存在性为准）
     comicinfo: 是否生成 ComicInfo.xml（默认生成，--no-comicinfo 关闭）
     double_page: 双页检测阈值（宽/高 >= 该值判为跨页），None 表示关闭（--double-page off）
+    drop_small: 丢弃小图比例（宽和高均 < 中位数×该值 判为小图），None 表示关闭（--drop-small off）
 
     返回 (结果, 状态, 原因, 来源)：状态为 ConvStatus 枚举，
-    - OK: 转换成功，结果为 cbz 路径，原因为 None，来源为 {series_source/number_source/cover_source} 字典
+    - OK: 转换成功，结果为 cbz 路径，原因为 None，来源为 {series_source/number_source/cover_source/dropped_small} 字典
     - SKIP: 目标已存在且未指定 --overwrite，结果为 None，原因为 None，来源为 None
     - FAIL: 转换失败，结果为 None，原因为失败分类（no_images/drm/comicinfo/verify/other），来源为 None
     """
@@ -2161,7 +2217,10 @@ def ebook_to_cbz(ebook_path: Path, delete_original: bool = False, prefer: str = 
 
         if not images:
             emit(t("convert.no_images", name=ebook_path.name), level="error")
-            emit(t("convert.drm_hint"), level="error")
+            if ebook_path.suffix.lower() == ".epub":
+                emit(t("convert.drm_hint_epub"), level="error")
+            else:
+                emit(t("convert.drm_hint"), level="error")
             return None, ConvStatus.FAIL, "no_images", None
 
         # 确保封面在第一位（兼容 cover/front 命名，封面可能未被 spine 引用）
@@ -2188,6 +2247,14 @@ def ebook_to_cbz(ebook_path: Path, delete_original: bool = False, prefer: str = 
         if len(deduped) != len(images):
             emit(t("convert.dedup_physical", count=len(images) - len(deduped)))
         images = deduped
+
+        # 丢弃小图（--drop-small）：宽和高均 < 中位数×比例 判为小图（封面缩略图等）
+        dropped_small = 0
+        if drop_small is not None:
+            images, dropped_names = drop_small_images(images, drop_small)
+            dropped_small = len(dropped_names)
+            if dropped_names:
+                emit(t("convert.drop_small", count=dropped_small, names=", ".join(dropped_names)))
 
         # 封面来源判定（json/inspect 来源标注用）：OPF guide > 文件名关键字 > spine > first
         cover_source = None
@@ -2293,6 +2360,10 @@ def ebook_to_cbz(ebook_path: Path, delete_original: bool = False, prefer: str = 
         if delete_original:
             ebook_path.unlink()
             emit(t("convert.deleted_original", name=ebook_path.name))
+
+        # 来源字典补丢弃小图计数（即使 --no-comicinfo 也带回，供 --json / 汇总统计）
+        conv_sources = dict(conv_sources or {})
+        conv_sources["dropped_small"] = dropped_small
 
         return cbz_path, ConvStatus.OK, None, conv_sources
     except Exception as e:
@@ -2756,7 +2827,7 @@ def _resolve_setinfo_value(raw: str, series, number, title, stem) -> str | None:
     return raw
 
 
-# ComicInfo.xml v2.1 标准简单字段白名单（39 个；Pages 为复杂结构不纳入）
+# ComicInfo.xml v2.0/v2.1 标准简单字段白名单（42 个；Pages 为复杂结构不纳入）
 COMICINFO_WHITELIST = {
     "Title", "Series", "Number", "Count", "Volume", "AlternateSeries",
     "AlternateNumber", "AlternateCount", "StoryArc", "StoryArcNumber",
@@ -2765,6 +2836,7 @@ COMICINFO_WHITELIST = {
     "Imprint", "Web", "PageCount", "LanguageISO", "Format", "AgeRating",
     "Manga", "Characters", "Teams", "Locations", "ScanInformation",
     "Summary", "Notes", "Year", "Month", "Day", "BlackAndWhite", "GTIN",
+    "CommunityRating", "MainCharacterOrTeam", "Review",
 }
 # 大小写不敏感映射：小写 → 标准名
 _COMICINFO_WHITELIST_LOWER = {f.lower(): f for f in COMICINFO_WHITELIST}
@@ -2813,8 +2885,13 @@ def parse_setinfo_args(setinfo_args: list, meta: dict, inferred: tuple, ebook_pa
                 continue
             field = std
             value = _resolve_setinfo_value(raw, series, number, title, stem)
-            if value is not None:
-                result[field] = value
+            if value is None:
+                continue
+            # Manga 枚举校验（官方 v2.0：Unknown/No/Yes/YesAndRightToLeft），非法值 warning 忽略
+            if field == "Manga" and value not in ("Unknown", "No", "Yes", "YesAndRightToLeft"):
+                emit(t("setinfo.invalid_manga", value=value), level="warning")
+                continue
+            result[field] = value
     return result
 
 
@@ -2852,7 +2929,9 @@ def build_comicinfo(meta: dict, images: list, inferred: tuple, setinfo: dict | N
     才写入，无来源直接省略，不生成空标签。setinfo 为 --setinfo 解析结果，
     优先级最高（覆盖 meta 与 inferred）。
     double_page 非 None 时为双页检测阈值（图片宽/高 >= 该值判为跨页）：
-    追加顶层 <Manga>Yes</Manga> 与 <Pages> 逐页 DoublePage 标记；None 时不写这两项。
+    生成 <Pages> 逐页 DoublePage 标记；Manga 声明不再自动写入（改由 --setinfo
+    Manga= 显式指定，官方 v2.0 枚举 Unknown/No/Yes/YesAndRightToLeft）；
+    None 时不生成 <Pages>。
     CoverSource 不再写入 Notes（来源改由 --inspect / --json 展示，避免污染 ComicInfo）。
 
     返回 (xml 文本, sources)：sources 记录 series/number/cover 三者来源
@@ -2882,10 +2961,13 @@ def build_comicinfo(meta: dict, images: list, inferred: tuple, setinfo: dict | N
             ("PageCount", str(len(images))),
             ("Summary", _strip_html(setinfo.get("Summary", meta.get("summary")))),
             ("Notes", notes),
+            # 官方简单字段：仅 setinfo 显式指定时写入（Manga 默认不写，避免无跨页也声明）
+            ("Manga", setinfo.get("Manga")),
+            ("CommunityRating", setinfo.get("CommunityRating")),
+            ("MainCharacterOrTeam", setinfo.get("MainCharacterOrTeam")),
+            ("Review", setinfo.get("Review")),
         ]
-        # 双页检测：#25 开启时追加 <Manga>Yes</Manga>（简单字段末尾）与 <Pages> 逐页标记
-        if double_page is not None:
-            ordered.append(("Manga", "Yes"))
+        # 双页检测：#25 开启时生成 <Pages> 逐页 DoublePage 标记（Manga 已改由 --setinfo 指定）
         for tag, val in ordered:
             if val is None:
                 continue
@@ -3117,7 +3199,7 @@ def parse_nav_toc(base_dir: Path) -> tuple[int, list[str]]:
 
 
     # 输入：电子书文件路径、最小字节数过滤与 prefer；输出：状态字符串 ok/invalid/noimg/drm/fail（供汇总计数）
-def inspect_ebook(p: Path, min_bytes: int, prefer: str = "mobi8", setinfo_args: list | None = None) -> str:
+def inspect_ebook(p: Path, min_bytes: int, prefer: str = "mobi8", setinfo_args: list | None = None, drop_small: float | None = None) -> str:
     """检查单个电子书内部信息（--inspect 模式核心）。
 
     流程：头部基础检查（魔数/大小/DRM）→ EXTH 元数据 → 解包 →
@@ -3436,6 +3518,14 @@ def inspect_ebook(p: Path, min_bytes: int, prefer: str = "mobi8", setinfo_args: 
                 ]
             emit(t("inspect.res_line", parts=" | ".join(res_parts)))
 
+        # 丢弃小图预览：开启 --drop-small 时会丢弃多少张（仅提示，不改变转换）
+        if drop_small is not None and len(res_list) > 1:
+            med_w = statistics.median(d[0] for d in res_list)
+            med_h = statistics.median(d[1] for d in res_list)
+            small_n = sum(1 for w, h in res_list if w < med_w * drop_small and h < med_h * drop_small)
+            if small_n:
+                emit(t("inspect.drop_small_preview", count=small_n))
+
         # 压缩建议
         jpeg_ratio = (fmt_counter.get("jpg", 0) + fmt_counter.get("jpeg", 0)) / total_fmt
         png_ratio = fmt_counter.get("png", 0) / total_fmt
@@ -3700,7 +3790,7 @@ def inspect_mode(ebook_files: list[Path], precheck_skipped: list, args) -> None:
         for mf in targets:
             if pbar is not None:
                 pbar.set_postfix_str(truncate_name(mf.name))
-            timed_out, result = run_with_timeout(inspect_ebook, args.timeout, mf, args.min_size, args.prefer, args.setinfo)
+            timed_out, result = run_with_timeout(inspect_ebook, args.timeout, mf, args.min_size, args.prefer, args.setinfo, args.drop_small)
             if timed_out:
                 emit(t("inspect_mode.timeout", name=mf.name, seconds=args.timeout), level="error")
                 emit(t("inspect_mode.timeout_residue"), level="warning")
@@ -3771,6 +3861,52 @@ def _parse_double_page_arg(s: str) -> float | None:
     if ratio <= 0:
         raise argparse.ArgumentTypeError(t("error.double_page_invalid", value=s))
     return ratio
+
+
+# 丢弃小图默认比例：宽和高均 < 中位数×该值 判为小图（封面缩略图等杂图）
+DEFAULT_DROP_SMALL_RATIO = 0.5
+
+
+def _parse_drop_small_arg(s: str) -> float | None:
+    """--drop-small 参数值解析：off/no/0/false → None（关闭）；auto 或数值 → 比例。
+
+    数值须在 (0, 1]；非法值抛 ArgumentTypeError 由 argparse 统一报错。
+    """
+    v = (s or "").strip().lower()
+    if v in ("off", "no", "0", "false", "none"):
+        return None
+    if v in ("auto", ""):
+        return DEFAULT_DROP_SMALL_RATIO
+    try:
+        ratio = float(v)
+    except ValueError:
+        raise argparse.ArgumentTypeError(t("error.drop_small_invalid", value=s))
+    if not (0 < ratio <= 1):
+        raise argparse.ArgumentTypeError(t("error.drop_small_invalid", value=s))
+    return ratio
+
+
+def drop_small_images(images: list[Path], ratio: float) -> tuple[list[Path], list[str]]:
+    """丢弃尺寸明显偏小的图片：宽和高均 < 中位数×ratio 判为小图（--drop-small）。
+
+    保持原顺序返回保留列表；无法解析尺寸的图片一律保留（不误删）。
+    返回 (保留列表, 被丢弃文件名列表)。
+    """
+    if len(images) < 2:
+        return images, []
+    dims = [image_dimensions(img) for img in images]
+    valid = [d for d in dims if d]
+    if not valid:
+        return images, []
+    med_w = statistics.median(d[0] for d in valid)
+    med_h = statistics.median(d[1] for d in valid)
+    kept, dropped = [], []
+    for img, d in zip(images, dims):
+        if d and d[0] < med_w * ratio and d[1] < med_h * ratio:
+            dropped.append(img)
+        else:
+            kept.append(img)
+    return kept, [p.name for p in dropped]
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -3916,6 +4052,17 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="VALUE",
         type=_parse_double_page_arg,
         help=t("help.double_page"),
+    )
+    # 输入：丢弃小图（nargs='?'，可选值）；输出：转换时剔除尺寸明显偏小的图片（宽和高均 < 中位数×比例）
+    # 取值：不传/auto → 开启（比例 0.5）；0~1 数值 → 开启并调比例；off/no/0/false → 关闭
+    parser.add_argument(
+        "--drop-small",
+        nargs="?",
+        const="auto",
+        default=None,
+        metavar="VALUE",
+        type=_parse_drop_small_arg,
+        help=t("help.drop_small"),
     )
     # 输入：设置 ComicInfo 字段（可多次）；输出：覆盖/新增对应字段
     parser.add_argument(
@@ -4126,6 +4273,7 @@ def _main():
     failed_reasons = Counter()
     interrupted = False
     used_names: set = set()
+    drop_total = 0
     pbar = create_progress_if_needed(args, ebook_files, t("progress.desc.convert"))
     try:
         for mf in ebook_files:
@@ -4139,7 +4287,7 @@ def _main():
                 output_dir=output_dir, compress=_compress_level,
                 flatten=args.flatten, input_root=input_root, used_names=used_names,
                 comicinfo=not args.no_comicinfo, setinfo_args=args.setinfo,
-                double_page=args.double_page,
+                double_page=args.double_page, drop_small=args.drop_small,
             )
             file_elapsed = time.perf_counter() - file_start
             json_status = "ok"
@@ -4168,6 +4316,7 @@ def _main():
                     json_reason = reason
             emit(t("run.elapsed", name=mf.name, seconds=f"{file_elapsed:.2f}"))
             conv_sources = conv_sources or {}
+            drop_total += conv_sources.get("dropped_small") or 0
             json_files.append({
                 "source": str(mf),
                 "status": json_status,
@@ -4177,6 +4326,7 @@ def _main():
                 "series_source": conv_sources.get("series_source"),
                 "number_source": conv_sources.get("number_source"),
                 "cover_source": conv_sources.get("cover_source"),
+                "dropped_small": conv_sources.get("dropped_small"),
             })
             if pbar is not None:
                 pbar.update(1)
@@ -4194,6 +4344,8 @@ def _main():
     if interrupted:
         emit(t("run.interrupted_note"), level="summary")
     emit(t("run.stats", success=success, skip=len(skipped_files), fail=len(failed_files)), level="summary")
+    if drop_total:
+        emit(t("run.drop_small_total", count=drop_total), level="summary")
     if success_cbzs:
         if _short_summary:
             emit(t("run.output_short", count=len(success_cbzs)), level="summary")
