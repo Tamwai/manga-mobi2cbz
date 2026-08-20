@@ -379,7 +379,7 @@ A: Yes. Since v2.4.0 the accepted input extensions are `.mobi` / `.azw` / `.azw3
 
 #### Changed
 
-- `infer_series_number` now supports parenthesized suffixes: a `(author)` suffix no longer blocks volume inference (e.g. `天是紅河岸 - 第23卷 (筱原千繪)` correctly infers Series=天是紅河岸 / Number=23)
+- `infer_series_number` now supports parenthesized suffixes: a `(author)` suffix no longer blocks volume inference
 - Pure volume markers (`Vol.01` / `第 01 卷` / `01巻` etc.) now return only the volume number `(None, number)` instead of `(None, None)`, so ComicInfo can write Number
 - `--flatten` same-name handling changed to SKIP/`--overwrite`: same-name files in the flat output root are no longer auto-renamed and re-converted as `(2).cbz`; without `--overwrite` they are skipped (SKIP), with it the preferred name is overwritten; dry-run stays consistent with the real run
 - Removed the now-unused `unique_path` function
