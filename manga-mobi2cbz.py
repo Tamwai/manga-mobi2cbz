@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Copyright (C) 2026 Tamwai
 # SPDX-License-Identifier: GPL-3.0-only
 """
 manga-mobi2cbz — 将 mobi/azw/azw3/epub 电子书漫画文件批量转换为 cbz 格式（OPF spine 排序 + 封面兜底增强版）
