@@ -2,571 +2,686 @@
 
 # manga-mobi2cbz
 
-Kindle 漫画向けの一括変換 CLI ツールです。ワンコマンドで DRM フリーの MOBI / AZW / AZW3 / EPUB 電子書籍を標準 CBZ コミックパッケージに書き出します。
-OPF spine の標準的な読み順に従って画像を抽出し、表紙の自動補完、同一巻の複数形式の重複排除、バッチのタイムアウト保護、ファイル完全性の検証、多言語出力などの実用機能を備えています。パッケージ化せずにメタデータ・解像度・NCX 目次・DRM 状態を確認できる `--inspect` 検査モードも付属し、全プラットフォームで漫画ライブラリの一括整理を安定して効率化します。
+A batch-conversion CLI tool built for Kindle manga: convert DRM-free MOBI / AZW / AZW3 / EPUB ebooks into standard CBZ comic packages with one command.
+It natively follows the OPF spine reading order to extract images, and comes with a full set of practical capabilities: automatic cover repair, same-volume multi-format deduplication, batch timeout protection, file integrity verification, and multi-language auto output. It also includes an `--inspect` exploration mode that lets you inspect comic metadata, resolution, NCX table of contents, and DRM status without packing. Cross-platform, efficient and stable for batch organizing your manga library.
 
-> ⚠️ 対応しているのはDRMフリーのKindle漫画のみです。ストア購入のDRM保護された電子書籍は解析できません。
->
-> ⚠️ 本コードは完全にAIによって生成されています。私は一行ずつ監査することはできないため、ご利用の際は自己責任でリスクをご評価ください。
->
-> 📝 補足：本プロジェクトは個人利用のために作成されました。AI生成スクリプトを後で再利用できるよう保存する目的で公開しています。
->
-> **開発の経緯**：当初は自身のKindle漫画を変換するため、毎回AIにスクリプトを生成してもらっていました。再利用を簡単にし、スクリプトを失わないよう、GitHubへアップロードするに至りました。
-> その後の使用で、ページ順の乱れ、表紙の欠落、バッチ処理のフリーズといった問題が判明し、AIへ修正を繰り返し依頼しました。コードが読めないため、信頼性を確認するために同一のコードを複数のAIに渡して相互検証するワークフローを確立しました。当初の使い捨てスクリプトが、反復的な改善を経て現在の形へと進化しました。コードは完全にAIが生成しており、私は要件定義と結果の検収のみを担当しています。専門的なツールではありませんが、初期バージョンよりは格段に完成度が高まっています。同じような悩みをお持ちの方がいれば、ご自由にお使いください。不具合を見つけた場合はご連絡ください。引き続きAIに修正させます。
+> ⚠️ Only supports DRM-free Kindle comics. Store-purchased DRM-protected eBooks cannot be parsed.
+> 
+> ⚠️ The code is entirely AI-generated. I cannot audit it line by line; please evaluate the risks before use.
+> 
+> 📝 Note: This project is for personal use, intended to preserve AI-generated scripts for future reuse.
+> 
+> **Project Origin**: It began with converting my own Kindle comics, having AI generate scripts each time. To simplify reuse and avoid losing scripts, I uploaded them to GitHub.
+> Later usage revealed issues such as incorrect page order, missing covers, and batch processing hangs, prompting continuous modification requests to the AI. Unable to read code, I adopted a workflow of submitting the same code to different AIs for cross-validation to ensure reliability. What started as a one-off script evolved through iteration into its current form. The code is entirely AI-generated; I only define requirements and verify results. It is not professional, but significantly more complete than the initial version. If you have similar needs, feel free to use it; if you find issues, feedback is welcome—I will continue to have the AI fix them.
 
-## 機能
+## Features
 
-- **一括変換** — 単一ファイル、またはディレクトリ全体を再帰的に変換（`.mobi` / `.azw` / `.azw3` / `.epub`）
-- **OPF spine 順** — OPF spine の順序で画像を抽出し、実際の読み順を保ちます。OPF が無い場合はファイル名の自然順ソートにフォールバックします
-- **表紙フォールバック** — ファイル名に cover/front を含む画像を自動スキャンします。表紙がすでに spine リスト内にあればリスト順を優先し、欠落時のみ先頭に補完します
-- **ディレクトリ整合フォールバック** — ディレクトリ内の画像数が収集数と一致しない場合、余分な画像はデフォルトで自然順に cbz 末尾へ追記します。`--drop-extra` で破棄に変更でき、処理結果は出力されます
-- **二重ディレクトリの重複排除** — mobi7/mobi8 の二重ディレクトリを自動検出し、内容がある方のコピーを保持します（デフォルト `auto`: mobi8 を優先し、mobi8 に画像がない場合は mobi7 に自動フォールバック。`mobi7`/`mobi8` を明示指定した場合も、選択ディレクトリに画像がないときはもう一方へフォールバックします）
-- **軽量多言語対応** — `--language auto|zh-CN|zh-TW|ja|en` で出力言語を切り替えます（デフォルト `auto` はシステム locale で自動判定: 簡体字中国語→zh-CN、繁体字中国語→zh-TW、日本語→ja、その他→en）。
-- 実行時のメッセージと `--help` は選択言語に追従します。CLI のフラグ名、列挙値、技術用語（OPF / DRM / spine など）は翻訳しません
-- **同名拡張子の重複排除** — 同じディレクトリ内で拡張子だけ異なるファイル（例: `Vol1.mobi` + `Vol1.azw3`）は 1 つだけ保持します。`--ext-priority` で保持優先度を制御します（デフォルト azw3）
-- **自然順ソート** — ページ番号で自然順に並べ、`10.jpg` が `2.jpg` より前に来るのを防ぎます
-- **完全性検証** — 変換後に CBZ を自動検証し、破損時は削除して通知します
-- **ComicInfo.xml メタデータ** — デフォルトで CBZ ルートに ComicInfo.xml を生成（UTF-8、XML 宣言付き）し、Title / Series / Number / Writer / Publisher / Year / LanguageISO / PageCount / Summary を書き込みます。Series/Number はファイル名から高確度で推測（`001` / `01` / `1` / `Vol.01` / `Vol 01` / `Volume 01` / `第 01 卷` などの形式に対応）し、シリーズ名のない巻マーカー（例: `Vol.01` / `01巻`）は推測しません。確度が足りない場合は省略します（見つからないより良い）。確かな情報源のないフィールドは空タグを生成しません。`--no-comicinfo` で無効化できます
-- **無圧縮パッケージ** — 画像は既に圧縮済みのため、ZIP はデフォルトで store のみです。高速でサイズも抑えられます
-- **任意圧縮** — `--compress LEVEL` で deflate 圧縮（1–9）を有効化できます。PNG ソースではサイズを大きく削減できることがあります。レベルが高いほど小さくなりますが遅くなります。JPEG ソースは効果が限定的で推奨しません（デフォルト `0` = 無圧縮）
-- **検査モード** — `--inspect` で電子書籍を 1 冊ランダム抽出（`--inspect-all` で全冊）します。CBZ は作らず解凍して内部情報のみ読み取り、終了後に一時ディレクトリを削除します
-- 基本検査（マジックバイト / サイズ / DRM）、見つかった場合の EXTH メタデータ、mobi7/mobi8 マーカー、OPF/spine の件数（先頭 5 ファイル名）、NCX のプレビュー、画像総数、表紙検出、形式分布、主流解像度、圧縮の目安などを表示します
-- DRM の扱い: ヘッダーにフラグあり→DRM として解凍をスキップ / フラグなしで画像 0→疑い / フラグなしで画像あり→DRM なし
-- **元ファイルの任意削除** — `--delete` で変換成功後に元の電子書籍を自動削除します
-- **強制上書き** — `--overwrite` で既存の cbz を強制再生成します。漫画を更新しても古いファイルを手動削除する必要はありません
-- **単一ファイルのタイムアウト保護** — `--timeout` で 1 ファイルあたりの変換時間を制限します。破損・暗号化・巨大ファイルが下層の解凍をブロックしても、自動スキップして失敗として計上し、バッチ全体が止まりません（デフォルト 600 秒、`0` は無制限）
-- **サイレントモード** — `--quiet` で一括変換時にエラーと集計のみ表示します。`--log FILE` で全出力をログファイルに追記できます
-- **簡潔な集計** — `--short-summary` で成功 / スキップ / 事前チェックスキップは件数のみ表示します（失敗は常にフルパス）。`--quiet` と組み合わせると大規模ディレクトリ向きです
-- **DRM 暗号化の検出** — DRM 付き Kindle 漫画に遭遇した場合、黙って失敗せず復号できない旨を明示します
-- **パスの大文字小文字対応** — 表紙比較とディレクトリ整合に正規化（小文字）パスを使い、大文字小文字を区別しない Windows 上でも誤判定しにくくします
-- **出力タイムスタンプ** — 各行に `[YYYY-MM-DD HH:MM:SS]` を付与し、コンソールとログで統一します
-- **カスタム出力ディレクトリ** — `--output-dir DIR` で CBZ を指定ディレクトリへ出力します（自動作成）。デフォルトでは入力の相対サブディレクトリ構造を保持します（例: `One Piece/001.mobi` → `DIR/One Piece/001.cbz`）。`--flatten` を付けると出力ルートへフラット化し、同名ファイルは `--overwrite` 未指定時はスキップ（SKIP）します
-- **事前チェックフィルタ** — 0 バイトやヘッダ破損（オフセット 60 に `BOOKMOBI` なし）のファイルは事前チェックでスキップし、フルパスと理由をログに出します
-- **最小サイズフィルタ** — `--min-size BYTES` で指定バイト未満を除外します（数値省略時デフォルト 1000、`0` で無効、未指定でサイズフィルタオフ）
-- **ドライラン** — `--dry-run` は変換フローの表示のみで、実際の解凍・パッケージ化は行いません
-- **再開サポート** — 対象 CBZ が既に存在し完全性検証に合格した場合はスキップ（SKIP）します。破損・無効な場合は自動で再変換します。ソースファイルが対象 CBZ より新しい場合も自動で再変換します。`--overwrite` は無条件で上書きします
-- **失敗の分類** — 変換失敗を原因別に集計します（`timeout` / `drm` / `corrupt` / `no_images` / `comicinfo` / `verify` / `other`）。集計にカテゴリ別の件数を表示します
-- **検査モードが CBZ 対応** — `--inspect` で `.cbz` を直接検査できます（zipfile のみで解凍しません）。表紙行に解像度+サイズ、形式統計に総ファイル数、Spine 先頭 5 件の各行に幅/高さを追加
-- **ComicInfo フィールド上書き** — `--setinfo FIELD=VALUE` で ComicInfo フィールドを上書き/追加します（最優先）。VALUE は固定値 / `%series` / `%number` / `%title` / `%filename` / `%leftN` / `%rightN` プレースホルダに対応し、複数指定可能。`FIELD` は ComicInfo 標準フィールドのホワイトリスト内である必要があります（単純フィールド 39 個、複雑な `Pages` は除外。ホワイトリスト外は warning を出して無視）。入力が既存 `.cbz` の場合はその ComicInfo.xml を直接変更します（未指定フィールドは元の値を保持、一時ファイル + アトミック置換で書き込み）
-- **ログの自動命名** — `--log` をファイル名なしで指定すると `manga-mobi2cbz_YYYYMMDD_HHMMSS.log`（カレントディレクトリ）を自動生成します
-- **解凍表示** — `--unpack` は変換せず解凍のみ行い、各ソースファイルと同じ名前のサブディレクトリへ出力します（既存時は `(2)(3)` と自動採番）。mobi は extract で完全な構造を保持、cbz は extractall（zip-slip パストラバーサル対策付き）。`--unpack` または `--setinfo` 指定時は `.cbz` 入力も収集します
-- **所要時間** — ファイルごとの変換時間をリアルタイム表示し、集計下部に合計を出します
-- **JSON 構造化出力** — `--json` は実行結果を 1 行のコンパクト JSON として stdout に出力（AI / パイプライン / スクリプト向け、有効時は人間向けテキスト出力を抑制）。`--json-out [FILE]` は構造化結果を JSON ファイルに書き込み（インデント形式、ファイル名省略時はタイムスタンプ付きファイルを自動生成、`--log` と同一挙動）。両者は併用可能で、変換モードと `--setinfo` 変更モードの両方に対応
+- **Batch conversion** — convert a single file or an entire directory recursively (`.mobi` / `.azw` / `.azw3` / `.epub`)
+- **OPF spine ordering** — extract images in OPF spine order to preserve the real reading order; falls back to natural filename sorting when no OPF exists
+- **Cover fallback** — automatically scans for images whose filenames contain cover/front; if the cover is already in the spine list, the list order wins, and it is only inserted at the front when missing
+- **Directory alignment fallback** — when the image count in the directory differs from the collected count, extra images are appended to the end of the cbz in natural order by default; `--drop-extra` switches to dropping them instead, and the extra image file names are listed one by one (only counts under `--short-summary`)
+- **Dual-directory deduplication** — automatically detects mobi7/mobi8 dual directories and keeps the copy that has content (default `auto`: prefers mobi8, falls back to mobi7 when mobi8 has no images; explicitly specifying `mobi7`/`mobi8` also falls back to the other when the chosen directory has no images)
+- **Lightweight i18n** — `--language auto|zh-CN|zh-TW|ja|en` switches the UI language (default `auto` follows the system locale: Simplified Chinese → zh-CN, Traditional Chinese → zh-TW, Japanese → ja, otherwise → en).
+- Runtime messages and `--help` follow the selected language; CLI flag names, enums, and technical terms (OPF, DRM, spine, etc.) stay in English.
+- **Same-name extension deduplication** — when files in the same directory differ only by extension (e.g. `Vol.01.mobi` + `Vol.01.azw3`), only one is kept; `--ext-priority` controls the keep priority (default azw3)
+- **Natural sorting** — sorts by page number naturally, avoiding `10.jpg` being placed before `2.jpg`
+- **Integrity verification** — automatically verifies the CBZ file after conversion; corrupt output is deleted and reported
+- **ComicInfo.xml metadata** — generates ComicInfo.xml in the CBZ root by default (UTF-8, with XML declaration), writing Title / Series / Number / Writer / Publisher / Year / LanguageISO / PageCount / Summary metadata; Series/Number are inferred with high confidence from the filename (supporting `001` / `01` / `1` / `Vol.01` / `Vol 01` / `Volume 01` / `第 01 卷` forms); volume markers without a series name (e.g. `Vol.01` / `01巻`) are not inferred, and fields are omitted when confidence is insufficient (better missing than wrong); fields without a reliable source are omitted (no empty tags); `--no-comicinfo` disables generation
+- **No-compression packing** — images are already compressed; ZIP defaults to store-only for speed and small output
+- **Optional compression** — `--compress LEVEL` enables deflate compression (1-9), which can significantly shrink PNG-source manga; higher levels are smaller but slower; JPEG sources benefit little, not recommended (default `0` = no compression)
+- **Inspect mode** — `--inspect` samples one ebook by default (`sample`); `--inspect all` inspects every file (equivalent to the old `--inspect-all`). It unpacks only to read internal information and does not create a CBZ; temporary files are removed afterwards.
+- Reports include basic checks (magic bytes, size, DRM), EXTH metadata when present, mobi7/mobi8 markers, OPF/spine counts (first five filenames), NCX preview, image totals, cover detection, format distribution, dominant resolution, a resolution summary (dominant count/percentage + abnormal small-image count), and compression advice.
+- DRM handling: a DRM marker is treated as an informational flag only and never blocks inspection — unpacking is still attempted; if images are extracted the ebook is reported as readable with a `drm` marker; it is classified as DRM only when unpacking fails and the image count is 0.
+- **Optional source deletion** — `--delete` automatically deletes the original ebook after successful conversion
+- **Force overwrite** — `--overwrite` forcibly regenerates existing cbz files, so you don't need to delete old files manually after updating manga
+- **Per-file timeout protection** — `--timeout` limits conversion time per file; when a corrupt/encrypted/oversized ebook blocks the underlying unpacking indefinitely, it is skipped automatically and counted as failed instead of stalling the whole batch (default 600 seconds, `0` means no limit)
+- **Quiet mode** — `--quiet` shows only errors and the summary during batch conversion instead of flooding the screen; `--log FILE` appends all output to a log file
+- **Compact summary** — `--short-summary` shows only counts (not paths) for succeeded/skipped/precheck-skipped files (failed files always list full paths), complementary to `--quiet`, ideal for large directories
+- **DRM encryption detection** — clearly reports when it encounters DRM-encrypted Kindle manga instead of failing silently
+- **Path case compatibility** — cover comparison and directory alignment use normalized lowercase paths, so case-only naming differences are not misjudged as duplicates/missing on case-insensitive Windows filesystems
+- **Output timestamps** — every output line is prefixed with `[YYYY-MM-DD HH:MM:SS]`, consistent across console and log files, making it easy to pinpoint when each conversion ran
+- **Custom output directory** — `--output-dir DIR` outputs CBZ to a specified directory (auto-created); by default it preserves the relative subdirectory structure of the input (e.g. `Sample Series/001.mobi` → `DIR/Sample Series/001.cbz`); add `--flatten` to flatten everything into the directory root; same-name files are skipped (SKIP) unless `--overwrite` is given
+- **Precheck filtering** — 0-byte files and ebooks with a corrupt header (no `BOOKMOBI` magic at offset 60) are skipped directly at the precheck stage, with the full path and reason logged
+- **Minimum-size filtering** — `--min-size BYTES` filters out ebooks smaller than the given byte count (default 1000 when no number is given, `0` disables, not passing it disables size filtering), catching edge-corrupt samples whose header is intact but content is truncated
+- **Dry-run mode** — `--dry-run` only scans and prints the conversion flow without actually unpacking/packing, handy for previewing results first
+- **Output renaming** — `--rename[=TEMPLATE]` renames the output CBZ filename (optional template, off by default): no value = default template (series name + auto-chosen marker prefix by type `[Vol.x]` / `[Ch.x]` / `[Vol.x][Ch.x]` / `[x]`, connected chapters `話005-006` → `[Ch.5-6]`); the template supports `%series` / `%number` / `%volume` / `%title`/ `%writer` / `%publisher` / `%date` / `%language` / `%description` / `%filename` / `%leftN` / `%rightN` / `%subN_M` and `%03number` zero-padding placeholders; source priority: filename inference > built-in metadata (OPF / ComicInfo.xml) fallback, `--setinfo` not involved; when the input is an existing `.cbz` it enters a standalone rename mode (renames only, no conversion, combinable with other modes); `%description` is not recommended for filenames (content may be too long) — pair it with `%subN_M` to truncate; pair with `--dry-run` to preview first
+- **Color control** — `--no-color` disables ANSI color output (even when the terminal supports it); logs / JSON / pipes are never colored anyway
+- **Classified rename-skip hints** — when `--rename` skips a file, two hint kinds are distinguished: target already exists on disk (suggest `--overwrite`) vs. collision within the current batch (suggest adjusting the naming template); both dry-run and non-dry-run paths apply, and the JSON `reason` field records `existing` / `conflict` respectively; the dry-run preview colors `[Will Skip]` by collision class (on-disk existing = yellow, in-batch conflict = magenta; TTY + not `--no-color` only), and the non-dry-run summary splits the skip total into "on-disk existing N / in-batch conflict M" with the skipped file list grouped by class
+- **Resume support** — if the target CBZ already exists and passes integrity verification, it is skipped (SKIP); corrupt/invalid output is automatically reconverted; when the source file is newer than the target CBZ it is automatically reconverted too; `--overwrite` unconditionally overwrites
+- **Failure classification** — conversion failures are counted by reason (`timeout` / `drm` / `corrupt` / `no_images` / `comicinfo` / `verify` / `other`), with per-category counts shown in the summary
+- **Inspect supports CBZ** — `--inspect` can inspect `.cbz` files directly (pure zipfile reading, no unpacking); cover line gains resolution+size, format stats gain total file count, and each of the first 5 Spine entries gains width/height
+- **Read-only image listing** — `--list-images [FILTER]` lists every image of the target ebook (No. / filename / resolution / size / mode·depth / orientation / TOC / tag) plus a full statistics block (format / mode·depth / size distribution / double-page banners / animated GIF / small images / anomaly details), without converting, writing a CBZ, or generating ComicInfo; FILTER is optional and supports conditional expressions (format / `res` / `size` / orientation / mode / depth / tag, comma = OR, `+` = AND, `-` prefix = exclude)
+- **Double-page detection** — `--double-page` identifies full-width spread images (width/height ≥ ratio, default 2.0); when enabled it writes per-page DoublePage marks (without a Manga declaration); no value / `auto` enables, a number sets the ratio, `off` / `no` / `0` disables
+- **Drop small images** — `--drop-small` removes images whose width and height are both below median × ratio (default 0.5), such as cover thumbnails; PageCount is recalculated from the actual image count after dropping; no value / `auto` = 0.5, a 0~1 number sets the ratio, `off` / `no` / `0` disables
+- **ComicInfo field override** — `--setinfo FIELD=VALUE` overrides/adds ComicInfo fields (highest priority); VALUE supports fixed values / `%series` / `%number` / `%title`/ `%writer` / `%publisher` / `%date` / `%language` / `%description` / `%filename` / `%leftN` / `%rightN` / `%subN_M` placeholders, repeatable; FIELD must be in the ComicInfo standard-field whitelist (39 simple fields, complex `Pages` excluded; out-of-whitelist fields emit a warning and are ignored); for existing `.cbz` inputs, `%series`/`%number`/`%volume` read the explicit Series/Number/Volume from ComicInfo first, falling back to filename inference only when absent; when the input is an existing `.cbz`, its ComicInfo.xml is modified in place (unspecified fields keep their original values, written via temp file + atomic replace)
+- **Auto-named log** — `--log` without a filename auto-generates `manga-mobi2cbz_YYYYMMDD_HHMMSS.log` (current directory)
+- **Unpack mode** — `--unpack` only extracts without converting, outputting to a same-name subdirectory next to each source file (auto-numbered `(2)(3)` if it already exists); mobi uses extract preserving the full structure, cbz uses extractall (with zip-slip path-traversal protection); `.cbz` inputs are also collected when `--unpack` or `--setinfo` is given
+- **Elapsed-time stats** — per-file conversion time is printed in real time, and the total elapsed time is shown at the bottom of the summary
+- **JSON structured output** — `--json` prints JSON to stdout (a single-line compact JSON in conversion/modify mode, or one slim JSON per file in inspect mode; for AI / pipelines / scripts, suppresses human-readable text); `--json-out [FILE]` writes the structured result to a JSON file (indented format; omitting the filename auto-generates a timestamped file, behaving exactly like `--log`); supported in the conversion mode, the `--setinfo` modification mode, and the `--inspect` inspection mode, and can be used together
 
-## 対応画像形式
+## Supported image formats
 
-変換時に認識・パッケージ化する形式: `.jpg` / `.jpeg` / `.png` / `.gif` / `.webp` / `.bmp` / `.tiff` / `.tif`
+The following image formats are recognized and packed during conversion: `.jpg` / `.jpeg` / `.png` / `.gif` / `.webp` / `.bmp` / `.tiff` / `.tif`
 
-## 環境要件
+## Requirements
 
 - Python 3.10+
-- 依存: `mobi`
+- Dependency: `mobi`
 
-## インストール
+## Installation
 
 ```bash
 pip install mobi
 ```
 
-## 使い方
+## Usage
 
-### 単一ファイルを変換
-
-```bash
-python manga-mobi2cbz.py "D:\Manga\Vol1.mobi"
-```
-
-### ディレクトリ全体を一括変換（.mobi / .azw / .azw3 / .epub を再帰検索）
+### Convert a single file
 
 ```bash
-python manga-mobi2cbz.py "D:\Manga"
+python manga-mobi2cbz.py "D:\ComicsLibrary\Vol.01.mobi"
 ```
 
-### 変換成功後に元の電子書籍を削除
+### Batch-convert an entire directory (recursively searches all .mobi / .azw / .azw3 / .epub)
 
 ```bash
-python manga-mobi2cbz.py "D:\Manga" --delete
+python manga-mobi2cbz.py "D:\ComicsLibrary"
 ```
 
-### 二重ディレクトリ mobi で mobi7 を保持
+### Delete the original ebook after successful conversion
 
 ```bash
-python manga-mobi2cbz.py "D:\Manga\Vol1.mobi" --prefer mobi7
+python manga-mobi2cbz.py "D:\ComicsLibrary" --delete
 ```
 
-### ディレクトリ内の未収集の余分な画像を破棄
+### Keep the mobi7 version when a dual-directory mobi is present
 
 ```bash
-python manga-mobi2cbz.py "D:\Manga\Vol1.mobi" --drop-extra
+python manga-mobi2cbz.py "D:\ComicsLibrary\Vol.01.mobi" --prefer mobi7
 ```
 
-### 既存の cbz がある場合に強制再生成
+### Drop extra images in the directory instead of appending them
 
 ```bash
-python manga-mobi2cbz.py "D:\Manga\Vol1.mobi" --overwrite
+python manga-mobi2cbz.py "D:\ComicsLibrary\Vol.01.mobi" --drop-extra
 ```
 
-### 単一ファイル変換のタイムアウトを制限（破損ファイルによるバッチ停止を防止）
+### Force regeneration when a cbz already exists
 
 ```bash
-python manga-mobi2cbz.py "D:\Manga" --timeout 300
+python manga-mobi2cbz.py "D:\ComicsLibrary\Vol.01.mobi" --overwrite
 ```
 
-### カスタムディレクトリへ出力（デフォルトで相対サブディレクトリ構造を保持）
+### Limit per-file conversion timeout (prevents corrupt files from stalling batch jobs)
 
 ```bash
-python manga-mobi2cbz.py "D:\Manga" --output-dir "E:\CBZ"
+python manga-mobi2cbz.py "D:\ComicsLibrary" --timeout 300
 ```
 
-### フラット出力（すべての CBZ を出力ディレクトリ直下へ）
+### Output to a custom directory (preserves relative subdirectory structure by default)
 
 ```bash
-python manga-mobi2cbz.py "D:\Manga" --output-dir "E:\CBZ" --flatten
+python manga-mobi2cbz.py "D:\ComicsLibrary" --output-dir "E:\CBZ_Output"
 ```
 
-### ドライラン: 変換フローを表示するのみ（実際には変換しない）
+### Flatten output (all CBZ files go directly to the output directory root)
 
 ```bash
-python manga-mobi2cbz.py "D:\Manga" --dry-run
+python manga-mobi2cbz.py "D:\ComicsLibrary" --output-dir "E:\CBZ_Output" --flatten
 ```
 
-### サイレントモード + ログへ書き込み
+### Dry run: only scan and print the conversion flow, without actually converting
 
 ```bash
-python manga-mobi2cbz.py "D:\Manga" --quiet --log convert.log
+python manga-mobi2cbz.py "D:\ComicsLibrary" --dry-run
 ```
 
-### 簡潔な集計（大規模ディレクトリ、成功/スキップは件数のみ）
+> When run against existing CBZ files together with `--setinfo`, it lists the ComicInfo fields that would change per file (`~ field: old -> new`); fields that would only be added are marked with `+`, and unchanged fields are omitted.
+
+### Quiet mode + write output to a log
 
 ```bash
-python manga-mobi2cbz.py "D:\Manga" --quiet --short-summary --log convert.log
+python manga-mobi2cbz.py "D:\ComicsLibrary" --quiet --log convert.log
 ```
 
-### zip 圧縮を有効化（PNG ソースでサイズ削減しやすい）
+### Compact summary (large directories, success/skip shown as counts only)
 
 ```bash
-python manga-mobi2cbz.py "D:\Manga" --compress 9
+python manga-mobi2cbz.py "D:\ComicsLibrary" --quiet --short-summary --log convert.log
 ```
 
-### 検査モード: 1 冊の内部情報をランダム確認
+### Enable zip compression (can significantly shrink PNG-source manga)
 
 ```bash
-python manga-mobi2cbz.py "D:\Manga" --inspect
+python manga-mobi2cbz.py "D:\ComicsLibrary" --compress 9
 ```
 
-### 全電子書籍の内部情報を検査
+### Inspect mode: sample 1 ebook's internal info by default (metadata/structure/images/resolution/DRM/NCX TOC)
 
 ```bash
-python manga-mobi2cbz.py "D:\Manga" --inspect --inspect-all
+python manga-mobi2cbz.py "D:\ComicsLibrary" --inspect
 ```
 
-### ComicInfo フィールドを上書き/追加（複数指定可、最優先）
+### Inspect all ebooks' internal info
 
 ```bash
-python manga-mobi2cbz.py "D:\Manga\Vol1.mobi" --setinfo "Title=My Manga" --setinfo "Number=%number" --setinfo "Summary=hello, world"
+python manga-mobi2cbz.py "D:\ComicsLibrary" --inspect all
 ```
 
-> 補足: `--setinfo` はカンマの直後に「フィールド名=」が続く場合のみ分割します。値自体に `Key=...` 構造が含まれる場合は、誤分割を避けるため複数回の `--setinfo` で渡してください。入力ディレクトリに既存 `.cbz` と `.mobi` が混在する場合、`--setinfo` 有効時は `.cbz` の ComicInfo.xml を直接変更し（未指定フィールドは元の値を保持）、それ以外のファイルは通常どおり変換します。
-
-### 解凍表示（変換せず解凍のみ、同名サブディレクトリへ出力）
+### Override/add ComicInfo fields (repeatable, highest priority)
 
 ```bash
-python manga-mobi2cbz.py "D:\Manga\Vol1.mobi" --unpack
+python manga-mobi2cbz.py "D:\ComicsLibrary\Vol.01.mobi" --setinfo "Title=Sample Series" --setinfo "Number=%number" --setinfo "Summary=Vol. 1, First Edition"
 ```
 
-### JSON 構造化出力（stdout 1 行 / ファイル書き込み）
+> Note: `--setinfo` only splits when a comma is immediately followed by a `fieldname=`. If a value itself contains a `Key=...` structure, pass multiple `--setinfo` options to avoid accidental splitting. When the input directory mixes existing `.cbz` and `.mobi`, enabling `--setinfo` modifies the `.cbz` files' ComicInfo.xml in place (unspecified fields keep their original values), while other files are converted as usual.
+
+### Unpack to view (extract only, no conversion; output to a same-name subdirectory)
 
 ```bash
-python manga-mobi2cbz.py "D:\Manga" --json
-python manga-mobi2cbz.py "D:\Manga" --json-out
-python manga-mobi2cbz.py "D:\Manga" --json --json-out result.json
+python manga-mobi2cbz.py "D:\ComicsLibrary\Vol.01.mobi" --unpack
 ```
 
-> 補足: `--json` / `--json-out` は「変換」または「CBZ 変更」の実行後にのみ構造化結果を出力します。`--dry-run` / `--inspect` / `--unpack` モードでは出力しません。プログレスバーと人間向け表示は stderr、JSON は stdout に書き込まれ自然に分離しますが、`2>&1` で結合リダイレクトするとプログレスバーが JSON に混入するため、その場合は `--no-progress` を併用してください。
+### JSON structured output
 
-### バージョン確認
+```bash
+# Print a single-line JSON result to stdout
+python manga-mobi2cbz.py "D:\ComicsLibrary" --json
+
+# Write the structured result to a file (indented); omitting the filename auto-generates a timestamped one
+python manga-mobi2cbz.py "D:\ComicsLibrary" --json-out inspect_result.json
+python manga-mobi2cbz.py "D:\ComicsLibrary" --json-out
+```
+
+> Note: `--json` / `--json-out` emit structured results in the conversion, CBZ-modification, inspection, and dry-run modes; they output nothing in `--unpack`. In conversion/modify mode `--json` prints one whole compact JSON; in inspect mode it prints one slim JSON per file (status/series/number/source/page_count/drm; status is one of ok/drm/invalid/noimg/timeout/fail), while `--json-out` writes the full record including spine/toc and a summary; in dry-run mode every record carries the `dry_run: true` flag with status `will_skip` / `pending`. Progress bar and human-readable hints go to stderr, JSON goes to stdout so they are naturally separated; if you merge with `2>&1` the progress bar will pollute the JSON stream, so add `--no-progress` too.
+
+### Show version
 
 ```bash
 python manga-mobi2cbz.py --version
 ```
 
-## パラメータ説明
+## Parameter reference
 
-| パラメータ | 説明 |
-| --- | --- |
-| `target` | 電子書籍ファイルのパス、または `.mobi` / `.azw` / `.azw3` / `.epub` を含むディレクトリ（必須） |
-| `--language LANG` | 出力言語。`auto` はシステム locale で自動選択（簡体字→zh-CN、繁体字 zh-TW/zh-Hant→zh-TW、日本語 ja/Japanese→ja、その他→en）。または `zh-CN` / `zh-TW` / `ja` / `en` を指定（デフォルト `auto`）。一般的な表記も許容: `zh`/`cn`→zh-CN、`zhtw`/`tw`→zh-TW、`jp`→ja、`eng`→en |
-| `--delete` | 変換成功後に元の電子書籍を削除（デフォルト: 削除しない） |
-| `--prefer` | 二重ディレクトリ mobi で保持する側: `auto` / `mobi7` / `mobi8`（デフォルト `auto`）。`auto` は mobi8 を優先し、mobi8 に画像がない場合は mobi7 に自動フォールバック。`mobi7`/`mobi8` を明示指定した場合も、選択ディレクトリに画像がないときはもう一方へフォールバック |
-| `--drop-extra` | 未収集の余分な画像を破棄（デフォルト: cbz 末尾に追記） |
-| `--overwrite` | 対象 cbz が既にある場合に強制再生成（デフォルト: スキップ） |
-| `--ext-priority EXTS` | 同一ディレクトリ・同名（拡張子のみ異なる）とき保持する形式。カンマ区切りで優先度が高い順。受け付ける値は `mobi` / `azw` / `azw3` / `epub`。デフォルト `azw3`。未指定分は azw3→epub→mobi→azw にフォールバック。`--prefer`（mobi7/mobi8）とは無関係 |
-| `--timeout` | 1 ファイルあたりのタイムアウト秒数。超過分はスキップして失敗計上（デフォルト 600、`0` は無制限） |
-| `--min-size BYTES` | 指定バイト未満を除外。数値省略時は 1000、`0` で無効、オプション未指定でサイズフィルタオフ |
-| `--output-dir DIR` | CBZ の出力先（自動作成）。デフォルトで入力の相対サブディレクトリ構造を保持（例: `One Piece/001.mobi` → `DIR/One Piece/001.cbz`）。`--flatten` でルート直下にフラット化 |
-| `--flatten` | `--output-dir` と併用時のみ有効。すべての CBZ を出力ルート直下へフラット化し、同名ファイルは `--overwrite` 未指定時はスキップ（SKIP）、指定時は優先名を上書き。単独指定（`--output-dir` なし）はエラー終了 |
-| `--progress` | ファイル単位のプログレスバーを強制表示。デフォルトは stderr が TTY かつファイル数≥2 で自動表示。`--no-progress` と同時指定時は後に書いた方が有効。`--quiet` 下でもデフォルトは表示。stderr のみで `--log` には入らない |
-| `--no-progress` | プログレスバーを強制オフ |
-| `--dry-run` | スキャンと変換フロー表示のみ。解凍・パッケージ化・出力ディレクトリ作成はしない |
-| `--quiet` | エラーと最終集計のみ表示 |
-| `--short-summary` | 成功/スキップは件数のみ（失敗は常にフルパス） |
-| `--compress LEVEL` | zip 圧縮レベル 0–9。`0`=無圧縮（デフォルト）、`1–9`=deflate（PNG 向け。高いほど小さいが遅い） |
-| `--inspect` | 位置引数が単一ファイルの場合はそのファイルを直接検査、ディレクトリの場合は 1 冊をランダム抽出して内部情報のみ読取（CBZ 非生成、一時ディレクトリは終了時に削除） |
-| `--inspect-all` | 全冊を検査（`--inspect` と併用が必要、単独指定時は自動的に `--inspect` を有効化） |
-| `--no-comicinfo` | ComicInfo.xml を生成しない（デフォルト: CBZ ルートに Title / Series / Number / Writer / Publisher / Year / LanguageISO / PageCount / Summary を書き込み） |
-| `--setinfo FIELD=VALUE` | ComicInfo フィールドを上書き/追加（複数指定可、最優先）。`FIELD` は ComicInfo 標準フィールドのホワイトリスト内である必要があります（ホワイトリスト外は warning を出して無視）。`VALUE` は固定値 / `%series` / `%number` / `%title` / `%filename` / `%leftN` / `%rightN` プレースホルダに対応（対応値が無い場合はそのフィールドを書き込まない）。スマート分割: カンマの直後に `フィールド名=` が続く場合のみ分割し、それ以外はカンマを値の一部とみなす（例: `Summary=hello, world` は分割しない）。入力が既存 `.cbz` の場合、その ComicInfo.xml を直接変更（未指定フィールドは元の値を保持）。値に `Key=` が含まれる場合は複数回の `--setinfo` で渡す。有効時は入力に混在する `.cbz` を直接変更し、他のファイルは通常どおり変換。`Manga` はデフォルトで書き込まず、`--setinfo Manga=Unknown\|No\|Yes\|YesAndRightToLeft` で明示指定（公式 v2.0 の列挙のみ）。`CommunityRating`（0-5）/ `MainCharacterOrTeam` / `Review` の 3 つの公式フィールドにも対応 |
-| `--unpack` | 解凍表示: 変換せず解凍のみ。各ソースファイルと同じ名前のサブディレクトリへ出力（既存時は `(2)(3)` と自動採番）。mobi は extract で完全な構造を保持、cbz は extractall（zip-slip パストラバーサル対策付き）。`--unpack` 指定時は `.cbz` 入力も収集 |
-| `--double-page VALUE` | 見開きページ検出: 未指定または `auto` で有効（閾値 2.0。幅/高さ ≥ 閾値の横長見開き大画像を検出し、ComicInfo にページごとの `Type="DoublePage"` を書き込む。`Manga` は自動で宣言しない）。数値指定（例 `2.5`）で有効化し閾値を調整。`off` / `no` / `0` で無効化。不正値はエラー |
-| `--drop-small [VALUE]` | 小画像の破棄: 変換時に他の画像より明らかに小さい画像（表紙サムネイル / 版権ページなど）を除外。幅・高さとも 中央値 × 比率 未満で小画像と判定。値なし/`auto` はデフォルト比率 0.5、`0~1` の数値（例 `0.4`）で比率調整、`off` / `no` / `0` で無効化（デフォルト無効、既存動作は不変）。破棄後は ComicInfo `PageCount` を実画像数で再計算。集計 / `--log` / `--json` に「破棄した小画像」カウントを追加（`--json` は `dropped_small` フィールド）。`--inspect` プレビューで「--drop-small 有効時は N 枚破棄されます」と表示。横長見開き（幅は小さくない）は誤破棄されない。変換モードのみ有効 |
-| `--log FILE` | 全出力を指定ログへ追記。ファイル名なしで指定すると `manga-mobi2cbz_YYYYMMDD_HHMMSS.log`（カレントディレクトリ）を自動生成 |
-| `--json` | 実行結果を 1 行のコンパクト JSON として stdout に出力（AI / パイプライン / スクリプト向け）。有効時は人間向けテキスト出力（プログレスバー / emit 表示 / 集計）を抑制。`--json-out` と併用可。変換/変更モードでのみ出力（dry-run/inspect/unpack では出力しない）。プログレスバーは stderr に書き込まれ混ざらないが、2>&1 結合リダイレクトでは混入する |
-| `--json-out [FILE]` | 構造化結果を JSON ファイルに書き込み（インデント形式）。ファイル名なしで指定するとタイムスタンプ付きファイル（カレントディレクトリ）を自動生成、`--log` と同一挙動。`--json` と併用可。`--json` と同様、変換/変更モードのみ書き込み |
-| `--version` | バージョン番号を表示 |
+| Parameter               | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `target`                | Path to an ebook file, a directory containing ebooks (.mobi/.azw/.azw3/.epub), or a glob pattern with `*` / `?` (e.g. `*.epub`, `卷*/001.mobi`); use `.` for the current directory (required)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `--language LANG`       | Output language: `auto` selects by system locale (zh prefix → Chinese, zh-TW/zh-Hant → Traditional Chinese, ja/Japanese → Japanese, otherwise → English), or specify `zh-CN`/`zh-TW`/`ja`/`en` (default `auto`); tolerant of common spellings: `zh`/`cn`→zh-CN, `zhtw`/`tw`→zh-TW, `jp`→ja, `eng`→en                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `--top-only`             | Only process ebook files directly in the target directory (do not recurse into subdirectories) |
+| `--delete`              | Delete the original ebook file after successful conversion (default: keep)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `--prefer`              | Which copy to keep for dual-directory mobi: `auto` / `mobi7` / `mobi8` (default `auto`); `auto` prefers mobi8 and falls back to mobi7 when mobi8 has no images; explicitly specifying `mobi7`/`mobi8` falls back to the other when the chosen directory has no images                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `--drop-extra FILTER`   | Generic drop filter (`nargs='?'`): no value = `extra`, dropping all uncollected extra images (equivalent to the old behavior, extra images are appended to the end of the cbz by default); with a value, drops by conditions — format / `res` / `size` / orientation / mode / bit depth / tag (`double` / `thumbnail` / `animated` / `small` / `cover`; `cover` is detected via OPF guide cover + filename keywords) (same expression engine as `--list-images`, comma = OR, `+` = AND, e.g. `--drop-extra gif`, `--drop-extra gif,extra`, `--drop-extra cover`); `off` / `no` / `0` disables; execution order: drop extra images → dedupe → filter → drop small images, combinable with `--drop-small`; dropped file names are listed, only counts under `--short-summary`                                                                                                                                                                                                                                                                                                                                                                                                |
+| `--overwrite`           | Force regeneration when the target cbz already exists (default: skip)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `--ext-priority EXTS`   | Which format to keep when files share the same name in the same directory (differing only by extension): comma-separated, order = priority high→low, accepts only mobi/azw/azw3/epub, default azw3; groups not covered fall back to azw3→epub→mobi→azw; unrelated to `--prefer` (dual-directory selection)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `--timeout`             | Per-file conversion timeout in seconds; timeout files are skipped and counted as failed (default 600, `0` = no limit)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `--min-size BYTES`      | Filter out ebooks smaller than the given bytes; default 1000 without a number, `0` disables, not passing it disables size filtering                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `--output-dir DIR`      | Output CBZ to the specified directory (auto-created); preserves the relative subdirectory structure of the input by default (e.g. `Sample Series/001.mobi` → `DIR/Sample Series/001.cbz`); add `--flatten` to flatten into the directory root                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `--flatten`             | Only used together with `--output-dir`: flattens all CBZ files into the output directory root; same-name files are skipped (SKIP) unless `--overwrite` is given, which overwrites the preferred name; using it alone (without `--output-dir`) exits with an error                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `--progress`            | Progress bar policy: `auto` shows when stderr is TTY and file count ≥ 2 and `--json`/`--json-out` is not used; `on` forces display; `off` disables (default `off`, not shown); writes to stderr, not into `--log`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `--no-progress`         | Force-disable the progress bar (equivalent to `--progress off`; kept for old-command compatibility)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `--dry-run`             | Dry run: only scan files and print the conversion flow, without unpacking/packing or creating output directories                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `--rename[=TEMPLATE]`   | Rename the output CBZ filename (optional template, off by default): no value = default template (series name + auto-chosen marker prefix by type `[Vol.x]` / `[Ch.x]` / `[Vol.x][Ch.x]` / `[x]`, connected chapters `話005-006` → `[Ch.5-6]`); the template supports `%series` / `%number` / `%volume` / `%title`/ `%writer` / `%publisher` / `%date` / `%language` / `%description` / `%filename` / `%leftN` / `%rightN` / `%subN_M` and `%03number` zero-padding placeholders; source priority: filename inference > built-in metadata (OPF / ComicInfo.xml) fallback, `--setinfo` not involved; when the input is an existing `.cbz` it enters a standalone rename mode (renames only, no conversion, combinable with other modes); on skip, two hint kinds are distinguished (target exists → suggest `--overwrite`; in-batch collision → suggest adjusting the template), JSON `reason` records `existing` / `conflict`; the dry-run preview colors `[Will Skip]` by collision class (on-disk existing = yellow, in-batch conflict = magenta, TTY + not `--no-color` only), and the summary splits the skip total into "on-disk existing N / in-batch conflict M" with the skipped file list grouped by class; `%description` is not recommended for filenames (content may be too long) — pair it with `%subN_M` to truncate; pair with `--dry-run` to preview first                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `--no-color`            | Disable ANSI color output (even when the terminal supports it); logs / JSON / pipes are never colored anyway                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `--quiet`               | Quiet mode: only show errors and the final summary                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `--debug`               | Debug mode: print debug-level logs to stderr (silent by default, only printed when specified; still printed even when combined with `--quiet`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `--short-summary`       | Compact summary: succeeded/skipped files show counts only (failed files always list full paths)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `--compress LEVEL`      | zip compression level 0-9: `0` = no compression (default, images are already compressed), `1-9` = deflate (benefits PNG sources; higher = smaller but slower)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `--inspect`             | Inspect mode: `sample` randomly inspects 1 ebook (default), `all` inspects every file; a single-file positional argument inspects that file directly; unpack only to read internal info (metadata/structure/images/resolution/dual DRM judgment/NCX TOC), no CBZ produced, temp directory cleaned up automatically; the image preview lists the first 5 files and, when there are more, appends an English ellipsis line `...` (e.g. `... (188 images)`); TOC (NCX) / nav preview truncation is also unified to English `...`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `--inspect-all`         | Inspect all ebooks (equivalent to `--inspect all`; kept for old-command compatibility)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `--no-comicinfo`        | Do not generate ComicInfo.xml (default: generates it into the CBZ root with Title / Series / Number / Writer / Publisher / Year / LanguageISO / PageCount / Summary metadata)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `--setinfo FIELD=VALUE` | Override/add ComicInfo fields (repeatable, highest priority): `FIELD` is a ComicInfo field name and must be in the standard-field whitelist (out-of-whitelist fields emit a warning and are ignored); `VALUE` supports fixed values / `%series` / `%number` / `%title`/ `%writer` / `%publisher` / `%date` / `%language` / `%description` / `%filename` / `%leftN` / `%rightN` / `%subN_M` placeholders (`%subN_M` = M chars from the Nth char, 1-based; field omitted only when the whole value is exactly one known placeholder and its value is missing); placeholders may be mixed with fixed text (e.g. `%writer·重制`, `第%number话`), in which case a missing value renders as an empty string; smart splitting: only splits when a comma is followed by `fieldname=`, otherwise the comma is part of the value (e.g. `Summary=Vol. 1, First Edition` is not split); for existing `.cbz` inputs, `%series`/`%number`/`%volume` read the explicit Series/Number/Volume from ComicInfo first, falling back to filename inference only when absent; when the input is an existing `.cbz`, its ComicInfo.xml is modified in place (unspecified fields keep their original values); use multiple `--setinfo` when a value contains `Key=`; when enabled, `.cbz` files mixed into the input are modified in place while other files convert as usual; `Manga` is not written by default — specify it explicitly with `--setinfo Manga=Unknown\|No\|Yes\|YesAndRightToLeft` (official v2.0 enum only); `CommunityRating` (0-5) / `MainCharacterOrTeam` / `Review` are also supported |
+| `--unpack`              | Unpack to view: extract only, no conversion; outputs to a same-name subdirectory next to each source file (auto-numbered `(2)(3)` if it already exists); mobi uses extract preserving the full structure, cbz uses extractall (with zip-slip path-traversal protection); `.cbz` inputs are also collected                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `--double-page VALUE`   | Double-page spread detection: omitted or `auto` enables it (threshold 2.0; detects wide banner spread images with width/height ≥ threshold, writing per-page `Type="DoublePage"` to ComicInfo; `Manga` is no longer declared automatically); a numeric value (e.g. `2.5`) enables it and adjusts the threshold; `off` / `no` / `0` disables it; invalid values error out                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `--drop-small [VALUE]`  | Drop small images: exclude images clearly smaller than the rest during conversion (cover thumbnails / copyright pages, etc.) — an image is dropped when both its width and height are < median × ratio; omitted or `auto` uses the default ratio 0.5, a `0~1` number (e.g. `0.4`) adjusts it, `off` / `no` / `0` disables (disabled by default, existing behavior unchanged); ComicInfo `PageCount` is recomputed from the remaining images; summary / `--log` / `--json` report a "dropped small" count (`--json` emits a `dropped_small` field) and list the dropped file names one by one (only counts under `--short-summary`); `--inspect` preview shows "N image(s) will be dropped when --drop-small is enabled"; wide double-page banners (width not small) are never mis-dropped; conversion mode only                                                                                                                                                                                                                                                                   |
+| `--list-images [FILTER]` | Read-only image listing: no value = list all images of the target ebook; with a value = FILTER expression (format / `res` / `size` / orientation / mode / bit depth / tag; comma = OR, `+` = AND, `-` prefix excludes, e.g. `jpeg,size>1MB`, `-webp`); read-only scan — no conversion, no CBZ, no ComicInfo, no files written; CBZ read directly from zip (no TOC column / no conversion-state tags); per-file block (No. / filename / resolution / size / mode·depth / orientation / TOC / tag) + full statistics block (always full-set, unaffected by the filter); works with `--json` (one slim JSON per file) and `--quiet` (detail suppressed, count only); independent from `--inspect` |
+| `--log FILE`            | Append all output to the specified log file; without a filename, auto-generates `manga-mobi2cbz_YYYYMMDD_HHMMSS.log` (current directory)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `--json`                | Print JSON of the run result to stdout (for AI / pipelines / scripts); suppresses human-readable text output when enabled; one whole compact JSON in conversion/modify mode, or one slim JSON per file in inspect mode (status/series/number/source/page_count/drm); in dry-run mode it emits records carrying the `dry_run` flag (status `will_skip` / `pending`), nothing in unpack mode; can be combined with `--json-out`; progress bar goes to stderr and stays separate, but 2>&1 combined redirection mixes it in                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `--json-out [FILE]`     | Write the structured run result to a JSON file (indented format); without a filename, auto-generates a timestamped file (current directory, behaves exactly like `--log`); can be combined with `--json`; file-level results in conversion/modify mode, full record (incl. spine/toc and summary) in inspect mode                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `--version`             | Show version number                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 
-## 出力
+## Output
 
-- デフォルトでは `.cbz` は元の電子書籍と同じディレクトリに置きます。`--output-dir` 指定時はそのディレクトリへ出力します（自動作成）。デフォルトで入力の相対サブディレクトリ構造を保持し、`--flatten` でルート直下にフラット化します（同名ファイルは `--overwrite` 未指定時はスキップ）
-- 既存の `.cbz` はデフォルトでスキップし、上書きしません。`--overwrite` で強制再生成できます
-- 0 バイト / ヘッダ破損は事前チェックでスキップし、フルパスと理由をログに出します
-- ファイルごとの所要時間をリアルタイム表示し、集計下部に合計を出します
-- 失敗したファイルはエラーを表示しますが、他ファイルの変換は継続します
+- By default, the converted `.cbz` file is placed in the same directory as the original ebook; with `--output-dir`, it goes to that directory (auto-created), preserving the relative subdirectory structure of the input, or flattened into the directory root with `--flatten` (same-name files are skipped unless `--overwrite` is given)
+- Existing `.cbz` files are skipped by default and never overwritten; use `--overwrite` to force regeneration
+- 0-byte / corrupt-header ebooks are skipped at the precheck stage, with the full path and reason logged
+- Per-file conversion time is printed in real time; total elapsed time is shown at the bottom of the summary
+- Failed files print an error message and do not block conversion of other files
 
-## 既知の制限
+## JSON output contract
 
-- **DRM 暗号化ファイルには非対応** — 下層の mobi ライブラリは Kindle ストアの DRM 付き漫画を復号できません。該当ファイルは「DRM の可能性あり」と明示してスキップし、空の cbz を黙って作りません。変換前に DRM を解除してください
-- **タイムアウト後のスレッドは強制終了できない** — `--timeout` 超過後、メイン処理はそのファイルをスキップして続行しますが、Python はブロック中の解凍スレッドを kill できません。残ったスレッドはプロセス終了までメモリ/IO を使うことがあり、破損ファイルが多いとバックグラウンドに積み上がる可能性があります。完全隔離には `multiprocessing` などが考えられますが、クロスプラットフォームの複雑さのため未採用です
+In the structured output of `--json` / `--json-out`, the `status` field is the machine-consumed contract. Values per mode:
 
-## よくある質問
+| Mode | `status` values | Failure detail |
+|---|---|---|
+| Conversion (default) | `ok` / `skip` / `fail` / `timeout` | failure reason in the `reason` field: `drm` / `corrupt` / `verify` / `comicinfo` / `other` |
+| Inspection (`--inspect`) | `ok` / `drm` / `invalid` / `noimg` / `timeout` / `fail` | `--json` prints one slim JSON per file; `--json-out` writes the full record (incl. spine/toc and summary) |
+| Modification (`--setinfo`) | `modified` / `nochange` / `fail` | failure reason in the `reason` field |
+| Dry-run (`--dry-run`) | `will_skip` / `pending` | every record carries `dry_run: true` so machines can distinguish it from a real run |
 
-**Q: 変換後の CBZ で画像の順序が乱れるのは？**  
-A: まず OPF spine 順（EPUB の標準的な読み順）で抽出するため、多くの場合は正しい順序になります。OPF が無い、または spine が空のときはファイル名の自然順にフォールバックします。それでもおかしい場合は、元ファイル内の画像名が不統一な可能性があります。ソースを確認してください。
+Every record has the fixed fields `source` / `status` / `target` / `reason` / `elapsed_sec`; conversion mode additionally carries `series_source` / `number_source` / `cover_source` / `dropped_small`.
 
-**Q: CBZ に表紙が無いのはなぜ？**  
-A: 一部のファイルでは表紙が OPF の cover メタのみで指され、spine から参照されないため漏れます。スクリプトは cover/front を含むファイル名を探し、無ければ先頭に補完します。すでに spine にあれば元の順を保ちます。キーワードの無いファイル名だと漏れることがあるので、リネームして再変換してください。
+## Known limitations
 
-**Q: 変換後のサイズが極端に小さいのはなぜ？**  
-A: mobi7+mobi8 の二重構成ではデフォルトで 1 コピーのみ残します（`--prefer auto`）: mobi8 を優先し、mobi8 に画像がない場合は mobi7 に自動フォールバックして内容の二重化を避けます。mobi7 を強制したい場合は `--prefer mobi7` を指定してください。
+- **DRM-encrypted mobi is not supported** — the underlying mobi library cannot decrypt DRM-encrypted manga purchased from the Kindle store; such files are clearly reported as "possibly DRM-encrypted" and skipped rather than silently producing an empty cbz. Remove DRM before converting
+- **Threads cannot be force-terminated after timeout** — when a single file exceeds `--timeout`, the main flow skips it and continues, but Python cannot kill a blocked unpacking thread; the stuck thread lingers until the process exits, continuously consuming memory/IO; batch-processing many corrupt files may accumulate zombie threads in the background. To fully isolate stuck jobs, `multiprocessing` could be used for terminable child processes, but that adds cross-platform complexity and has not been adopted yet
 
-**Q: 一括変換中に破損/暗号化ファイルで止まったように見える？**  
-A: 1 ファイルあたりデフォルト 600 秒のタイムアウトがあります（`--timeout` で変更可）。超過分はスキップして失敗計上し、残りを続行します。早く切りたいときは `--timeout 30` など短くするか、`--quiet` で出力を減らしてください。
+## FAQ
 
-**Q: --output-dir でサブディレクトリが残るのはなぜ？**
-A: v1.9.0 以降、`--output-dir` はデフォルトで入力の相対サブディレクトリ構造を保持します（旧版の一律フラットから破壊的変更）。フラット化したい場合は `--flatten` を追加してください。旧コマンド `python manga-mobi2cbz.py Manga --output-dir CBZ` は `python manga-mobi2cbz.py Manga --output-dir CBZ --flatten` に変更すると旧動作を復元できます。
+**Q: The image order in the converted CBZ is messed up?**
+A: Images are extracted in OPF spine order (the EPUB standard reading order) first, which is correct in the vast majority of cases; if the source has no OPF or the spine extraction is empty, it falls back to natural filename sorting. If the issue persists, the original mobi's internal image naming may be inconsistent — please check the source file.
 
-**Q: .azw / .azw3 には対応していますか？**  
-A: 対応しています。v1.8.0 以降、入力は `.mobi` / `.azw` / `.azw3` で、同じ変換パイプラインを使います。同一ディレクトリで同名・異拡張子のときはデフォルトで azw3 を残し、`--ext-priority` で変更できます。
+**Q: Why is the cover missing from the CBZ?**
+A: Some mobi covers are only referenced by the OPF metadata cover meta and are not referenced by the spine, so spine-based extraction misses them. The script automatically scans for images whose filenames contain cover/front and inserts one at the front when missing; if the cover is already in the spine list, the original order is kept. If the cover filename contains none of those keywords, it may still be missed — rename it and reconvert.
 
-**Q: EPUB には対応していますか？**
-A: 対応しています。v2.4.0 以降、入力は `.mobi` / `.azw` / `.azw3` / `.epub` です。EPUB は ZIP コンテナのため zipfile で安全に解凍し、OPF spine 抽出パイプラインを再利用します。表紙は EPUB2（`<meta name="cover">`）と EPUB3（`properties="cover-image"`）の両方に対応。EXTH ヘッダが無いため、メタデータは OPF の `dc:` フィールドから読み取ります。`--prefer` は EPUB では静かに無視されます。暗号化された EPUB（Adobe DRM など）は内容を解析できず、画像なし/有効なメタデータなしとしてスキップされます。変換前に DRM を除去してください。
+**Q: Why are some mobi files very small after conversion?**
+A: Dual-directory mobi (mobi7+mobi8) keeps only one copy by default (`--prefer auto`): it prefers mobi8 and falls back to mobi7 when mobi8 has no images, avoiding duplicated content doubling the size. Add `--prefer mobi7` to force keeping mobi7.
 
-## 更新履歴
+**Q: Batch conversion stalls on a corrupt/encrypted mobi?**
+A: Per-file conversion has a 600-second timeout by default (`--timeout` adjustable); on timeout the file is skipped automatically and counted as failed, and the main flow continues with the remaining files. If you notice a file stalling earlier, use a smaller value like `--timeout 30` to skip it faster, or `--quiet` to reduce output.
+
+**Q: Why does --output-dir keep the subdirectories now?**
+A: Since v1.9.0, `--output-dir` preserves the relative subdirectory structure of the input by default (a breaking change from the old flat behavior). Add `--flatten` to flatten instead; change the old command `python manga-mobi2cbz.py ComicsLibrary --output-dir CBZ_Output` to `python manga-mobi2cbz.py ComicsLibrary --output-dir CBZ_Output --flatten` to restore the old flat behavior.
+
+**Q: Are .azw / .azw3 supported?**
+A: Yes. Since v1.8.0 the accepted input extensions are `.mobi` / `.azw` / `.azw3`, all three going through the same conversion pipeline; for same-name files with different extensions in the same directory, azw3 is kept by default, adjustable via `--ext-priority`.
+
+**Q: Are EPUB files supported?**
+A: Yes. Since v2.4.0 the accepted input extensions are `.mobi` / `.azw` / `.azw3` / `.epub`. EPUB is a ZIP container, so it is safely unpacked via zipfile and reuses the OPF spine extraction pipeline; cover detection supports both EPUB2 (`<meta name="cover">`) and EPUB3 (`properties="cover-image"`); without an EXTH header, metadata is read from OPF `dc:` fields; `--prefer` is silently ignored for EPUB. Encrypted EPUBs (e.g. Adobe DRM) cannot be parsed — they are reported as no images / no usable metadata and skipped; remove the DRM before converting.
+
+## Changelog
+
+### [3.0.0] - 2026-08-24
+#### Breaking changes
+
+- **License switched to GPL-3.0-only** — because this tool depends at runtime on the mobi library (GPL-3.0-only), public distribution of this project constitutes distribution, so the license changed from MIT to GPL-3.0-only; LICENSE is replaced with GNU GPL v3 and the License section of this README was updated accordingly
+- **Progress bar off by default** — no longer auto-shown; enable explicitly with `--progress on` / `--progress auto`; unified to `--progress auto|on|off` (omitted or `off` = hidden; `auto` = shown on TTY with ≥ 2 files and when `--json`/`--json-out` are not used); legacy `--no-progress` kept as a hidden alias
+- **`--inspect` argument collapsed** — `--inspect [sample|all]` (default `sample` = old random check of 1, `all` = old `--inspect-all`); the old black-box behavior where `--inspect-all` alone auto-enabled `--inspect` is removed, you must pass `--inspect all` explicitly; `--inspect-all` kept as a hidden alias
+
+#### New features
+
+- **Glob patterns for `target`** — `target` accepts patterns containing `*` / `?` (e.g. `*.epub`, `卷*/001.mobi`); when multiple files match they are filtered by extension and processed as a flat file list; use `.` to process the current directory
+- **`--top-only`** — Only process ebook files directly in the target directory (do not recurse into subdirectories)
+- **New `%subN_M` placeholder for `--setinfo`** — take M chars starting from the Nth char (1-based) of the filename, e.g. `[Anon][Demo Series]話005-006` with `--setinfo "Series=%sub8_11"` yields `Demo Series`; the field is omitted when out of range
+- **JSON output for `--inspect`** — `--json` prints one slim JSON per file (`status` / `series` / `number` / `source` / `page_count` / `drm`; `status` ∈ `ok` / `drm` / `invalid` / `noimg` / `timeout` / `fail`); `--json-out` writes the full record (incl. `spine` / `toc` and summary); `inspect_ebook` refactored to return a structured `(InspectStatus, info dict)` tuple
+- **Field-level dry-run preview with `--setinfo`** — lists the ComicInfo fields that would change per file (`~ field: old → new`; new-only fields marked `+`; unchanged fields omitted), without writing
+- **Resolution summary for `--inspect`** — a resolution distribution summary is printed at the end of the sample/full scan: dominant `WxH` with count & percentage, plus the number of abnormal small images (same threshold as `--drop-small`: both width and height < median × 0.5)
+- **`--debug` debug logging** — new `--debug` flag + emit debug level: debug-level logs are printed to stderr only when `--debug` is given (silent by default); they are still printed even when combined with `--quiet`; help.debug in all four languages
+- **`--inspect` spam reduction** — per-file progress lines in inspect mode demoted to info level, so `--quiet` can suppress the flood; zero new flags
+- **Disk space precheck** — new `estimate_expanded_size` + `check_disk_space`: the main loop prechecks each file's expanded-size requirement; when space is insufficient a `warn.disk_space` hint is printed but processing continues (batch not blocked; all four languages)
+- **Temp-dir cleanup failure hint** — three `rmtree(ignore_errors=True)` calls changed to try/except with `warn.cleanup_tmp_fail`; cleanup failures are no longer silently swallowed (all four languages)
+- **Symmetric output for `--drop-extra` / `--drop-small`** — both now list the affected file names one by one (`--drop-extra` lists the extra images dropped, `--drop-small` lists the dropped small images); with `--short-summary` only the counts are shown without paths, consistent with the succeeded/skipped summary
+- **`--rename` output renaming** — renames the output CBZ filename (optional template, off by default): no value = default template (series name + auto-chosen marker prefix by type `[Vol.x]` / `[Ch.x]` / `[Vol.x][Ch.x]` / `[x]`, connected chapters `話005-006` → `[Ch.5-6]`); the template supports `%series` / `%number` / `%volume` / `%title`/ `%writer` / `%publisher` / `%date` / `%language` / `%description` / `%filename` / `%leftN` / `%rightN` / `%subN_M` and `%03number` zero-padding placeholders; source priority: filename inference > built-in metadata (OPF / ComicInfo.xml) fallback, `--setinfo` not involved; when the input is an existing `.cbz` it enters a standalone rename mode (renames only, no conversion, combinable with other modes); `%description` is not recommended for filenames (content may be too long) — pair it with `%subN_M` to truncate; pair with `--dry-run` to preview first
+- **`--no-color` color control** — disables ANSI color output (even when the terminal supports it); logs / JSON / pipes are never colored anyway
+- **Classified rename-skip hints** — when `--rename` skips a file, two hint kinds are distinguished: target already exists on disk (`skip_existing`, suggest `--overwrite`) vs. collision within the current batch (`skip_conflict`, suggest adjusting the naming template); both dry-run and non-dry-run paths apply, and the JSON `reason` field records `existing` / `conflict` respectively
+- **New `--list-images [FILTER]` read-only image listing** — lists every image of the target ebook (No. / filename / resolution / size / mode·depth / orientation / TOC / tag) plus a full statistics block (format / mode·depth / size distribution / double-page banners / animated GIFs / small images / abnormal-image detail); no conversion, no CBZ, no ComicInfo, no files written; fully independent of `--inspect`. No value = list everything; with a value = FILTER expression (format / `res` / `size` / orientation / mode / bit depth / tag keywords; comma = OR, `+` = AND, `-` prefix excludes, e.g. `jpeg,size>1MB`, `-webp`); the filter affects only the listing rows while statistics stay full-set; CBZ is read directly from the zip without unpacking (no TOC column / no conversion-state tags); works with `--json` (one slim JSON per file) and `--quiet` (detail suppressed, count only)
+- **`--drop-extra` upgraded to a generic drop filter** — changed from a boolean to `nargs='?'`: no value = `extra` (drop all uncollected extra images, same as the old behavior); with a value, drop by conditions (format / `res` / `size` / orientation / mode / bit depth / tag keywords, same expression engine as `--list-images`, comma = OR, `+` = AND, e.g. `--drop-extra gif`, `--drop-extra gif,extra`); `off` / `no` / `0` disables; execution order: drop extra images → dedupe → condition filter → drop small images, combinable with `--drop-small`
+- **`--inspect` ellipsis unified to English `...`** — the image preview lists the first 5 files and appends an ellipsis line when there are more (e.g. `... (N images)`); TOC (NCX) / nav preview truncation unified to English `...` (replacing the previous Unicode `…`)
+- **Classified skip preview coloring & grouped summary** — in `--rename` dry-run preview, `[Will Skip]` is colored by collision class (on-disk existing target = yellow, in-batch collision = magenta; TTY + not `--no-color` only); the non-dry-run summary splits the skip total into "on-disk existing N / in-batch conflict M" and lists the skipped files grouped by class (each with its own header); JSON `reason` stays `existing` / `conflict`, `skipped` count semantics unchanged (sum of both groups + nochange)
+
+#### Fixes
+
+- **NCX lookup miss** — Added unified `find_ncx` lookup (first by OPF manifest `media-type=application/x-dtbncx+xml`, then by the id referenced by the spine `toc` attribute, finally falling back to `*.ncx`), compatible with packages that name the NCX `xml/vol.nav` instead of using a `.ncx` extension; `parse_ncx_toc` / `parse_ncx_entries` now use it
+- **`--inspect` TOC (NCX) count scope** — Count only `<navLabel><text>` entries (previously docTitle/docAuthor were counted too, inflating the entry count by 1-2)
+- **`--rename` `%title%` placeholder now falls back to OPF `dc:title`** — previously `%title%` only read ComicInfo.xml `<Title>`, so an epub without a ComicInfo always yielded an empty value; now OPF `dc:title` is read as a fallback; source priority: OPF `dc:title` → ComicInfo.xml `<Title>` (consistent with the series/number OPF fallback)
+- **New `%writer` / `%publisher` / `%date` / `%language` / `%description` placeholders for `--rename` / `--setinfo`** — OPF reads `dc:creator` / `dc:publisher` / `dc:date` / `dc:language` (normalized) / `dc:description`, ComicInfo reads `<Writer>` / `<Publisher>` / `<LanguageISO>` / `<Summary>`; `%date` keeps the raw date string (e.g. `2024-01-15`; ComicInfo has no counterpart); OPF takes priority over ComicInfo
+- **DRM false-positive fix** — `get_drm_flag` previously read 2 bytes at PalmDB header offset 12 (which landed in the name field, so ebooks whose filenames contain `-`/`_`, e.g. the [Anon] series, were misjudged as encrypted); it now reads the copy-protection bit at attributes offset 32 plus the PalmDOC header encryption type (offset 78 + 8×nrec + 0x0E) as the authoritative criterion
+- **`--inspect` no longer skips unpacking on a DRM marker** — the DRM marker is demoted to an informational flag; unpacking is still attempted: images extracted → `status=ok` with a `drm` marker; it is classified as DRM only when unpacking fails and the image count is 0
+- **`--drop-extra cover` atomic no-op fix** — covers are now tagged via OPF guide + COVER_KEYWORDS on both the list and conversion paths, so `--drop-extra cover` reliably drops the cover
+- **Mixed `--setinfo` placeholders with fixed text** — a value may mix placeholders and literal text (e.g. `%writer·remaster`, `第%number话`), with the same global replacement as `--rename`: missing values render as empty, unknown placeholders are kept verbatim; when the whole value is exactly a single known placeholder, the original semantics are preserved (the field is not written when missing)
+- **NCX / NAV TOC parse order and entity decoding** — `parse_ncx_entries` now builds the tree with a stack and walks it in document order (parents always precede children; siblings keep document order), stripping nested tags from titles and decoding HTML entities (`&amp;` → `&`); `parse_nav_entries` gains the same entity decoding
+
+#### Security
+
+- **XXE injection protection (P0)** — all `ET.parse` calls replaced with `safe_et_parse` (7 call sites); only `<!ENTITY` entity declarations are blocked (bare DOCTYPE is allowed through); string paths only reject `..` traversal (a `./` prefix and plain relative paths are allowed, so unpacked OPF/NCX references keep working)
+
+#### Fixed / Maintenance
+
+- **Timeout residue hint on conversion path** — `run.timeout_residue` added (previously only on the inspect path)
+- **Volume inference fix** — 4-digit years (`19xx` / `20xx`) no longer mis-detected as volume numbers (e.g. `Series 2024`)
+- **Volume/chapter inference enhancement (Kavita-aligned)** — new chapter-family keyword list (話 / 话 / 話数 / 话数 / Chapter / Ch. / ch / chp / c / Episode / 화 / 회 / 回 / 集 / บทที่ / ตอนที่ / Глава); supports run-together forms (`c001` / `ch001` / `v01` / `T3` / `S01`), volume+chapter co-occurrence (`Vol.0001 Ch.0001`, `Том 1 Глава 3`), volume/chapter ranges (`v16-17`, `c001-006` → first value), decimals (`025.5`), trailing-b half chapters (`153b` → 153.5), extra multi-language volume forms (`冊N` / `1권` / `장N` / `季N` / `第N季`), and parentheses/bracket annotation stripping; fixes the old defects of English markers being swallowed into the series name and ranges taking the last value
+- **Magic numbers promoted to named constants** — `HEAD_READ_BYTES = 65536`, `DEFAULT_TIMEOUT = 600`
+- **Error status strings consolidated into enums** — `ConvStatus` / `InspectStatus`
+- **Dead code cleanup** — `used_names` dead parameter on the real run path, `target_cbz_path` dead formal parameter, `sys.argv` scanning removed
+- **Maintenance** — matching-semantics comments for `_VOLUME_PATTERNS`; stray comment relocated
+- **ComicInfo error differentiation** — build and write failures now use separate messages (`comicinfo.build_fail` / `comicinfo.write_fail`), making the cause clearer
+- **`validate_cbz` doc hygiene** — EOCD read strategy, ComicInfo triple-check and return semantics documented (no behavior change)
+- **Type annotation completion** — return-type annotations such as `_main() -> None` added
+- **`natural_key` fallback for very long numbers** — overlong all-digit strings (beyond the Python int digit limit) no longer break sorting; they fall back to string comparison
+- **`extract_epub_to_temp` self-healing on failure** — if unpacking fails midway, the just-created `mkdtemp` directory is cleaned up before the exception is re-raised, avoiding directory leaks
+- **`ZIP_EOCD_READ_TAIL` named constant** — the tail byte count `validate_cbz` reads for the EOCD is promoted to a named constant (70000, far larger than the maximum size of a single EOCD record)
+- **Per-directory disk-precheck cache** — `check_disk_space` caches free disk space per directory (`_disk_free`), avoiding repeated syscalls when batching many files
+- **PageCount removed from the ComicInfo `--setinfo` whitelist** — `PageCount` can no longer be overridden via `--setinfo`; it is always derived from the actual number of images written (whitelist 42 → 41)
+- **HTML entity decoding (P1-3)** — `extract_images_from_html` now applies `html.unescape` to src values on the regex path (previously only the HtmlImgParser fallback path decoded entities, so entity-encoded srcs like `&amp;` in malformed HTML leaked through)
+- **Startup warning for leftover `.cbz.tmp`** — on startup the script scans output-side directories for half-finished `*.cbz.tmp` from a previous interrupted/killed/power-loss run and emits a warning if found (warn only, never auto-deletes — data-safe); complements the atomic-write `finally` cleanup into a complete safety chain
+- **JSON status contract documented** — see the "JSON output contract" section below; the `status` enum for all three modes is now explicit so machine consumers do not have to guess
+- **Docs & comment fixes** — the outdated `--double-page` comment ("writes Manga>Yes") now reads "DoublePage only; Manga via --setinfo"; the top usage line gains `--json` / `--json-out` / `--double-page` / `--drop-small` / `--debug`; the `dedupe_ebook_files` docstring fallback order now includes epub; a misplaced outdated signature comment was removed
+- **ComicInfo source label localization** — the `--inspect` preview block now renders the Series/Number source annotation (`setinfo` / `opf` / `inferred`) through i18n so it follows the UI language (e.g. `[filename inferred]` under zh-CN); the `series_source` / `number_source` fields in `--json` stay machine-readable English as before; the single `comicinfo.inferred` key is refactored into `comicinfo.src.setinfo` / `comicinfo.src.opf` / `comicinfo.src.inferred` across all four languages
+- **dry-run JSON output fixed** — `--dry-run` combined with `--json` / `--json-out` now emits structured JSON (the contract was previously missing and docs claimed no output): each record carries a `dry_run` boolean flag to distinguish a trial run from a real one, with dry-run status values `will_skip` / `pending`; the "JSON output contract" section and the argument descriptions that said "dry-run does not output" are updated accordingly
+- **SPDX header added** — `SPDX-License-Identifier: GPL-3.0-only` added to the script header
+
+#### Review fixes (follow-up batch)
+
+- **GIF frame-count false positive fixed (P0)** — `gif_frame_count` no longer scans LZW compressed data with `head.count(b"\x2c")`; it now parses GIF structure blocks (counting only image descriptors `0x2C` and skipping LZW data by sub-block boundaries without reading contents), so stray `0x2C` bytes inside a static GIF's compressed data no longer mis-flag it as `animated`; a truncated header exits safely
+- **zip-slip drive / UNC escape protection (P0)** — `_safe_zip_extract` now also checks `Path.is_absolute()`, rejecting drive-letter (`C:/...`) and UNC (`//server/share`) absolute-path entries that could write outside `out_dir` (previously only `/`-prefixed and `..` segments were blocked)
+- **`validate_cbz` tail seek (P1)** — files > 70KB are now seeked to read only the trailing `ZIP_EOCD_READ_TAIL` (70000) bytes instead of reading the whole file then slicing; peak memory for validating large CBZs drops from O(file size) to O(70KB)
+- **`build_cbz_image_attrs` streaming header read (P1)** — switched to `zf.open().read(HEAD_READ_BYTES)` (lazy decompression) instead of `zf.read(name)` (whole-image decompress then slice), reducing decompression work and memory for large image entries
+- **`_fill_small_mark` magic-number cleanup (P2)** — the hard-coded `0.5` is replaced with the constant `DEFAULT_DROP_SMALL_RATIO`; semantics and behavior are unchanged
 
 ### [2.5.1] - 2026-08-20
 
-#### 修正
+#### Fixed
 
-- **同名 `.cbz` が重複除去で削除されないように** — `--setinfo` / `--inspect` / `--unpack` モードで、変換成果物 `.cbz` は mobi/azw/azw3/epub の同名重複除去に参加せず、既存 CBZ を正常に変更・検査できる
-- **flatten 同名衝突の専用ヒント** — flatten モードで 2 つ目の同名ソースがスキップされる際、汎用の「対象は既に存在」ではなく flatten 衝突と明示し、`--overwrite` を提案
+- **Deduplication no longer drops same-name `.cbz`** — in `--setinfo` / `--inspect` / `--unpack` modes, converted `.cbz` files no longer join same-name deduplication with mobi/azw/azw3/epub, so existing CBZ can be modified / checked normally
+- **Dedicated hint for flatten name conflicts** — when a second same-name source is skipped under flatten mode, it now clearly flags a flatten conflict instead of the generic "target already exists", and suggests `--overwrite`
 
 ### [2.5.0] - 2026-08-20
 
-#### 変更
+#### Changed
 
-- **`Manga` を自動で書き込まない** — 見開きページ検出（`--double-page`）は `<Pages>` のページごとの `Type="DoublePage"` マーカーのみ生成し、`<Manga>Yes</Manga>` 宣言は自動付与しない（Mihon などのリーダーはこのフィールドを読まないため、見開きが無くても Manga と宣言されるのを回避）。`Manga` は `--setinfo Manga=Unknown|No|Yes|YesAndRightToLeft` で明示指定。公式 v2.0 の列挙のみ受け付け、不正値は warning を出して無視
-- **`--ext-priority` が EPUB に対応** — `mobi` / `azw` / `azw3` / `epub` を受け付け。優先度が未指定のグループのフォールバック順は `azw3 → epub → mobi → azw` に変更（EPUB を mobi 系より優先）
-- **画像なしヒントを拡張子で分岐** — 画像の無い EPUB には中立なヒント（漫画画像を含み暗号化されていないか確認）を出し、Kindle DRM の誤警告をやめる。mobi/azw/azw3 は従来どおり DRM の可能性を提示
+- **`Manga` no longer written automatically** — double-page detection (`--double-page`) only emits `<Pages>` per-page `Type="DoublePage"` markers and no longer appends a `<Manga>Yes</Manga>` declaration (readers like Mihon do not read that field, and it avoids declaring Manga even without spreads); `Manga` is now set explicitly via `--setinfo Manga=Unknown|No|Yes|YesAndRightToLeft`, limited to the official v2.0 enum; invalid values emit a warning and are ignored
+- **`--ext-priority` supports EPUB** — accepts `mobi` / `azw` / `azw3` / `epub`; the fallback order when priority does not cover a group is now `azw3 → epub → mobi → azw` (EPUB is kept over the mobi family)
+- **No-image hint split by extension** — EPUB with no images now gets a neutral hint (confirm it contains comic images and is not encrypted) instead of a false Kindle DRM warning; mobi/azw/azw3 still hint at possible DRM
 
-#### 追加
+#### Added
 
-- **`--setinfo` のホワイトリスト拡張（39 → 42）** — 公式 ComicInfo v2.0 の 3 フィールド `CommunityRating`（0-5 評価）/ `MainCharacterOrTeam` / `Review` を追加
-- **`--drop-small` で小画像を破棄** — デフォルト無効。有効にすると変換時に他の画像より明らかに小さい画像（表紙サムネイル / 版権ページなど）を除外: 幅・高さとも 中央値 × 比率 未満で小画像と判定（デフォルト比率 0.5、`0~1` の数値で調整、`off`/`no`/`0` で無効化）。画像ごとに PNG/JPEG ヘッダーの幅・高さを読むだけで、新規依存なし。破棄後は ComicInfo `PageCount` を実画像数で再計算。集計 / `--log` / `--json` に「破棄した小画像」カウントを追加（`--json` は `dropped_small` フィールド）。`--inspect` プレビューで「--drop-small 有効時は N 枚破棄されます」と表示。横長見開き（幅は小さくない）は誤破棄されない
+- **`--setinfo` whitelist extended (39 → 42)** — three more official ComicInfo v2.0 fields: `CommunityRating` (0-5 rating) / `MainCharacterOrTeam` / `Review`
+- **`--drop-small` drops small images** — disabled by default; when enabled, images clearly smaller than the rest are excluded during conversion (cover thumbnails / copyright pages, etc.): an image is dropped when both its width and height are < median × ratio (default ratio 0.5, adjustable with a `0~1` value, `off`/`no`/`0` disables); reads PNG/JPEG header dimensions per image with no new dependencies; ComicInfo `PageCount` is recomputed from the remaining images; the summary / `--log` / `--json` report a "dropped small" count (`--json` emits `dropped_small`); `--inspect` preview warns "N image(s) will be dropped when --drop-small is enabled"; wide double-page banners (width not small) are never mis-dropped
 
-#### ドキュメント
+#### Docs
 
-- **`--help` を 4 言語で同期** — `help.description` / `help.target` / `help.ext_priority` に `.epub` を追記。`help.setinfo` に Manga 列挙と明示指定の説明を追加
-- **暗号化 EPUB の注記** — FAQ に暗号化 EPUB（Adobe DRM など）は変換不可、先に DRM 除去と明記
+- **`--help` synced in four languages** — `help.description` / `help.target` / `help.ext_priority` now mention `.epub`; `help.setinfo` documents the Manga enum and explicit specification
+- **Encrypted EPUB note** — the FAQ clarifies that encrypted EPUBs (e.g. Adobe DRM) cannot be converted; remove DRM first
 
 ### [2.4.0] - 2026-08-20
 
-#### 追加
+#### Added
 
-- **EPUB 入力に対応** — 入力拡張子を `.mobi` / `.azw` / `.azw3` / `.epub` に拡大。`ebook_to_cbz` / `--inspect` / `--unpack` は拡張子で分岐: EPUB（ZIP コンテナ）は zipfile で安全に解凍（zip-slip 対策付き）、mobi/azw/azw3 は従来どおり `mobi.extract`。既存の OPF spine 抽出・ComicInfo メタデータのパイプラインを再利用し、形式ごとの別実装は持たない
-- **EPUB の表紙フォールバックを強化** — `get_opf_guide_cover_href` を 3 ソースに: ① guide `type="cover"` ② manifest `properties="cover-image"`（EPUB3）③ `<meta name="cover">` が指す item href（EPUB2）。表紙 href の解決を OPF ディレクトリ相対に修正（EPUB の OPF は通常 OEBPS/ 配下）
-- **EPUB のメタデータ補完** — EXTH ヘッダが無い場合、`--inspect` は OPF の `dc:` フィールドからタイトル/作者/言語/出版日/出版社を読み取る。`get_drm_flag` は EPUB では直接通過（ZIP コンテナに PalmDB DRM フィールドが無く、誤検出を回避）
-- **`--prefer` は EPUB では静かに無視** — EPUB に mobi7/mobi8 の二重ディレクトリは無く、自然に単一ディレクトリ
-- **EPUB3 nav 目次に対応** — `--inspect` は OPF manifest の `properties="nav"` から nav ドキュメントを特定（フォールバック: `*nav*.xhtml`）、`<nav epub:type="toc">` 内の `<a>` タイトルを解析（多段の入れ子を含む）。EPUB2 の `toc.ncx` と同時に表示され、.ncx が無い純粋な EPUB3 でも目次を表示
-- **ComicInfo のシリーズ/巻数をメタデータ優先で読み取り** — ComicInfo 生成時、Series/Number は OPF メタデータを優先（`dc:series` / `dc:number`、EPUB3 の `belongs-to-collection` / `group-position`、calibre の `meta[name=calibre:series/series_index]`）。`dc:number` は巻マーカーを自動除去（`卷12` → `12`）、OPF メタデータが無い場合のみファイル名推測にフォールバック
-- **見開きページ検出（`--double-page`）** — デフォルトで有効（閾値 2.0）: 幅/高さ ≥ 閾値の横長見開き大画像を検出し、ComicInfo に `<Manga>Yes</Manga>` トップレベルタグ + ページごとの `Type="DoublePage"` を書き込む。`--double-page auto` はデフォルトと同等、`--double-page 2.5` で閾値を調整、`--double-page off`（または `no` / `0`）で無効化。不正値はエラー
-- **ComicInfo フィールドの出所注記** — `--inspect` のプレビューで Series/Number に出所（`[setinfo]` / `[opf]` / `[inferred]`）を注記し、ユーザー指定・OPF メタデータ・ファイル名推測のどれ由来かを一目で判別できるように。`--json` 出力にも `series_source` / `number_source` / `cover_source` フィールドを追加（値は `setinfo` / `opf` / `inferred` / `filename` など）。AI / パイプラインがフィールドの信頼度を判断するためのもの
+- **EPUB input support** — accepted input extensions expanded to `.mobi` / `.azw` / `.azw3` / `.epub`; `ebook_to_cbz` / `--inspect` / `--unpack` branch by extension: EPUB (a ZIP container) is safely unpacked via zipfile (with zip-slip path-traversal protection), while mobi/azw/azw3 still go through `mobi.extract`; the existing OPF spine extraction and ComicInfo metadata pipeline is reused, with no parallel implementations
+- **EPUB cover fallback enhanced** — `get_opf_guide_cover_href` now checks three sources in order: ① guide `type="cover"` ② manifest `properties="cover-image"` (EPUB3) ③ the item referenced by `<meta name="cover">` (EPUB2); cover href resolution corrected to be relative to the OPF directory (EPUB OPFs usually live in OEBPS/)
+- **EPUB metadata supplement** — without an EXTH header, `--inspect` reads title/author/language/date/publisher from OPF `dc:` fields instead; `get_drm_flag` passes EPUB through directly (a ZIP container has no PalmDB DRM field, avoiding false positives)
+- **`--prefer` silently ignored for EPUB** — EPUB has no mobi7/mobi8 dual directories and is naturally single-directory
+- **EPUB3 nav TOC recognition** — `--inspect` locates the nav document via OPF manifest `properties="nav"` (fallback: `*nav*.xhtml`), parses `<a>` titles inside `<nav epub:type="toc">` (nested levels included); shown alongside the EPUB2 `toc.ncx`, so a pure EPUB3 without .ncx still gets a TOC
+- **ComicInfo series/number read from metadata first** — when generating ComicInfo, Series/Number are now taken from OPF metadata first (`dc:series` / `dc:number`, EPUB3 `belongs-to-collection` / `group-position`, calibre's `meta[name=calibre:series/series_index]`); `dc:number` is auto-stripped of volume markers (`卷12` → `12`), and only falls back to filename inference when no OPF metadata exists
+- **Double-page detection (`--double-page`)** — on by default (threshold 2.0): detects wide banner spread images whose width/height ≥ threshold, and writes `<Manga>Yes</Manga>` top-level tag + per-page `Type="DoublePage"` into ComicInfo; `--double-page auto` equals the default, `--double-page 2.5` adjusts the threshold, `--double-page off` (or `no` / `0`) disables it, and invalid values error out
+- **ComicInfo field source annotation** — the `--inspect` preview annotates Series/Number with their source (`[setinfo]` / `[opf]` / `[inferred]`), so you can tell at a glance whether a field came from user specification, OPF metadata, or filename inference; `--json` also gains `series_source` / `number_source` / `cover_source` fields (values such as `setinfo` / `opf` / `inferred` / `filename`) for AI/pipeline trust assessment
 
-#### 変更
+#### Changed
 
-- **`--unpack` の安全解凍を統一** — CBZ と EPUB で `_safe_zip_extract`（zip-slip 対策）を共用し、ロジックを単一化
-- **`--setinfo` の CBZ 変更をストリーミング化** — `modify_cbz_comicinfo` はアーカイブ全体をメモリに読み込まず、双方向ハンドルで 1MB チャンクずつコピーし、`ComicInfo.xml` のみメモリに読み込む。各エントリの圧縮方式・タイムスタンプ・属性を保持し、アトミック置換と例外時のクリーンアップは従来どおり（大容量アーカイブのメモリ使用量が O(全体) から O(単一エントリ) に低減）
-- **ComicInfo の優先順位を変更（setinfo > OPF メタデータ > ファイル名推測）** — 従来 Series/Number はファイル名推測（`infer_series_number`）の結果をそのまま使っていた。現在はユーザー指定の `--setinfo` を最優先、次に OPF メタデータ、最後にファイル名推測。シリーズ名の無い純巻マーカーのファイル（例 `Vol.01.mobi`）は巻番号のみ返し、偽のシリーズ名は付けない
-- **巻番号推測の正規表現を拡充** — `infer_series_number` の対応を追加: `巻N` 前置式、`vN`、`第N册`/`N册`、`巻N` 前置式（日本語「巻N」）、フランス語 `tome N`、韓国語 `권N`、タイ語 `เล่ม N`、ロシア語 `Том N`、漢数字の巻（`第一卷`/`卷二`）、小数の巻（`Vol 7.5`）
-- **Notes から CoverSource を削除** — 表紙の出所を ComicInfo の `Notes` フィールドに書き込まない（非標準の注記がソフト間で共有される ComicInfo.xml に入らないように）。代わりに `--inspect` の表紙行と `--json` の `cover_source` フィールドで表示し、Notes は内容フィールドのみに
+- **Unified safe extraction for `--unpack`** — CBZ and EPUB share `_safe_zip_extract` (zip-slip protection), simplifying the logic
+- **Streaming rewrite for `--setinfo` CBZ modification** — `modify_cbz_comicinfo` no longer loads the whole archive into memory; it copies entries with dual handles (1MB chunks) and only reads `ComicInfo.xml` into memory; per-entry compression method / timestamps / attributes are preserved, and atomic replacement with exception cleanup is unchanged (memory for large archives drops from O(whole archive) to O(single entry))
+- **ComicInfo priority reordered (setinfo > OPF metadata > filename inference)** — previously Series/Number came straight from filename inference (`infer_series_number`); now user-specified `--setinfo` wins, then OPF metadata, and filename inference is only the last resort; files with a bare volume marker and no series name (e.g. `Vol.01.mobi`) now return the number only, not a fake series name
+- **Volume-inference regex expanded** — `infer_series_number` now covers: `卷N` prefix style, `vN`, `第N册`/`N册`, `巻N` prefix style, French `tome N`, Korean `권N`, Thai `เล่ม N`, Russian `Том N`, Chinese-numeral volumes (`第一卷`/`卷二`), and fractional volumes (`Vol 7.5`)
+- **CoverSource removed from Notes** — cover source is no longer written into the `Notes` field of ComicInfo (avoiding non-standard notes leaking into the cross-software shared ComicInfo.xml); it is now surfaced via the `--inspect` cover line and the `--json` `cover_source` field, and Notes keeps content fields only
 
 ### [2.3.1] - 2026-08-19
 
-#### 修正
+#### Fixed
 
-- **変換ブランチのアトミック置換を強化** — 一時ファイルを validate_cbz で検証してから `os.replace` で対象を上書き。失敗時は tmp のみ削除し旧 CBZ を保持。ComicInfo 生成失敗時に既存の対象 CBZ を削除しなくなった。Ctrl+C（KeyboardInterrupt）で残る `.tmp` は finally で確実にクリーンアップ
-- **`--setinfo` 未知プレースホルダの warning** — ホワイトリスト外のプレースホルダは warning を出力した上でそのまま書き込む（4 言語の i18n キーを追加）
-- **sanitize 拡張** — ASCII 制御文字を除去、末尾のピリオド/スペースを除去
-- **find_opf の命名優先度** — 複数 OPF がある場合 `content.opf` / `package.opf` を優先
-- **メンテナンス** — 古い docstring を整理。`_strip_html` を HTMLParser に変更（不要な `import html` を削除）
+- **Hardened atomic replacement in the conversion branch** — the temp file is validated with validate_cbz before `os.replace` overwrites the target; on failure only the tmp is cleaned and the old CBZ is kept; a ComicInfo generation failure no longer deletes an existing target CBZ; Ctrl+C (KeyboardInterrupt) leftover `.tmp` files are cleaned up by a finally block
+- **Unknown `--setinfo` placeholder warning** — out-of-whitelist placeholders emit a warning and are written as-is (new i18n keys in all four languages)
+- **sanitize extended** — ASCII control characters stripped, trailing dots/spaces removed
+- **find_opf naming priority** — `content.opf` / `package.opf` preferred when multiple OPFs exist
+- **Maintenance** — stale docstrings cleaned; `_strip_html` switched to HTMLParser (dead `import html` removed)
 
-#### ドキュメント
+#### Docs
 
-- **`--help` 文言を拡充（zh-CN/zh-TW/en/ja）** — `--setinfo`: 値に `Key=` が含まれる場合は複数回指定、有効時は既存 `.cbz` を直接変更。`--json`/`--json-out`: 変換/変更モードでのみ出力（dry-run/inspect/unpack では出力しない）、プログレスバーは stderr へ書き込まれ分離されるが 2>&1 結合では混入
-- **README の使用説明を同期** — setinfo / JSON セクションとパラメータ表を更新
+- **`--help` wording extended (zh-CN/zh-TW/en/ja)** — `--setinfo`: use multiple options when a value contains `Key=`, existing `.cbz` inputs are modified in place when enabled; `--json`/`--json-out`: only emitted in conversion/modify mode (nothing in dry-run/inspect/unpack), progress bar goes to stderr and stays separate, but 2>&1 combined redirection mixes it in
+- **README usage notes synchronized** — setinfo / JSON sections and the parameter table updated accordingly
 
 ### [2.3.0] - 2026-08-19
 
-#### 追加
+#### Added
 
-- **JSON 構造化出力** — `--json` は stdout に単行のコンパクト JSON を出力（AI / パイプ / スクリプト向け。有効時は人間向けテキスト出力を抑止）；`--json-out [FILE]` は構造化結果を JSON ファイルに書き込み（インデント形式、ファイル名省略時はタイムスタンプファイルを自動作成、`--log` と同様の挙動）；両者は併用可能で、変換モードと `--setinfo` 変更モードの両方に対応
+- **JSON structured output** — `--json` prints a single-line compact JSON to stdout (for AI / pipelines / scripts; suppresses human-readable text output when enabled); `--json-out [FILE]` writes the structured result to a JSON file (indented format; omitting the filename auto-generates a timestamped file, behaving exactly like `--log`); the two can be combined; supported by both the conversion mode and the `--setinfo` modification mode
 
-#### 修正（v2.2.1 の中間修正を併合してリリース）
+#### Fixed (merged from the v2.2.1 interim fixes)
 
-- **変換パスのアトミック置換** — CBZ パッケージングを `xxx.cbz.tmp` 一時ファイルに書き込み、すべて成功後に `os.replace` で対象を上書きする方式に変更。パッケージ前の旧 CBZ 削除と失敗分岐での削除を撤廃し、例外時は半成品の tmp のみクリーンアップ。Ctrl+C / 途中クラッシュによる壊れた CBZ の残存、上書き失敗時に旧ファイルが失われるデータ損失リスクを解消（CBZ 変更モードの既存アトミック置換と一貫）
-- **`--inspect` の非数値 PageCount 警告** — ComicInfo の PageCount が数値でない場合、黙って無視せず warning を出力（新 i18n キー `inspect.pagecount_non_numeric`、四言語同期）
-- **`--timeout` ヘルプ文言** — タイムアウト後に基盤の解凍スレッドがバックグラウンドに残る可能性がある旨を追記。`--overwrite` の表示も「古いファイルを上書きし再生成」に変更し、実際のアトミック置換動作に一致させた
+- **Atomic replacement in the conversion path** — CBZ packaging now writes to a `xxx.cbz.tmp` temp file first and only `os.replace`s it over the target after everything succeeds; removed the unlink of the old CBZ before packaging and the deletion in failure branches, so only the half-written tmp is cleaned on exception. Eliminates the risk of a truncated CBZ left behind by Ctrl+C / mid-run crash, and the data-loss risk of losing the old file when overwrite fails (consistent with the existing atomic replacement in CBZ modification mode)
+- **`--inspect` non-numeric PageCount warning** — a non-numeric PageCount in ComicInfo now emits a warning instead of being silently ignored (new i18n key `inspect.pagecount_non_numeric`, synced across all four languages)
+- **`--timeout` help text** — now notes that the underlying unpack thread may linger in the background after a timeout; the `--overwrite` message now reads "old file will be replaced", matching the actual atomic-replacement behavior
 
 ### [2.2.0] - 2026-08-18
 
 #### Added
 
-- **CBZ 変更モード** — 入力が既存 `.cbz` で `--setinfo` 指定時、その ComicInfo.xml を直接変更: 元 XML を読む → 指定フィールドを上書き、未指定フィールドは元の値を保持 → 一時ファイル + アトミック置換（`os.replace`）で書き込み。`--dry-run` プレビュー / 集計 / `--log` に対応
-- **setinfo ホワイトリスト** — `--setinfo` のフィールド名は ComicInfo 標準フィールドのホワイトリスト内である必要があります（単純フィールド 39 個、複雑な `Pages` は除外）。ホワイトリスト外は warning を出して無視
-- **ソース更新で自動再変換** — 再開サポートに、ソースファイルが対象 CBZ より新しい場合の自動再変換を追加
-- **`--unpack` / `--setinfo` が CBZ 入力に対応** — 収集段階で `--unpack` または `--setinfo` 指定時は `.cbz` も収集
-- **`--prefer auto`（デフォルト）** — 二重ディレクトリ mobi のデフォルトを auto に: mobi8 を優先し、mobi8 に画像がない場合は mobi7 に自動フォールバック。`mobi7`/`mobi8` 明示指定時も、選択ディレクトリに画像がない場合はもう一方へフォールバック
-- **Summary の HTML クリーンアップ** — ComicInfo の Summary フィールドから HTML タグを取り除き、プレーンテキストを書き込み
-- **表紙ソースの注記** — ComicInfo の Notes フィールドに `CoverSource`（OPF guide / ファイル名マッチ）を追記
-- **CBZ 事前チェック** — `.cbz` 入力も 0 バイト / `--min-size` チェックの対象に
-- **`--inspect` の PageCount 整合性チェック** — CBZ 内の ComicInfo PageCount と実際の画像数を比較し、不一致を報告
+- **CBZ modification mode** — when the input is an existing `.cbz` and `--setinfo` is given, its ComicInfo.xml is modified directly: read the original XML → overwrite the specified fields, keep unspecified fields at their original values → write via temp file + atomic replace (`os.replace`); covered by `--dry-run` preview / summary stats / `--log`
+- **setinfo whitelist** — `--setinfo` field names must be within the ComicInfo standard-field whitelist (39 simple fields, complex `Pages` excluded); out-of-whitelist fields emit a warning and are ignored
+- **Source-newer auto-reconvert** — resume support now compares the source file's mtime with the target CBZ's; when the source is newer, it is automatically reconverted
+- **`--unpack` / `--setinfo` accept CBZ input** — the collection stage also gathers `.cbz` files when `--unpack` or `--setinfo` is given
+- **`--prefer auto` (default)** — dual-directory mobi now defaults to auto: prefers mobi8, falls back to mobi7 when mobi8 has no images; explicitly specifying `mobi7`/`mobi8` falls back to the other when the chosen directory has no images
+- **Summary HTML cleanup** — the ComicInfo Summary field strips HTML tags (plain text written to disk)
+- **Cover-source annotation** — the ComicInfo Notes field appends `CoverSource` (OPF guide / filename match)
+- **CBZ precheck** — `.cbz` inputs now also go through 0-byte / `--min-size` checks
+- **`--inspect` PageCount consistency check** — compares the ComicInfo PageCount inside a CBZ with the actual image count and reports a mismatch
 
 #### Changed
 
-- **`--unpack` のパス安全性** — cbz 解凍に zip-slip パストラバーサル対策（`..` / 絶対パスを拒否）と解凍集計を追加
-- **複数 OPF の warning** — ディレクトリに複数の `.opf` がある場合 warning を出し、先頭のものを使う
-- **破損 CBZ 再変換の理由表示** — 再開パスで破損 CBZ を再変換する際、`validate_cbz` の具体的な失敗理由を出力
-- **HTML 画像パスの互換性** — `<img>` の src 抽出で、ローカルパス解決前にクエリ / フラグメント（`?` / `#`）を除去
-- **ディレクトリ作成タイミング** — 対象 CBZ が既に存在し SKIP される場合、出力ディレクトリを早期に作成しない
-- **コードの衛生** — `ebook_to_cbz` の戻り値型注釈を 3 要素タプルに補完、`_auto_language` 末尾を明示化
+- **`--unpack` path safety** — cbz unpacking gains zip-slip path-traversal protection (rejects `..` / absolute-path entries) and prints an unpack summary
+- **Multiple OPF warning** — when a directory contains more than one `.opf`, a warning is emitted and the first one is used
+- **Corrupt-CBZ reconvert reason** — the resume path now prints the specific `validate_cbz` failure reason when reconverting a corrupt CBZ
+- **HTML image path compatibility** — `<img>` src extraction strips query / fragment (`?` / `#`) before resolving the local path
+- **Directory creation timing** — no longer creates the output directory early when the target CBZ already exists and will be SKIPped
+- **Code hygiene** — `ebook_to_cbz` return-type annotation completed to the triple; `_auto_language` tail made explicit
 
 ### [2.1.0] - 2026-08-17
 
-#### 追加
+#### Added
 
-- **再開サポート（デフォルト動作）** — 対象 CBZ が既に存在し `validate_cbz` に合格した場合は SKIP、破損・無効な場合は自動で再変換。`--overwrite` は無条件で上書き
-- **失敗の分類** — `ebook_to_cbz` は 3 要素タプル `(result, status, reason)` を返すようになり、失敗理由を `timeout` / `drm` / `corrupt` / `no_images` / `comicinfo` / `verify` / `other` に分類。主フローに `failed_reasons` 集計を追加し、集計に出力
-- **`--inspect` が CBZ 対応** — `inspect_ebook` に統合。CBZ 分岐は zipfile のみで解凍しない。`image_dimensions_bytes(bytes)` を抽出して再利用
-- **`--inspect` 出力の強化** — 表紙行に解像度+サイズ、形式統計に総ファイル数、Spine 先頭 5 件の各行に幅/高さを追加
-- **`--setinfo FIELD=VALUE`** — ComicInfo フィールドを上書き/追加（複数指定可、最優先）。VALUE は固定値 / `%series` / `%number` / `%title` / `%filename` / `%leftN` / `%rightN` に対応。スマート分割（カンマ直後に `フィールド名=` が続く場合のみ分割）。CBZ 変更モードは zip を直接書き直し。`--inspect` プレビューブロックにも適用
-- **ComicInfo を同一 zip パスで書き込み** — `write_comicinfo` 関数を削除し、Step4 の with ブロック内で `zf.writestr`
-- **`--log` の自動命名** — `nargs="?"` + `const="auto"`。auto 時は `manga-mobi2cbz_YYYYMMDD_HHMMSS.log`（カレントディレクトリ）を生成
-- **`--unpack` 解凍表示** — 変換せず解凍のみ。mobi は extract で完全な構造を保持、cbz は extractall。デフォルトで同名ディレクトリへ出力し、既存時は `(2)(3)` と自動採番
+- **Resume support (default behavior)** — if the target CBZ already exists and passes `validate_cbz`, it is skipped (SKIP); corrupt/invalid output is automatically reconverted; `--overwrite` unconditionally overwrites
+- **Failure classification** — `ebook_to_cbz` now returns a triple `(result, status, reason)`; failure reasons are categorized as `timeout` / `drm` / `corrupt` / `no_images` / `comicinfo` / `verify` / `other`; the main flow adds a `failed_reasons` counter shown in the summary
+- **`--inspect` supports CBZ** — merged into `inspect_ebook`; the CBZ branch reads purely via zipfile without unpacking; extracted `image_dimensions_bytes(bytes)` for reuse
+- **`--inspect` output enhancement** — cover line gains resolution+size, format stats gain total file count, and each of the first 5 Spine entries gains width/height
+- **`--setinfo FIELD=VALUE`** — override/add ComicInfo fields (repeatable, highest priority); VALUE supports fixed values / `%series` / `%number` / `%title`/ `%writer` / `%publisher` / `%date` / `%language` / `%description` / `%filename` / `%leftN` / `%rightN` / `%subN_M`; smart splitting (only splits when a comma is followed by `fieldname=`); CBZ modification mode rewrites the zip directly; the `--inspect` preview block applies it too
+- **ComicInfo written in the same zip pass** — removed the `write_comicinfo` function; `zf.writestr` inside the Step4 `with` block
+- **`--log` auto-naming** — `nargs="?"` + `const="auto"`; auto generates `manga-mobi2cbz_YYYYMMDD_HHMMSS.log` (current directory)
+- **`--unpack` unpack-to-view** — extract only, no conversion; mobi uses extract preserving the full structure, cbz uses extractall; defaults to a same-name directory, auto-numbered `(2)(3)` if it already exists
 
 ### [2.0.2] - 2026-08-17
 
-#### 変更
+#### Changed
 
-- `infer_series_number` が括弧付きサフィックスに対応: ファイル名の `(著者)` などの括弧が巻号推測を妨げなくなりました
-- 純粋な巻マーカー（`Vol.01` / `第 01 卷` / `01巻` など）は巻号のみ `(None, number)` を返すようになり、`(None, None)` ではなくなりました。ComicInfo に Number を書き込めます
-- `--flatten` の同名処理を SKIP/`--overwrite` に変更: フラット出力ルートの同名ファイルは自動番号で `(2).cbz` に再変換されず、`--overwrite` 未指定時はスキップ（SKIP）、指定時は優先名を上書きします。dry-run と実実行は一致します
-- 参照がなくなった `unique_path` 関数を削除
+- `infer_series_number` now supports parenthesized suffixes: a `(author)` suffix no longer blocks volume inference (e.g. `Sample Series - Vol. 23 (Sample Author)` correctly infers Series=Sample Series / Number=23)
+- Pure volume markers (`Vol.01` / `第 01 卷` / `01巻` etc.) now return only the volume number `(None, number)` instead of `(None, None)`, so ComicInfo can write Number
+- `--flatten` same-name handling changed to SKIP/`--overwrite`: same-name files in the flat output root are no longer auto-renamed and re-converted as `(2).cbz`; without `--overwrite` they are skipped (SKIP), with it the preferred name is overwritten; dry-run stays consistent with the real run
+- Removed the now-unused `unique_path` function
 
-#### 修正
+#### Fixed
 
-- PageCount の整合性を修正: 物理重複の除去を ComicInfo 生成より前に移動し、PageCount とパッケージングの両方で重複除去後の実書き込み数を採用
-- `run_with_timeout` のバージョン間互換を修正: 組み込み `TimeoutError` と `concurrent.futures.TimeoutError` の両方を捕捉（Python 3.10 対応）
-- `infer_series_number` のドット不具合を修正: `path.name` で拡張子を手動除去する方式に変更し、`One Piece Vol.01` のようなドット付き巻号を正しく推測
-- LanguageISO ホワイトリスト + alias: ISO 639-1 全 184 コードのホワイトリスト検証と、`jp→ja` / `cn→zh` / `zhtw→zh` などの一般的な別名を追加
-- Year の厳格な日付解析: 完全な日付フィールドを優先し、範囲/複数値（`2001-2005`）は None を返す
-- `emit` の warning を `--quiet` 下でも表示
-- EXTH ループ変数 `t` を `type_id` に改名し、グローバル `t()` の遮蔽を回避
-- 正規表現 img src 抽出に `unquote` を適用し、HtmlImgParser フォールバックと一致
-- `--language` の寛容化: `zh`/`cn`/`zhtw`/`jp` などの一般的な表記を `_normalize_lang` で正規化（argparse の choices 制限を撤廃）
+- Fixed PageCount consistency: physical dedup now happens before ComicInfo generation; both PageCount and packaging use the deduplicated actual written count
+- Fixed `run_with_timeout` cross-version: except now catches both built-in `TimeoutError` and `concurrent.futures.TimeoutError` (Python 3.10 compatible)
+- Fixed `infer_series_number` dot failure: now uses `path.name` with manual extension removal, so dotted volume numbers like `Sample Series Vol.01` infer correctly
+- LanguageISO whitelist + alias: full ISO 639-1 whitelist (184 codes) plus common aliases `jp→ja` / `cn→zh` / `zhtw→zh`
+- Year strict date parsing: prefers full date fields; ranges/multi-values (`2001-2005`) return None
+- `emit` warning now visible under `--quiet`
+- EXTH loop variable `t` renamed to `type_id` to avoid shadowing the global `t()`
+- Regex img src extraction now applies `unquote`, consistent with the HtmlImgParser fallback path
+- `--language` tolerance: accepts common spellings like `zh`/`cn`/`zhtw`/`jp` via new `_normalize_lang` (argparse `choices` restriction removed)
 
 ### [2.0.1] - 2026-08-17
 
-#### 修正
+#### Fixed
 
-- `infer_series_number` がシリーズ名のない巻マーカーのみのファイル名（`Vol.01` / `Volume 01` / `01巻` など）からシリーズ名を誤って推測する問題を修正。`_is_volume_marker` による巻マーカー語フィルタを追加
+- Fixed `infer_series_number` incorrectly inferring a series name from volume-marker-only filenames (`Vol.01` / `Volume 01` / `01巻` etc.); added the `_is_volume_marker` volume-marker filter
 
 ### [2.0.0] - 2026-08-14
 
-#### 追加
+#### Added
 
-- デフォルトで ComicInfo.xml を生成（CBZ ZIP ルートへ書き込み、UTF-8、XML 宣言付き）。`--no-comicinfo` で無効化
-- 4 つの関数を追加: `build_comicinfo`（`xml.etree.ElementTree` で生成、手動文字列連結は禁止）、`write_comicinfo`、`normalize_language`（言語コードを ISO 639-1 に正規化）、`infer_series_number`（ファイル名から Series/Number を高確度で推測、`001`/`01`/`1`/`Vol.01`/`Vol 01`/`Volume 01`/`第 01 卷` などの形式に対応、確度不足時は None を返す＝見つからないより良い）
-- フィールド対応: Title=OPF title→EXTH title→ファイル名 stem、Writer=OPF creator→EXTH author、Publisher=OPF publisher→EXTH publisher、Year=PublicationDate の年、LanguageISO=電子書籍自身の言語（ファイル名から推測しない）、PageCount=最終的に CBZ へ書き込む実際の画像数（必須）、Series/Number=ファイル名からの高確度推測、Summary=OPF description（取得時のみ）。確かな情報源のないフィールドは省略（空タグを生成しない）
-- フロー挿入: 最終的な画像集合の確定後に ComicInfo を構築し、CBZ 作成時に画像と ComicInfo.xml を同時に書き込み。完全性検証に 3 項目を追加（ComicInfo.xml の存在、標準 XML パーサーで解析可能、ルートノードが ComicInfo）。生成・検証の失敗＝変換全体の失敗とし、`--delete` によるソース削除を禁止
-- `--dry-run` は ComicInfo.xml を作成しないが、有効かどうかを 1 行表示
-- `--inspect` の出力に ComicInfo プレビューブロックを追加（Title/Series/Number/Writer/Publisher/Year/LanguageISO/PageCount/Summary は値がある場合のみ表示）。推測フィールドには `[inferred]` を明示
-- i18n: 4 言語に 6 キーを追加: `comicinfo.generating` / `comicinfo.created` / `comicinfo.disabled` / `comicinfo.invalid` / `comicinfo.inferred` / `help.no_comicinfo`
+- Generates ComicInfo.xml by default (written into the CBZ ZIP root, UTF-8 with XML declaration); new `--no-comicinfo` flag disables it
+- New functions: `build_comicinfo` (built with `xml.etree.ElementTree`, no manual string concatenation), `write_comicinfo`, `normalize_language` (normalizes language codes to ISO 639-1), `infer_series_number` (high-confidence Series/Number inference from the filename, supporting `001`/`01`/`1`/`Vol.01`/`Vol 01`/`Volume 01`/`第 01 卷` forms; returns None when confidence is insufficient — better missing than wrong)
+- Field mapping: Title=OPF title→EXTH title→filename stem, Writer=OPF creator→EXTH author, Publisher=OPF publisher→EXTH publisher, Year=PublicationDate year, LanguageISO=the ebook's own language (not guessed from the filename), PageCount=the actual image count written into the CBZ (always written), Series/Number=high-confidence filename inference, Summary=OPF description (written only when present); fields without a reliable source are omitted (no empty tags)
+- Flow insertion: ComicInfo is built after the final image set is determined, then written into the CBZ together with the images; integrity verification adds 3 checks (ComicInfo.xml exists, parseable by a standard XML parser, root node is ComicInfo); ComicInfo generation or verification failure = the whole conversion fails, and `--delete` must not delete the source file
+- `--dry-run` does not create ComicInfo.xml but prints one line indicating whether ComicInfo is enabled
+- `--inspect` output gains a ComicInfo preview block (Title/Series/Number/Writer/Publisher/Year/LanguageISO/PageCount/Summary shown only when present), with inferred fields clearly marked `[inferred]`
+- i18n: 6 new keys across all four languages: `comicinfo.generating` / `comicinfo.created` / `comicinfo.disabled` / `comicinfo.invalid` / `comicinfo.inferred` / `help.no_comicinfo`
 
 ### [1.9.1] - 2026-08-14
 
-#### 追加
+#### Added
 
-- `--inspect-all` を単独で使用（`--inspect` なし）した場合、自動的に `--inspect` を有効化し warning を出力（4 言語に `warn.inspect_all_auto_enable` キーを追加）
-- `--inspect` の説明を更新: 位置引数が単一ファイルの場合はそのファイルを直接検査、ディレクトリの場合はランダムに 1 冊抽出
-- `--inspect-all` の説明を更新: `--inspect` と併用必須、単独指定時は自動的に `--inspect` を有効化
+- `--inspect-all` used alone (without `--inspect`) now auto-enables `--inspect` and prints a warning (new key `warn.inspect_all_auto_enable` in all four languages)
+- `--inspect` help updated: a single-file positional argument inspects that file directly; a directory samples 1 ebook randomly
+- `--inspect-all` help updated: requires `--inspect`; using it alone will auto-enable `--inspect`
 
 ### [1.9.0] - 2026-08-14
 
-#### 破壊的変更（Breaking Change）
+#### Breaking Change
 
-- `--output-dir DIR` を「DIR へ一律フラット」から「**デフォルトで入力の相対サブディレクトリ構造を保持**」に変更（例: `One Piece/001.mobi` → `DIR/One Piece/001.cbz`）
-- 移行方法: 旧コマンド `python manga-mobi2cbz.py Manga --output-dir CBZ` は `python manga-mobi2cbz.py Manga --output-dir CBZ --flatten` に変更すると「フラット」動作を復元できます
+- `--output-dir DIR` changed from "flatten everything into DIR" to "**preserve the relative subdirectory structure of the input by default**" (e.g. `Sample Series/001.mobi` → `DIR/Sample Series/001.cbz`)
+- Migration: the old command `python manga-mobi2cbz.py ComicsLibrary --output-dir CBZ_Output` must be changed to `python manga-mobi2cbz.py ComicsLibrary --output-dir CBZ_Output --flatten` to restore the "flatten" behavior
 
-#### 追加
+#### Added
 
-- `--flatten`: `--output-dir` と併用時のみ有効。すべての CBZ を出力ルート直下へフラット化。命名規則: 入力直下 → `stem`、サブディレクトリ → `親ディレクトリ名 - stem`。不正なファイル名文字（`<>:"/\|?*`）は `_` に置換
-- フラット時の衝突自動一意化: `base.cbz` → `base (2).cbz` → `base (3).cbz` …。黙って上書きせずスキップもせず、番号付け時に info を出力
-- `--flatten` 単独指定（`--output-dir` なし）はエラー終了（exit 2）。メッセージは多言語化
-- 実行ごとに出力モード（構造保持 / フラット）を 1 回表示。4 言語テーブルに `output.mode_preserve` / `output.mode_flatten` / `output.renamed_due_to_conflict` / `output.flatten_requires_dir` / `error.flatten_without_output_dir` / `rel_fallback` キーを追加
-- 相対パス計算に失敗した場合（ドライブ跨ぎなど）は `DIR/stem.cbz` にフォールバックし warning を出力
-- 単一ファイル入力 + `--output-dir` は `DIR/stem.cbz` へ出力（サブディレクトリなし）
-- 構造保持時の `--overwrite` は従来どおり。フラット時は一意化を優先し、`--overwrite` は最終的に選ばれたパスのみに作用
+- `--flatten`: only used together with `--output-dir`; flattens all CBZ files into the output directory root; flat naming rules: file directly under the input root → `stem`, in a subdirectory → `parent dir name - stem`; illegal filename characters (`<>:"/\|?*`) are replaced with `_`
+- Automatic conflict uniquification in flat mode: `base.cbz` → `base (2).cbz` → `base (3).cbz` …, never silently overwrites or skips; an info message is printed when numbering occurs
+- Using `--flatten` without `--output-dir` exits with an error (exit 2); the message is i18n-ized
+- Prints one output-mode line per run (preserve structure / flatten); four language tables gain keys `output.mode_preserve` / `output.mode_flatten` / `output.renamed_due_to_conflict` / `output.flatten_requires_dir` / `error.flatten_without_output_dir` / `rel_fallback`
+- If computing the relative subdirectory path fails (e.g. across drives), falls back to `DIR/stem.cbz` with a warning
+- Single-file input + `--output-dir` outputs `DIR/stem.cbz` (no subdirectory wrapping)
+- `--overwrite` semantics unchanged in preserve mode; in flat mode uniquification is preferred, and `--overwrite` still applies to the final chosen path
 
-#### リファクタリング
+#### Refactored
 
-- `target_cbz_path` に `flatten` / `input_root` / `used_names` 引数を追加。`sanitize_filename_component` / `flat_base_name` / `unique_path` を独立関数化
-- dry-run のフラット一意化は処理順に使用済み名を管理し、実実行と一致
+- `target_cbz_path` gains `flatten` / `input_root` / `used_names` parameters; new standalone helpers `sanitize_filename_component` / `flat_base_name` / `unique_path`
+- dry-run flat uniquification maintains a used-name set in processing order, consistent with real runs
 
-#### 修正と強化（v1.9.0 に統合、バージョン据え置き）
+#### Fixes & Enhancements (folded into v1.9.0, no version bump)
 
-- `run_with_timeout` の戻り値を `(timed_out, result)` タプルに変更: タイムアウト → `(True, None)`、正常 → `(False, 関数の戻り値)`。「タイムアウト」と「正常に None を返した」の曖昧さを解消
-- `--inspect` のタイムアウト時に「展開された一時ディレクトリが残っている可能性があるため、手動でクリーンアップしてください」というヒントを追加（4 言語テーブルに `inspect_mode.timeout_residue` キーを追加）
-- パッキング時に `seen` が正規化パスでも物理重複を判定: 同じ物理ファイルが複数回出現したらスキップ（同名別ファイルは従来どおり連番プレフィックス）、重複スキップ数を出力（4 言語に `convert.dedup_physical` キーを追加）
-- `HtmlImgParser`（HTMLParser のサブクラス）を追加し `<img src>` 抽出のフォールバックに: HTML エンティティは HTMLParser が自動デコード、`%XX` は `unquote` で処理。OPF/spine の HTML 画像抽出に接続し、正規表現がヒットしないときのみ使用。ElementTree のメインフローには影響なし
-- `--dry-run` で出力ディレクトリ（`--output-dir` または各ソースファイルの所在ディレクトリ）の書き込み可否を確認し、書き込み不可なら warning を出力（4 言語に `dryrun.output_not_writable` キーを追加）
+- `run_with_timeout` now returns a `(timed_out, result)` tuple: timeout → `(True, None)`, normal → `(False, function return value)`, removing the ambiguity between "timeout" and a normal `None` return
+- `--inspect` timeout branch adds a hint that the extracted temp directory may be left behind and should be cleaned up manually (new key `inspect_mode.timeout_residue` in all four languages)
+- Packing-stage `seen` now also uses normalized paths to detect physically duplicate files: the same physical file appearing more than once is skipped (same-name different files still get numeric prefixes), and a dedup count is printed (new key `convert.dedup_physical`)
+- New `HtmlImgParser` (an `HTMLParser` subclass) fallback for extracting `<img src>`: HTML entities are auto-decoded by HTMLParser plus `unquote` for `%XX`; wired into OPF/spine HTML image extraction, enabled only when the regex misses; the ElementTree main flow is untouched
+- `--dry-run` now checks whether the output directory (`--output-dir` or each source file's directory) is writable and warns when it is not (new key `dryrun.output_not_writable`)
 
 ### [1.8.0] - 2026-08-14
 
-#### 追加
+#### Added
 
-- 軽量多言語: `--language auto|zh-CN|zh-TW|ja|en`（デフォルト `auto` は locale で判定: 簡体字→zh-CN、繁体字 zh-TW/zh-Hant→zh-TW、日本語→ja、それ以外→en）。出力文面と `--help` を言語に追従（`--help` は `--language` を先に読んでから parser を構築）。キー欠落時は en→キー名へフォールバックし例外にしない。業務コードに `if lang` 分岐は置かない。フラグ名 / 列挙 / 書籍 metadata / OPF / DRM / spine などは翻訳しない。`TAG_*` を廃止して `t()` キーに統一
-- `.azw` / `.azw3` 入力: 拡張子を `.mobi` / `.azw` / `.azw3`（大文字小文字無視）に拡大。共通パイプライン `extract → OPF/spine → 表紙 → 整合 → パッケージ → 検証` を再利用し、形式ごとの別実装は持たない
-- `--ext-priority EXTS`: 同一ディレクトリ・同名（拡張子のみ違う）ときの保持形式。カンマ区切り・左が高優先。`mobi` / `azw` / `azw3` のみ。デフォルト `azw3`。未指定分は azw3→mobi→azw にフォールバックして warning。`--prefer`（mobi7/mobi8）とは無関係
-- 同名拡張子の重複排除: グループキーは `parent.resolve() + stem.lower()`。別ディレクトリの同名は対象外。パス計算・プログレス計数より前に実行し、スキップ理由をログ出力
-- マジックバイト事前チェックを 3 形式に拡大。オフセット 60 の `BOOKMOBI` を確認。拡張子は合っているがマジックがおかしい場合は「即破損スキップ」ではなく warning のうえ解凍を試行（`mobi.extract` 側の検証あり。失敗は失敗リストへ）
-- `--delete` と `--inspect` / `--inspect-all` を 3 形式で統一
-- ファイル単位プログレスバー: `--progress` / `--no-progress`。TTY かつ件数≥2 で自動表示、非 TTY はオフ。両方指定時は後勝ち。`--quiet` 下でもデフォルト表示。convert / inspect / dry-run 対応。total は重複排除後の件数。stderr のみ（`--log` 非対象）。tqdm は任意依存、無ければテキスト表示にフォールバック
+- Lightweight i18n: `--language auto|zh-CN|zh-TW|ja|en` (default `auto` detects by system locale: Simplified → zh-CN, Traditional zh-TW/zh-Hant → zh-TW, Japanese ja/Japanese → ja, non-zh/ja → en); all output text and `--help` are translated with the language (`--help` is implemented by pre-parsing `--language` before building the parser); missing keys fall back en → key name without raising; business code never writes `if lang` branches; parameter names/enums/book metadata/OPF/DRM/spine and other technical terms are not translated; all `TAG_*` constants are removed and replaced with `t()` keys
+- `.azw` / `.azw3` input support: accepted input extensions expanded to `.mobi` / `.azw` / `.azw3` (case-insensitive), all three reusing the same `extract → OPF/spine → cover → align → pack → verify` pipeline, no parallel implementations
+- `--ext-priority EXTS`: which format to keep when files share the same name in the same directory (differing only by extension) — comma-separated, order = priority high→low, accepts only `mobi`/`azw`/`azw3`, default `azw3`; groups not covered by the priority fall back to azw3→mobi→azw with a warning; completely unrelated to `--prefer` (dual-directory mobi7/mobi8 selection)
+- Same-name extension deduplication: only one file kept per same directory + same stem (group key `parent.resolve() + stem.lower()`); same-name files in different directories are not deduplicated; dedup happens before path computation and progress counting, skip reason is logged
+- Magic-bytes precheck extended to all three formats: unified `BOOKMOBI` magic check at offset 60; files with the right extension but wrong magic (or anomalous `.azw/.azw3` magic) are no longer directly judged corrupt and skipped — a warning is printed and extraction is still attempted (`mobi.extract` has its own secondary validation; unpack failures are counted as failures normally)
+- `--delete` and `--inspect` / `--inspect-all` support `.mobi` / `.azw` / `.azw3` uniformly
+- Per-file progress bar: `--progress` forces it on, `--no-progress` forces it off; automatic by default (shown when stderr is TTY and file count ≥ 2, off when not TTY); when both are passed, the last one wins; kept by default under `--quiet`, closed by `--no-progress`; covers convert / inspect / dry-run modes; total strictly equals the final post-dedup list length, showing current/total, percentage, ETA, average time, and current filename (truncated to 40 chars); writes to stderr, not into emit/`--log`; tqdm is optional, degrading to a simple text progress without crashing when missing
 
-#### リファクタリング
+#### Refactored
 
-- `collect_mobi_files` → `collect_ebook_files`（旧名エイリアス維持）。`precheck_mobi` → `precheck_ebook`、`mobi_to_cbz` → `ebook_to_cbz`、`inspect_mobi` → `inspect_ebook`
-- `SUPPORTED_INPUT_EXTENSIONS` を定数化。`PREFER_EXT_ORDER` → `KEEP_EXT_ORDER`
-- ドキュメント・ヘルプ・ログの呼び方を「電子書籍」に寄せ、ヘルプ説明を mobi/azw/azw3 の一括 cbz 変換向けに更新
+- `collect_mobi_files` renamed to `collect_ebook_files` (old alias `collect_mobi_files` kept for compatibility); `precheck_mobi` → `precheck_ebook`, `mobi_to_cbz` → `ebook_to_cbz`, `inspect_mobi` → `inspect_ebook`
+- Input extension set constantized as `SUPPORTED_INPUT_EXTENSIONS`; `PREFER_EXT_ORDER` renamed to `KEEP_EXT_ORDER`
+- docstring, CLI help, and runtime log wording unified to "ebook" (mobi file → ebook); help description changed to `mobi/azw/azw3 manga batch to cbz`
 
-#### コード衛生・体験改善（[1.8.0] に統合）
+#### Code hygiene & UX polish (bundled into [1.8.0])
 
-- 重複していた `ThreadPoolExecutor` の import を削除
-- `LANGUAGES` 辞書に機能別セクションコメントを追加（前処理 / 変換 / 検査 / 集計、help・progress・tag など）
-- `--language auto` 時に INFO で検出言語を表示（`--quiet` 時は抑制。`emit` + `t()`）
-- マジック検証の扱いを「即スキップ」から「warning + 解凍試行」へ変更
-- `--ext-priority` 不正値メッセージを多言語化（`error.ext_priority_empty` / `error.ext_priority_invalid`）
-- argparse と主要関数の引数に、入出力の説明コメントを追加
+- Removed the duplicate `from concurrent.futures import ThreadPoolExecutor` import
+- `LANGUAGES` dict gets functional-section Chinese comments (【预处理】【转换】【检查】【汇总】, including help/progress/tag sections)
+- `--language auto` prints an INFO-level "detected language: X" message (suppressed under `--quiet`, via `emit` + `t()`)
+- Magic-bytes check downgrade: `precheck_ebook` magic failure changed from "judge corrupt and skip" to a warning + still attempting extraction (`extract` has its own secondary validation; unpack failures count as failed)
+- `--ext-priority` invalid-value error message i18n-ized (new `error.ext_priority_empty` / `error.ext_priority_invalid` keys in all four language tables)
+- Chinese comments added to argparse parameter definitions and main function input parameters (describing input and output)
 
 ### [1.7.0] - 2026-08-13
 
-#### 追加
+#### Added
 
-- `--compress LEVEL`: zip 圧縮 0–9。`0` 無圧縮（デフォルト）、`1–9` deflate。PNG 向け。JPEG は効果が薄い
-- `--inspect` / `--inspect-all`: CBZ を作らず内部情報を表示。一時ディレクトリは終了時に削除。基本検査、EXTH、二重ディレクトリ、OPF/spine、画像数、表紙、形式分布、解像度、圧縮提案。DRM 疑いと解凍タイムアウトを別集計
-- inspect 強化: 表紙は OPF guide `type="cover"` 優先。spine 先頭 5 ファイル名プレビュー。NCX 件数と先頭 3 タイトル。EXTH に ASIN・著作権。DRM はヘッダー＋画像有無の二段判定
+- `--compress LEVEL`: zip compression level 0-9, `0` = no compression (default, images already compressed), `1-9` = deflate; PNG sources can shrink significantly, higher = smaller but slower; JPEG sources benefit little, not recommended
+- `--inspect` inspect mode: randomly samples 1 mobi (`--inspect-all` for all), unpacking only to read internal info without producing CBZ, temp directory cleaned up automatically afterwards; outputs basic checks (magic/size/DRM marker), EXTH metadata (title/author/language/publish date/publisher/ISBN, shown only when found), dual-directory markers, OPF and spine extraction counts, total image count, cover, image format distribution, dominant resolution (dominant height/width + range of the other dimension), compression advice; suspected DRM (no images) and unpack timeouts counted separately
+- `--inspect` enhancements: cover detection prefers the OPF guide `type="cover"` official reference (falls back to filename matching); vertical preview of first 5 spine-extracted filenames; NCX (toc.ncx) entry count + preview of first 3 titles; EXTH metadata adds ASIN(type113) and copyright(type109); dual DRM judgment (header marker present → judged DRM and skips unpacking; no marker + 0 unpacked images → suspected; no marker + images → none), summary line adds DRM-marker count
 
-#### リファクタリング
+#### Refactored
 
-- パッケージ化: `compress>0` は `ZIP_DEFLATED`+`compresslevel`、それ以外は `ZIP_STORED`。古い Python の非推奨警告を回避
-- 二重ディレクトリ選択を `select_mobi_dir` に統一。出力インデントを 2 スペースに整理
+- Packing branch refactored: `compress>0` uses `ZIP_DEFLATED`+`compresslevel`, otherwise `ZIP_STORED`, eliminating the deprecation warning from old Python passing `compresslevel=None` under STORED
+- `--inspect` dual-directory selection unified through the shared `select_mobi_dir` function (new prefer parameter controlled by `--prefer`) instead of hand-written logic; output indentation unified to 2 spaces, fixed inconsistent OPF line indentation
 
 ### [1.6.0] - 2026-08-13
 
-#### 追加
+#### Added
 
-- `--output-dir DIR`: 指定ディレクトリへ CBZ 出力（自動作成）。`--overwrite` の判定も出力先基準
-- 事前チェック: 0 バイト・`BOOKMOBI` なしをスキップし、パスと理由をログ
-- `--dry-run`: 実書き込みなしでフローと出力先を表示
-- `--min-size BYTES`: 小さすぎるファイルを除外。OSError 時のスキップ理由も追加
-- ファイル単位・合計の所要時間
-- 成功/スキップ/失敗の 1 行統計（0 件も含めて常に表示）
+- `--output-dir DIR`: CBZ output to a specified directory (auto-created), no longer forced into the source mobi's directory; `--overwrite` existence check also based on the output directory
+- Precheck filtering: 0-byte files and files failing header validation (no `BOOKMOBI` magic at offset 60, suspected corrupt or not mobi) are skipped directly, with full path and reason logged
+- `--dry-run` dry-run mode: only scans and prechecks, prints each file's conversion flow and target output path, without unpacking/packing, creating output directories, or any disk writes, and prints the precheck filter list too (consistent with real runs)
+- `--min-size BYTES`: filters out mobi smaller than the given bytes (default 1000 without a number, `0` disables, not passing it disables size filtering), catching edge-corrupt samples whose header is intact but content is truncated; precheck also adds an "unable to read file (OSError)" skip-reason branch
+- Elapsed-time stats: per-file conversion time printed in real time, total elapsed time at the bottom of the summary (success/fail/skip all counted)
+- Summary adds a one-line conversion stats row (success/skip/fail counts, including 0): when a category is 0, its detail lines are not printed, but the stats row always shows all three counts
 
-#### リファクタリング
+#### Refactored
 
-- `ConvStatus`（`OK` / `SKIP` / `FAIL`）に状態を統一
-- 出力タグを定数化（のちの 1.8.0 で `t()` へ移行）
-- `run_with_timeout` のスレッド残留についてコメント
-- `main()` でトップレベル例外と Ctrl+C を `emit` 経由で処理
-- `--short-summary` を追加
+- Magic-string statuses refactored into the `ConvStatus` enum (`OK`/`SKIP`/`FAIL`); `mobi_to_cbz` return type changed to `tuple[Path | None, ConvStatus]`; main-loop branches and return sites use enum members uniformly to avoid typos
+- Output labels extracted into constants (`TAG_INFO`/`TAG_FAIL`/`TAG_ERROR`/`TAG_SKIP`/`TAG_OVERWRITE`/`TAG_CLEAN`/`TAG_SORT`/`TAG_DEDUP`/`TAG_DONE`/`TAG_VERIFY`/`TAG_VERIFY_FAIL`/`TAG_TIMEOUT`/`TAG_ELAPSED`/`TAG_FILE`/`TAG_PENDING`/`TAG_WILL_SKIP`/`TAG_DRYRUN`) for centralized output styling
+- Added comments to `run_with_timeout` on thread limits: after timeout, `mobi.extract` worker threads linger in the background consuming memory/IO; batch-processing many corrupt files may accumulate zombie threads; `multiprocessing` could be adopted later for terminable child processes but adds cross-platform complexity and has not been used yet
+- Top-level global exception capture: `main()` wraps everything in `try/except`; uncaught exceptions and Ctrl+C outside the main loop (argument parsing/file collection) are printed with stack trace via `emit` to console and log (with timestamp) instead of a bare stack trace exit
+- `--short-summary` compact summary: succeeded/skipped/precheck-skipped files show counts only (failed files always list full paths), unaffected by dry-run, complementary to `--quiet`
 
 ### [1.5.0] - 2026-08-13
 
-#### 追加
+#### Added
 
-- `--timeout`（デフォルト 600 秒）
-- パスの大文字小文字正規化
-- 出力タイムスタンプ
+- `--timeout` per-file timeout protection: default 600 seconds; when a corrupt/encrypted/oversized mobi blocks the underlying `mobi.extract()` indefinitely, the file is skipped automatically and counted as failed instead of stalling the whole batch; `0` means no limit
+- Path case compatibility: cover comparison and directory alignment use normalized lowercase paths, so case-only naming differences are not misjudged as duplicates/missing on case-insensitive Windows filesystems
+- Output timestamps: every output line (console and `--log` file) is prefixed with `[YYYY-MM-DD HH:MM:SS]`, making it easy to pinpoint when each conversion ran
 
-#### 変更
+#### Changed
 
-- `--log` 書き込み失敗時に警告を 1 回表示
-- Ctrl+C 時に途中集計を出力
-- 既存 cbz によるスキップを集計に含める
-- 無効だった外側 `TemporaryDirectory` を削除
+- Log write tolerance: `--log` write failures (invalid chars/overlong paths, disk full, read-only partition, file locked) no longer swallow exceptions silently; all `Exception`s are caught and a single warning is printed so users don't mistakenly believe the log was saved
+- Ctrl+C interruption fallback: pressing Ctrl+C mid-batch no longer exits with a raw exception; the main loop catches `KeyboardInterrupt` and force-prints the progress summary of completed/failed files
+- Summary completes the skip list: files skipped because the target cbz already exists (when `--overwrite` is off) are counted in "skipped files" and listed with full paths
+- `--overwrite` regeneration marker keeps only the per-file `[overwrite]` log line, not in the final summary (written to the `--log` file)
+- Removed the ineffective outer `TemporaryDirectory` fallback: extraction temp dirs are still cleaned uniformly by `extract_temp_paths` + `finally`
 
 ### [1.4.0] - 2026-08-13
 
-#### 追加
+#### Added
 
-- 起動時の依存チェック
-- DRM 可能性の明示
-- `--overwrite` / `--quiet` / `--log`
-- 変換前後のパス一覧、失敗一覧
+- Dependency check moved to the top of the module, validated at startup
+- DRM encryption detection: when unpacking fails or no images are extracted, clearly reports the file may be DRM-encrypted Kindle manga that the mobi library cannot decrypt, avoiding silent failure
+- `--overwrite` parameter: force regeneration when the target cbz already exists, no need to manually delete old cbz after updating manga
+- `--quiet` quiet mode: only errors and the final summary, no screen flooding during batch conversion
+- `--log FILE`: append all output to the specified log file
+- Lists full paths of pending mobi files before conversion starts, and full paths of output cbz files after conversion completes
+- Lists failed file count and full paths after conversion (files skipped because they already exist are not counted as failures)
 
-#### 修正
+#### Fixed
 
-- `mobi.extract` の一時ディレクトリを `finally` で確実に削除
+- Fixed temp-directory residue: `mobi.extract` does not support the `output_dir` parameter, changed to pass only the input file and record the extraction path it generates, cleaned uniformly in `finally` — no residue on normal/Ctrl+C/exception paths
 
 ### [1.3.0] - 2026-08-13
 
-#### 追加
+#### Added
 
-- 表紙フォールバック（cover/front）
-- ディレクトリ余分画像の追記 / `--drop-extra`
+- Cover fallback: after spine extraction, automatically scans for images whose filenames contain cover/front; if the cover is already in the list, the list order wins; only inserted at the front when missing
+- Fixed page loss when the cover is only defined by the OPF metadata meta and not referenced by the spine (e.g. `cover00198.jpeg`)
+- Directory alignment fallback: when the image count differs from the collected count, extra images are appended to the end of the cbz in natural order by default; `--drop-extra` switches to dropping them, and the outcome is printed
 
 ### [1.2.0] - 2026-08-13
 
-#### 追加
+#### Added
 
-- OPF spine 順抽出
-- `--version`
-- `select_mobi_dir`
-- spine 空時の自然順フォールバック
+- OPF spine order image extraction: parses manifest and spine itemref, ordering by the real reading order
+- `--version` parameter, `python manga-mobi2cbz.py --version` shows the version
+- `select_mobi_dir` directory selection logic, preferring mobi7/mobi8 directory before extracting images
+- Tiered sort fallback: falls back to natural filename sorting automatically when spine extraction is empty / OPF not found
 
-#### 変更
+#### Changed
 
-- 同名画像に `{idx:04d}_` プレフィックス
-- スクリプト名を `manga-mobi2cbz.py` に変更
+- Duplicate image names get a sequence prefix (`{idx:04d}_`) to guarantee order and avoid collisions
+- Script renamed to `manga-mobi2cbz.py`
 
 ### [1.1.0] - 2026-08-13
 
-#### 追加
+#### Added
 
-- `__version__` と `SCRIPT_NAME`
+- Version mechanism: `__version__` and `SCRIPT_NAME` constants
 
 ### [1.0.0] - 2026-08-12
 
-#### 追加
+#### Added
 
-- 初の実用版: 再帰収集、一括 cbz 変換、二重ディレクトリ整理、EOCD + testzip、失敗時の半製品削除
+- First usable version: recursive mobi collection, batch cbz conversion, dual-directory deduplication, EOCD + testzip integrity verification, cleanup of failed half-products
 
 ## License
 
-[MIT](./LICENSE)
+This project is licensed under the [GPL-3.0](./LICENSE).
+
+### Third-party dependency license
+
+This tool depends at runtime on the mobi library (v0.4.1, maintained by Titusz Pan), which is licensed under GPL-3.0-only. Please comply with GPL-3.0 requirements when distributing.
