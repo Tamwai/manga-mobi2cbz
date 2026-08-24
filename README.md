@@ -139,7 +139,7 @@ python manga-mobi2cbz.py "D:\ComicsLibrary" --output-dir "E:\CBZ_Output" --flatt
 python manga-mobi2cbz.py "D:\ComicsLibrary" --dry-run
 ```
 
-> 对已有 CBZ 配合 `--setinfo` 试运行时，会逐文件列出将变化的 ComicInfo 字段（`~ 字段: 旧 → 新`），仅新增的字段标 `+`，值不变的字段省略。
+> 对已有 CBZ 配合 `--setinfo` 时，正式执行与试运行都会在执行前逐文件列出将变化的 ComicInfo 字段（`~ 字段: 旧 → 新`），仅新增的字段标 `+`，值不变的字段省略。
 
 ### 静默模式 + 输出写入日志
 
@@ -289,6 +289,23 @@ A: 支持。v1.8.0 起输入扩展名扩展为 `.mobi` / `.azw` / `.azw3`，三�
 A: 支持。v2.4.0 起输入扩展名扩展为 `.mobi` / `.azw` / `.azw3` / `.epub`。EPUB 本质为 ZIP 容器，直接走 zipfile 安全解包并复用 OPF spine 提取链路；封面自动识别支持 EPUB2（`<meta name="cover">`）与 EPUB3（`properties="cover-image"`）两种约定；无 EXTH 头时元数据从 OPF `dc:` 字段读取；`--prefer` 对 EPUB 静默忽略。加密 EPUB（Adobe DRM 等）无法解析内容，会提示无图片/无有效元数据并跳过，请先去除 DRM 再转换。
 
 ## 更新日志
+
+### [3.1.0] - 2026-08-24
+#### 新增
+- **过滤表达式多语言支持** — `--list-images` / `--drop-extra` 的 FILTER 支持中/繁/日/英四语别名（如 `封面` / `cover` / `表紙`），可直接粘贴展示标签（自动剥掉方括号）
+- **新统计标签筛选词** — `超大页`（overscale）/ `疑似旋转跨页`（rotated_double）/ `异常`（anom）；`--drop-extra` 同步支持，转换时按标签丢弃；异常与多余（extra）为独立维度，互不连带
+- **文件名筛选 `name=关键词`** — 按文件名（含扩展名）大小写不敏感子串匹配，可与标签/属性条件混用
+- **处置筛选词** — `追加`（append）/ `舍弃`（drop）/ `筛选`（filter），筛出将被追加 / 被舍弃 / 被丢弃过滤器命中的图
+- **`--repack` 重新打包模式** — 把已解包的 `_cbz` 解包目录（目录名以 `_cbz` 结尾，如 `vol_cbz/`）打包回 CBZ，输出名还原为源文件（`vol_cbz` → `vol.cbz`），支持单个目录或父目录批量，执行前先列出待处理清单；目录内 `ComicInfo.xml` 有则原样带回、无则生成基础版，可 `--setinfo` 叠加覆盖、`--no-comicinfo` 关闭；已存在默认跳过、`--overwrite` 覆盖
+- **解包目录统一命名 `源名_扩展名`** — `--unpack` 解包目录名由 `vol.cbz/` 改为 `vol_cbz/`（`vol.mobi` → `vol_mobi/`），与源文件不撞名、不再出现序号避让；`_cbz` 结尾即可被 `--repack` 识别重新打包
+- **`--setinfo` 执行前输出变更计划清单** — 非 dry-run 分支执行前也逐文件列出将新增/修改的 ComicInfo 字段（`~ 字段: 旧 → 新`，仅新增标 `+`），与 `--unpack` / `--repack` 的「处理清单 + 完成汇总」约定一致
+#### 修复
+- `cover` / `extra` 筛选词未覆盖封面补位图（cover_extra），导致封面筛选曾命中 0
+- `_parse_atom` 对 `8bit` 的解析崩溃、`name` 原子在 Windows 下的 WindowsPath 崩溃
+- 封面补位图被误计入「异常」明细
+- `_safe_zip_extract` 补驱动器相对路径（`C:foo`）逃逸防护，zip-slip 防护链闭环
+#### 维护
+- 新增回归测试 `tests/test_mobi2cbz.py`（30 项，覆盖多语言别名 / 方括号粘贴 / name / 异常标签 / 处置筛选 / cover_extra 修复）
 
 ### [3.0.0] - 2026-08-24
 #### 破坏性变更
