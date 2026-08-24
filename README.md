@@ -19,36 +19,43 @@
 - **批量转换** — 支持单个文件或整个目录递归转换 `.mobi` / `.azw` / `.azw3` / `.epub` 电子书
 - **OPF spine 排序** — 优先按 OPF spine 顺序提取图片，保证真实阅读顺序；无 OPF 时兜底按文件名自然排序
 - **封面兜底** — 自动扫描文件名含 cover/front 的图片；封面已在 spine 列表中则以列表顺序为准，仅缺失时插入首位补齐
-- **目录对齐兜底** — 目录图片数与收集数不一致时，多出的图片默认按自然排序追加到 cbz 末尾；`--drop-extra` 可改为放弃，处理结果会打印输出
+- **目录对齐兜底** — 目录图片数与收集数不一致时，多出的图片默认按自然排序追加到 cbz 末尾；`--drop-extra` 可改为放弃，处理结果会逐条列出多余图片文件名（`--short-summary` 下只显数量）
 - **双目录去重** — 自动识别 mobi7/mobi8 双目录，默认 `auto`：优先保留 mobi8（画质可能更好），mobi8 无图片时自动回退 mobi7；`--prefer mobi7|mobi8` 可强制指定，指定目录无图片时自动回退另一份
 - **轻量多语言** — `--language auto|zh-CN|zh-TW|ja|en` 切换输出语言（默认 `auto` 按系统 locale 自动判定：简体中文归 zh-CN、繁体中文归 zh-TW、日文归 ja、其余归 en）；全量输出文案与 `--help` 随语言翻译，参数名/枚举/专有词不翻译
-- **同名扩展名去重** — 同目录下仅扩展名不同（如 `Vol1.mobi` + `Vol1.azw3`）时只保留一份，`--ext-priority` 控制保留优先级（默认 azw3）
+- **同名扩展名去重** — 同目录下仅扩展名不同（如 `Vol.01.mobi` + `Vol.01.azw3`）时只保留一份，`--ext-priority` 控制保留优先级（默认 azw3）
 - **自然排序** — 按页码自然排序，避免 `10.jpg` 排在 `2.jpg` 前面
 - **完整性校验** — 转换后自动校验 CBZ 文件，损坏则删除并提示
 - **ComicInfo.xml 元数据** — 默认在 CBZ 根目录生成 ComicInfo.xml（UTF-8，含 XML 声明），写入 Title / Series / Number / Writer / Publisher / Year / LanguageISO / PageCount / Summary 漫画元数据；Series/Number 由文件名高置信度推断（支持 `001` / `01` / `1` / `Vol.01` / `Vol 01` / `Volume 01` / `第 01 卷` 等形式），无系列名的卷标记（如 `Vol.01` / `01巻`）不推断，无法高置信度判断时省略（宁缺勿错）；无可靠来源的字段不生成空标签；`--no-comicinfo` 关闭生成
 - **无压缩打包** — 图片已是压缩格式，ZIP 默认仅存储不压缩，速度快、体积小
 - **可选压缩** — `--compress LEVEL` 启用 deflate 压缩（1-9），PNG 源漫画可显著减小体积，级别越高越小但越慢；JPEG 源收益有限，不建议开启（默认 `0` 不压缩）
-- **检查模式** — `--inspect` 随机抽查 1 个电子书（`--inspect-all` 全量），只解包读取内部信息不生成 CBZ：基础检查（魔数/大小/DRM 双重判断）、EXTH 元数据（标题/作者/语言/出版日期/出版社/ISBN/ASIN/版权，读到才显示）、双目录标记、OPF 与 spine 提取数（前 5 文件名竖排预览）、目录(NCX) 条目数与预览、目录全部图片数、封面（OPF guide 官方引用优先，未命中回退文件名匹配）、图片格式分布、主流分辨率（主流高/宽 + 另一维范围）、压缩建议；DRM 头部标记有→直接判有并跳过解包，无标记+图片 0→疑似，无标记+有图片→无；结束后自动清理临时目录
+- **检查模式** — `--inspect` 默认随机抽查 1 个电子书（`sample`），`--inspect all` 全量检查（等价旧 `--inspect-all`），只解包读取内部信息不生成 CBZ：基础检查（魔数/大小/DRM 双重判断）、EXTH 元数据（标题/作者/语言/出版日期/出版社/ISBN/ASIN/版权，读到才显示）、双目录标记、OPF 与 spine 提取数（前 5 文件名竖排预览）、目录(NCX) 条目数与预览、目录全部图片数、封面（OPF guide 官方引用优先，未命中回退文件名匹配）、图片格式分布、主流分辨率（主流高/宽 + 另一维范围）、末尾分辨率分布摘要（主分辨率张数占比 + 异常小图数）、压缩建议；DRM 标记仅作信息降级不阻断检查——有标记仍尝试解包，解出图片→判为可读并带 drm 标记，仅解包失败且图片 0→判 DRM；结束后自动清理临时目录
 - **可选删除原文件** — `--delete` 参数转换成功后自动删除原始电子书
 - **强制覆盖** — `--overwrite` 参数对已存在的 cbz 强制重新生成，更新漫画后无需手动删旧文件
 - **单文件超时保护** — `--timeout` 参数限制单个文件转换时长，损坏/加密/超大电子书导致底层解包无限阻塞时自动跳过并计入失败，不再卡死整批转换（默认 600 秒，`0` 表示不限制）
 - **静默模式** — `--quiet` 批量转换只显示错误与汇总，不再刷屏；`--log FILE` 可将全部输出追加写入日志文件
+- **调试模式** — `--debug` 向 stderr 输出 debug 级日志（默认静默，仅在指定时输出；与 `--quiet` 同给时 debug 级仍输出），便于排查问题
 - **精简汇总** — `--short-summary` 成功/跳过/预处理跳过文件只显示数量不列出路径（失败文件始终全路径列出），与 `--quiet` 互补，适合大批量目录
 - **DRM 加密识别** — 遇到 DRM 加密的 Kindle 漫画时明确提示无法解密，避免静默失败
 - **路径大小写兼容** — 封面比对与目录对齐使用归一化小写路径，Windows 不区分大小写的文件系统下不会因大小写命名差异误判重复/遗漏
 - **输出时间戳** — 每条输出自动追加 `[YYYY-MM-DD HH:MM:SS]` 前缀，控制台与日志文件一致，方便定位每次转换的执行时刻
-- **自定义输出目录** — `--output-dir DIR` 将 CBZ 输出到指定目录（自动创建），默认保留相对输入的子目录结构（如 `One Piece/001.mobi` → `DIR/One Piece/001.cbz`）；加 `--flatten` 平铺到目录根下，同名文件未指定 `--overwrite` 时跳过（SKIP）
+- **自定义输出目录** — `--output-dir DIR` 将 CBZ 输出到指定目录（自动创建），默认保留相对输入的子目录结构（如 `Sample Series/001.mobi` → `DIR/Sample Series/001.cbz`）；加 `--flatten` 平铺到目录根下，同名文件未指定 `--overwrite` 时跳过（SKIP）
 - **预处理过滤** — 0 字节、文件头损坏（偏移 60 处无 `BOOKMOBI` 魔数）的电子书在预处理阶段直接跳过，日志输出跳过文件完整路径与原因
 - **大小下限过滤** — `--min-size BYTES` 过滤小于指定字节数的电子书（不带数字默认 1000，`0` 关闭，不传则关闭大小过滤），兜住头部恰好完整但内容被截断的边缘损坏样本
 - **试运行模式** — `--dry-run` 只扫描与打印转换流程，不实际解压打包，适合先确认转换结果
+- **输出重命名** — `--rename[=TEMPLATE]` 重命名输出的 CBZ 文件名（默认关闭）：无值 = 默认模板（系列名 + 自动标记前缀，前缀按类型自动选 `[Vol.x]` / `[Ch.x]` / `[Vol.x][Ch.x]` / `[x]`，连话 `話005-006` 标 `[Ch.5-6]`）；模板支持 `%series` / `%number` / `%volume` / `%title`/ `%writer` / `%publisher` / `%date` / `%language` / `%description` / `%filename` / `%leftN` / `%rightN` / `%subN_M` 及 `%03number` 补零占位符；来源优先级：文件名推断 > 文件自带元数据（OPF / ComicInfo.xml）兜底，`--setinfo` 不参与；输入为已有 `.cbz` 时进入独立重命名模式（只改名不转换，可与其他模式叠加）；`%description` 不建议用于文件名（内容可能过长），可配合 `%subN_M` 截取片段；建议配合 `--dry-run` 先预览
+- **颜色控制** — `--no-color` 禁用 ANSI 颜色输出（即使终端支持也不上色）；日志 / JSON / 管道输出本就不含颜色
+- **撞名分类提示** — `--rename` 跳过时区分两类提示：目标文件已存在（建议加 `--overwrite`）与本批内部撞名（建议调整命名模板），dry-run 与非 dry-run 分支均生效，JSON `reason` 字段分别记为 `existing` / `conflict`；dry-run 预览中 `[将跳过]` 按类别着色（磁盘同名=黄、本批撞名=品红），实际执行汇总将跳过数分组统计（磁盘同名 / 本批撞名）
 - **断点续跑** — 目标 CBZ 已存在且完整性校验有效时直接跳过（SKIP）；源文件比 CBZ 更新时自动重新转换；损坏/无效自动重新转换；`--overwrite` 无条件覆盖
 - **失败分类** — 转换失败按原因分类统计（timeout / drm / corrupt / no_images / comicinfo / verify / other），汇总输出各类失败数量
 - **检查模式支持 CBZ** — `--inspect` 可直接检查 `.cbz` 文件（纯 zipfile 读取不解压）；封面行加分辨率+大小、格式统计加总文件数、Spine 前 5 列表每行加宽高
-- **ComicInfo 字段覆盖** — `--setinfo FIELD=VALUE` 覆盖/新增 ComicInfo 字段（优先级最高），VALUE 支持固定值 / `%series` / `%number` / `%title` / `%filename` / `%leftN` / `%rightN` 占位符，可多次指定；字段名需在 ComicInfo 标准字段白名单内，白名单外字段 warning 忽略；输入为已有 CBZ 时直接修改其 ComicInfo.xml（未指定字段保留原值）
+- **只读图片清单** — `--list-images [FILTER]` 列出目标电子书内全部图片（序号 / 文件名 / 分辨率 / 大小 / 模式·色深 / 方向 / 目录 / 标记）+ 全量统计区块（格式 / 模式·色深 / 尺寸分布 / 双页横幅 / 动图 / 小图 / 异常明细），不转换、不写 CBZ、不生成 ComicInfo；FILTER 可选，支持条件表达式（格式 / `res` / `size` / 方向 / 模式 / 位深 / 标记，逗号 = OR、`+` = AND、`-` 前缀 = 排除）
+- **双页检测** — `--double-page` 识别跨页横幅（宽/高 ≥ 阈值，默认 2.0），开启时逐页写入 DoublePage 标记（不写 Manga 声明）；不带值 / `auto` 开启，可传数值调阈值，`off` / `no` / `0` 关闭
+- **丢弃小图** — `--drop-small` 剔除宽和高均小于中位数 × 比例（默认 0.5）的异常小图（如封面缩略图），丢弃后 PageCount 按实际图片数重算；不带值 / `auto` = 0.5，可传 0~1 数值调比例，`off` / `no` / `0` 关闭
+- **ComicInfo 字段覆盖** — `--setinfo FIELD=VALUE` 覆盖/新增 ComicInfo 字段（优先级最高），VALUE 支持固定值 / `%series` / `%number` / `%title`/ `%writer` / `%publisher` / `%date` / `%language` / `%description` / `%filename` / `%leftN` / `%rightN` / `%subN_M` 占位符，可多次指定；字段名需在 ComicInfo 标准字段白名单内，白名单外字段 warning 忽略；已有 CBZ 场景下 `%series`/`%number`/`%volume` 优先读取 ComicInfo 内显式 Series/Number/Volume，缺失才回退文件名推断；输入为已有 CBZ 时直接修改其 ComicInfo.xml（未指定字段保留原值）
 - **日志自动命名** — `--log` 不带文件名时自动生成 `manga-mobi2cbz_YYYYMMDD_HHMMSS.log`（当前目录）
 - **解包查看** — `--unpack` 只解压不转换，输出到源文件同名子目录（已存在自动加序号避让），mobi 保留完整结构、cbz 直接解包（含 zip-slip 路径穿越防护）；`--unpack` / `--setinfo` 时也会收集 `.cbz` 输入
 - **耗时统计** — 每个文件转换耗时实时输出，汇总底部显示总耗时
-- **JSON 结构化输出** — `--json` stdout 单行紧凑 JSON（供 AI / 管道 / 脚本读取，开启时屏蔽人类文本输出）；`--json-out [FILE]` 将结构化结果写入 JSON 文件（缩进格式，省略文件名自动生成时间戳文件，行为对齐 `--log`）；两者可共存，转换模式与 `--setinfo` 修改模式均支持
+- **JSON 结构化输出** — `--json` stdout 输出 JSON（转换/修改模式为整体单行紧凑 JSON，检查模式为每文件一行精简 JSON，供 AI / 管道 / 脚本读取，开启时屏蔽人类文本输出）；`--json-out [FILE]` 将结构化结果写入 JSON 文件（缩进格式，省略文件名自动生成时间戳文件，行为对齐 `--log`）；两者可共存，转换 / `--setinfo` 修改 / `--inspect` 检查模式均支持
 
 ## 支持的图片格式
 
@@ -70,97 +77,104 @@ pip install mobi
 ### 转换单个文件
 
 ```bash
-python manga-mobi2cbz.py "D:\Manga\Vol1.mobi"
+python manga-mobi2cbz.py "D:\ComicsLibrary\Vol.01.mobi"
 ```
 
 ### 批量转换整个目录（递归搜索所有 .mobi / .azw / .azw3 / .epub）
 
 ```bash
-python manga-mobi2cbz.py "D:\Manga"
+python manga-mobi2cbz.py "D:\ComicsLibrary"
 ```
 
 ### 转换成功后删除原始电子书
 
 ```bash
-python manga-mobi2cbz.py "D:\Manga" --delete
+python manga-mobi2cbz.py "D:\ComicsLibrary" --delete
 ```
 
 ### 双目录 mobi 时保留 mobi7 版本
 
 ```bash
-python manga-mobi2cbz.py "D:\Manga\Vol1.mobi" --prefer mobi7
+python manga-mobi2cbz.py "D:\ComicsLibrary\Vol.01.mobi" --prefer mobi7
 ```
 
 ### 目录中有未被收集的多余图片时放弃追加
 
 ```bash
-python manga-mobi2cbz.py "D:\Manga\Vol1.mobi" --drop-extra
+python manga-mobi2cbz.py "D:\ComicsLibrary\Vol.01.mobi" --drop-extra
 ```
+
+> **extra（多余图）的定义**：指不在 OPF spine 阅读顺序中的图片（如广告页、出版信息页、
+> 出版社水印页等）。`--drop-extra`（不带值）等价于 `--drop-extra extra`——丢弃全部多余图；
+> 带过滤表达式时（如 `--drop-extra gif,extra`）按「格式/分辨率/大小/方向/模式/位深/标记」
+> 过滤，`extra` 关键字即指「不在 spine 中的图」。在 `--list-images` 中多余图会带 `[多余]` 性质标记。
 
 ### 已存在 cbz 时强制重新生成
 
 ```bash
-python manga-mobi2cbz.py "D:\Manga\Vol1.mobi" --overwrite
+python manga-mobi2cbz.py "D:\ComicsLibrary\Vol.01.mobi" --overwrite
 ```
 
 ### 限制单文件转换超时（防止损坏文件卡死批量任务）
 
 ```bash
-python manga-mobi2cbz.py "D:\Manga" --timeout 300
+python manga-mobi2cbz.py "D:\ComicsLibrary" --timeout 300
 ```
 
 ### 输出到自定义目录（默认保留相对子目录结构）
 
 ```bash
-python manga-mobi2cbz.py "D:\Manga" --output-dir "E:\CBZ"
+python manga-mobi2cbz.py "D:\ComicsLibrary" --output-dir "E:\CBZ_Output"
 ```
 
 ### 平铺输出（所有 CBZ 直接放到输出目录根下）
 
 ```bash
-python manga-mobi2cbz.py "D:\Manga" --output-dir "E:\CBZ" --flatten
+python manga-mobi2cbz.py "D:\ComicsLibrary" --output-dir "E:\CBZ_Output" --flatten
 ```
 
 ### 试运行：只扫描并打印转换流程，不实际转换
 
 ```bash
-python manga-mobi2cbz.py "D:\Manga" --dry-run
+python manga-mobi2cbz.py "D:\ComicsLibrary" --dry-run
 ```
+
+> 对已有 CBZ 配合 `--setinfo` 试运行时，会逐文件列出将变化的 ComicInfo 字段（`~ 字段: 旧 → 新`），仅新增的字段标 `+`，值不变的字段省略。
 
 ### 静默模式 + 输出写入日志
 
 ```bash
-python manga-mobi2cbz.py "D:\Manga" --quiet --log convert.log
+python manga-mobi2cbz.py "D:\ComicsLibrary" --quiet --log convert.log
 ```
 
 ### 精简汇总（大批量目录，成功/跳过只看数量）
 
 ```bash
-python manga-mobi2cbz.py "D:\Manga" --quiet --short-summary --log convert.log
+python manga-mobi2cbz.py "D:\ComicsLibrary" --quiet --short-summary --log convert.log
 ```
 
 ### 开启 zip 压缩（PNG 源漫画可显著减小体积）
 
 ```bash
-python manga-mobi2cbz.py "D:\Manga" --compress 9
+python manga-mobi2cbz.py "D:\ComicsLibrary" --compress 9
 ```
 
 ### 检查模式：随机抽查 1 个电子书内部信息（元数据/结构/图片/分辨率/DRM/NCX 目录）
 
 ```bash
-python manga-mobi2cbz.py "D:\Manga" --inspect
+python manga-mobi2cbz.py "D:\ComicsLibrary" --inspect
 ```
 
 ### 检查全部电子书内部信息
 
 ```bash
-python manga-mobi2cbz.py "D:\Manga" --inspect --inspect-all
+python manga-mobi2cbz.py "D:\ComicsLibrary" --inspect all
 ```
 
 ### 覆盖/新增 ComicInfo 字段（可多次指定，优先级最高）
 
 ```bash
-python manga-mobi2cbz.py "D:\Manga\Vol1.mobi" --setinfo "Title=My Manga" --setinfo "Number=%number" --setinfo "Summary=hello, world"
+python manga-mobi2cbz.py "D:\ComicsLibrary\Vol.01.mobi" --setinfo "Title=Sample Series" --setinfo "Number=%number" --setinfo "Summary=Vol. 1, First Edition"
 ```
 
 > 说明：`--setinfo` 只在逗号后紧跟「字段名=」时才拆分，若值本身含 `Key=...` 结构，请拆成多次 `--setinfo` 传入以免误拆分。输入目录若混有已有 `.cbz` 与 `.mobi`，开启 `--setinfo` 时 `.cbz` 会被就地修改其 `ComicInfo.xml`（未指定字段保留原值），其余文件照常转换。
@@ -168,18 +182,18 @@ python manga-mobi2cbz.py "D:\Manga\Vol1.mobi" --setinfo "Title=My Manga" --setin
 ### 解包查看（只解压不转换，输出到源文件同名子目录）
 
 ```bash
-python manga-mobi2cbz.py "D:\Manga\Vol1.mobi" --unpack
+python manga-mobi2cbz.py "D:\ComicsLibrary\Vol.01.mobi" --unpack
 ```
 
 ### JSON 结构化输出（stdout 单行 / 写入文件）
 
 ```bash
-python manga-mobi2cbz.py "D:\Manga" --json
-python manga-mobi2cbz.py "D:\Manga" --json-out
-python manga-mobi2cbz.py "D:\Manga" --json --json-out result.json
+python manga-mobi2cbz.py "D:\ComicsLibrary" --json
+python manga-mobi2cbz.py "D:\ComicsLibrary" --json-out
+python manga-mobi2cbz.py "D:\ComicsLibrary" --json --json-out inspect_result.json
 ```
 
-> 说明：`--json` / `--json-out` 仅在「转换」或「CBZ 修改」执行后输出结构化结果；`--dry-run`、`--inspect`、`--unpack` 模式不输出。进度条与人类可读提示写 stderr、JSON 写 stdout 天然分流；若用 `2>&1` 合并重定向会把进度条混入 JSON 流，建议同时加 `--no-progress`。
+> 说明：`--json` / `--json-out` 在「转换」「CBZ 修改」「检查」「试运行」四种模式输出结构化结果（试运行输出带 `dry_run` 标记，详见下方契约）；`--unpack` 模式不输出。转换/修改模式 `--json` 为整体单行紧凑 JSON，检查模式为每文件一行精简 JSON（含 status/series/number/source/page_count/drm，status 取值 ok/drm/invalid/noimg/timeout/fail），`--json-out` 落盘全量（含 spine/toc 与 summary）。进度条与人类可读提示写 stderr、JSON 写 stdout 天然分流；若用 `2>&1` 合并重定向会把进度条混入 JSON 流，建议同时加 `--no-progress`。
 
 ### 查看版本号
 
@@ -189,36 +203,41 @@ python manga-mobi2cbz.py --version
 
 ## 参数说明
 
-| 参数                    | 说明                                                                                                                                                                               |
-| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `target`              | 电子书文件路径或包含电子书（.mobi/.azw/.azw3/.epub）的目录（必填）                                                                                                                                           |
-| `--language LANG`     | 输出语言：`auto` 按系统 locale 自动选择（zh 前缀→中文，zh-TW/zh-Hant→繁体中文，ja/Japanese→日文，否则→英文），或指定 `zh-CN`/`zh-TW`/`ja`/`en`（默认 `auto`）；兼容常见写法：`zh`/`cn`→zh-CN，`zhtw`/`tw`→zh-TW，`jp`→ja，`eng`→en |
-| `--delete`            | 转换成功后删除原始电子书文件（默认不删除）                                                                                                                                                            |
-| `--prefer`            | 双目录 mobi 时保留哪份：`auto` / `mobi7` / `mobi8`（默认 `auto`）；`auto` 优先 mobi8、mobi8 无图片自动回退 mobi7；明确指定 `mobi7`/`mobi8` 时该目录无图片自动回退另一份                                                        |
-| `--drop-extra`        | 目录中有未被收集的多余图片时放弃追加（默认追加到 cbz 末尾）                                                                                                                                                 |
-| `--overwrite`         | 目标 cbz 已存在时强制重新生成（默认跳过）                                                                                                                                                          |
-| `--ext-priority EXTS` | 同目录同名（仅扩展名不同）时保留哪种格式：逗号分隔、顺序即优先级从高到低，仅接受 mobi/azw/azw3/epub，默认 azw3；优先级未覆盖时回退兜底顺序 azw3→epub→mobi→azw；与 `--prefer`（双目录选择）无关                                                                 |
-| `--timeout`           | 单文件转换超时秒数，超时自动跳过并计入失败（默认 600，`0` 表示不限制）                                                                                                                                          |
-| `--min-size BYTES`    | 过滤小于指定字节的电子书；不带数字默认 1000，`0` 关闭，不传则关闭大小过滤                                                                                                                                        |
-| `--output-dir DIR`    | CBZ 输出到指定目录（自动创建），默认保留相对输入的子目录结构（如 `One Piece/001.mobi` → `DIR/One Piece/001.cbz`）；加 `--flatten` 可平铺到目录根下                                                                        |
-| `--flatten`           | 仅与 `--output-dir` 联用：所有 CBZ 平铺到输出目录根下，同名文件未指定 `--overwrite` 时跳过（SKIP），指定时覆盖首选名；单独使用（无 `--output-dir`）将报错退出                                                                       |
-| `--progress`          | 强制显示文件级进度条（默认 TTY 且文件数≥2 时自动显示；与 `--no-progress` 同传时以最后出现的参数为准；`--quiet` 下默认保留；进度条写 stderr，不进 `--log` 日志）                                                                        |
-| `--no-progress`       | 强制关闭进度条（即使 TTY 且文件数≥2）                                                                                                                                                           |
-| `--dry-run`           | 试运行：只扫描文件并打印转换流程，不实际解压打包、不创建输出目录                                                                                                                                                 |
-| `--quiet`             | 静默模式，只显示错误与最终汇总                                                                                                                                                                  |
-| `--short-summary`     | 精简汇总：成功/跳过文件只显示数量不列出路径（失败文件始终全路径列出）                                                                                                                                              |
-| `--compress LEVEL`    | zip 压缩级别 0-9：`0`=不压缩（默认，图片本身已压缩），`1-9`=deflate 压缩（PNG 源有收益，级别越高越小但越慢）                                                                                                            |
-| `--inspect`           | 检查模式：位置参数为单个文件时直接检查该文件，为目录时随机抽查 1 个，只解包读取内部信息（元数据/结构/图片/分辨率/DRM 双重判断/NCX 目录），不生成 CBZ，结束自动清理临时目录                                                                                  |
-| `--inspect-all`       | 检查全部电子书（需配合 `--inspect` 使用，单独使用将自动启用 `--inspect`）                                                                                                                                |
-| `--no-comicinfo`      | 不生成 ComicInfo.xml（默认生成：向 CBZ 根目录写入 Title / Series / Number / Writer / Publisher / Year / LanguageISO / PageCount / Summary 漫画元数据）                                                |
-| `--setinfo FIELD=VALUE` | 覆盖/新增 ComicInfo 字段（可多次指定，优先级最高）：`FIELD` 为 ComicInfo 字段名（需在 ComicInfo 标准字段白名单内，白名单外 warning 忽略），`VALUE` 支持固定值 / `%series` / `%number` / `%title` / `%filename` / `%leftN` / `%rightN` 占位符（对应值缺失时该字段不写入）；智能拆分：仅当逗号后紧跟"字段名="时才拆分，否则逗号视为值的一部分（如 `Summary=hello, world` 不拆分）；值内含 `Key=` 结构请用多次 `--setinfo` 传入；`Manga` 默认不写入，需显式 `--setinfo Manga=Unknown\|No\|Yes\|YesAndRightToLeft`（限官方 v2.0 枚举）；另支持 `CommunityRating`（0-5）/ `MainCharacterOrTeam` / `Review` 三个官方字段；开启 `--setinfo` 时输入目录中混有的已有 `.cbz` 会就地修改其 ComicInfo.xml（未指定字段保留原值），其余文件照常转换 |
-| `--unpack`            | 解包查看：只解压不转换，输出到各源文件所在目录的同名子目录（已存在自动加序号避让）；mobi 走 extract 保留完整结构，cbz 走 extractall（含 zip-slip 路径穿越防护）；`--unpack` / `--setinfo` 时也会收集 `.cbz` 输入 |
-| `--double-page VALUE` | 双页检测：不传或 `auto` 开启（阈值 2.0，检测宽/高 ≥ 阈值的横幅跨页大图，ComicInfo 写入逐页 `Type="DoublePage"`，`Manga` 不再自动声明）；传数值（如 `2.5`）开启并调整阈值；`off` / `no` / `0` 关闭；非法值报错 |
-| `--drop-small VALUE`  | 丢弃小图：转换时剔除尺寸明显偏小的图片（封面缩略图 / 版权页等）——宽和高均 < 中位数×比例 判为小图；不传或 `auto` 用默认比例 0.5，可传 `0~1` 数值（如 `0.4`）调比例；`off` / `no` / `0` 关闭（默认关闭，不改变现有行为）；丢弃后 ComicInfo `PageCount` 按实际剩余图数重算，汇总 / `--log` / `--json` 新增"丢弃小图"计数（`--json` 输出 `dropped_small` 字段）；`--inspect` 预览会提示"开启 --drop-small 时将丢弃 N 张"；横幅双页（宽不小）不会被误删；仅转换模式生效 |
-| `--log FILE`          | 将全部输出追加写入指定日志文件；不带文件名时自动生成 `manga-mobi2cbz_YYYYMMDD_HHMMSS.log`（当前目录）                                                                                                  |
-| `--json`              | stdout 输出单行紧凑 JSON（供 AI / 管道 / 脚本读取），开启时屏蔽人类可读文本输出（进度条 / emit 提示 / 汇总）；仅转换/修改模式输出（dry-run/inspect/unpack 不输出）；进度条写 stderr 不混流，但 `2>&1` 合并重定向会混入进度条 |
-| `--json-out FILE`     | 将结构化结果写入 JSON 文件（缩进格式）；不带文件名时自动生成时间戳文件（当前目录），带文件名写入指定路径，行为对齐 `--log`；与 `--json` 可共存；同 `--json` 仅转换/修改模式写入                                                                                  |
-| `--version`           | 显示版本号                                                                                                                                                                            |
+| 参数                      | 说明                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `target`                | 电子书文件路径、包含电子书（.mobi/.azw/.azw3/.epub）的目录，或含 `*` / `?` 的通配符模式（如 `*.epub`、`卷*/001.mobi`）；处理当前目录可写 `.`（必填）                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `--language LANG`       | 输出语言：`auto` 按系统 locale 自动选择（zh 前缀→中文，zh-TW/zh-Hant→繁体中文，ja/Japanese→日文，否则→英文），或指定 `zh-CN`/`zh-TW`/`ja`/`en`（默认 `auto`）；兼容常见写法：`zh`/`cn`→zh-CN，`zhtw`/`tw`→zh-TW，`jp`→ja，`eng`→en                                                                                                                                                                                                                                                                                                                                                                      |
+| `--top-only`             | 仅处理 target 目录顶层的电子书文件，不递归子目录 |
+| `--delete`              | 转换成功后删除原始电子书文件（默认不删除）                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `--prefer`              | 双目录 mobi 时保留哪份：`auto` / `mobi7` / `mobi8`（默认 `auto`）；`auto` 优先 mobi8、mobi8 无图片自动回退 mobi7；明确指定 `mobi7`/`mobi8` 时该目录无图片自动回退另一份                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `--drop-extra FILTER`   | 通用丢弃过滤器（`nargs='?'`）：无值 = `extra` 丢弃全部多余图片（等价旧 `--drop-extra`，默认追加到 cbz 末尾）；带值按条件丢弃——格式 / `res` / `size` / 方向 / 模式 / 位深 / 标记（`double` / `thumbnail` / `animated` / `small` / `cover`，其中 `cover` 按 OPF guide 封面 + 文件名关键词识别）条件词（与 `--list-images` 同源引擎），逗号 = OR、`+` = AND，如 `--drop-extra gif`、`--drop-extra gif,extra`、`--drop-extra cover`；`off` / `no` / `0` 关闭；执行顺序：多余图丢弃 → 去重 → 条件过滤 → 小图丢弃，与 `--drop-small` 可叠加；处理结果逐条列出被丢弃图片文件名，`--short-summary` 下只显示数量                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `--overwrite`           | 目标 cbz 已存在时强制重新生成（默认跳过）                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `--ext-priority EXTS`   | 同目录同名（仅扩展名不同）时保留哪种格式：逗号分隔、顺序即优先级从高到低，仅接受 mobi/azw/azw3/epub，默认 azw3；优先级未覆盖时回退兜底顺序 azw3→epub→mobi→azw；与 `--prefer`（双目录选择）无关                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `--timeout`             | 单文件转换超时秒数，超时自动跳过并计入失败（默认 600，`0` 表示不限制）                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `--min-size BYTES`      | 过滤小于指定字节的电子书；不带数字默认 1000，`0` 关闭，不传则关闭大小过滤                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `--output-dir DIR`      | CBZ 输出到指定目录（自动创建），默认保留相对输入的子目录结构（如 `Sample Series/001.mobi` → `DIR/Sample Series/001.cbz`）；加 `--flatten` 可平铺到目录根下                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `--flatten`             | 仅与 `--output-dir` 联用：所有 CBZ 平铺到输出目录根下，同名文件未指定 `--overwrite` 时跳过（SKIP），指定时覆盖首选名；单独使用（无 `--output-dir`）将报错退出                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `--progress`            | 进度条显示策略：`auto` 在 TTY 且文件数≥2 且未用 `--json`/`--json-out` 时显示；`on` 强制显示；`off` 强制关闭（默认 `off` 不显示）；进度条写 stderr，不进 `--log` 日志                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `--no-progress`         | 强制关闭进度条（等价 `--progress off`，兼容旧命令）                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `--dry-run`             | 试运行：只扫描文件并打印转换流程，不实际解压打包、不创建输出目录                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `--rename[=TEMPLATE]`   | 重命名输出 CBZ 文件名（可选模板，默认关闭）：无值 = 默认模板（系列名 + 自动标记前缀，前缀按类型自动选 `[Vol.x]` / `[Ch.x]` / `[Vol.x][Ch.x]` / `[x]`，连话 `話005-006` 标 `[Ch.5-6]`）；模板支持 `%series` / `%number` / `%volume` / `%title`/ `%writer` / `%publisher` / `%date` / `%language` / `%description` / `%filename` / `%leftN` / `%rightN` / `%subN_M` 及 `%03number` 补零占位符；来源优先级：文件名推断 > 文件自带元数据（OPF / ComicInfo.xml）兜底，`--setinfo` 不参与；输入为已有 `.cbz` 时进入独立重命名模式（只改名不转换，可与其他模式叠加）；跳过时区分两类提示（磁盘同名建议 `--overwrite` / 本批撞名建议调模板），JSON `reason` 分别记 `existing` / `conflict`；dry-run 预览中 `[将跳过]` 按撞名类别着色（磁盘同名=黄、本批撞名=品红，仅 TTY 且未 `--no-color` 时生效），实际执行汇总将跳过数拆分为「磁盘同名 N / 本批撞名 M」并分组列出；`%description` 不建议用于文件名（内容可能过长），可配合 `%subN_M` 截取片段；建议配合 `--dry-run` 先预览                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `--no-color`            | 禁用 ANSI 颜色输出（即使终端支持也不上色）；日志 / JSON / 管道输出本就不含颜色                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `--quiet`               | 静默模式，只显示错误与最终汇总                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `--debug`               | 调试模式：向 stderr 输出 debug 级日志（默认静默，仅指定时输出；与 `--quiet` 同给时 debug 仍输出）                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `--short-summary`       | 精简汇总：成功/跳过文件只显示数量不列出路径（失败文件始终全路径列出）                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `--compress LEVEL`      | zip 压缩级别 0-9：`0`=不压缩（默认，图片本身已压缩），`1-9`=deflate 压缩（PNG 源有收益，级别越高越小但越慢）                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `--inspect`             | 检查模式：`sample` 随机抽查 1 个（默认），`all` 全量检查；位置参数为单个文件时直接检查该文件，只解包读取内部信息（元数据/结构/图片/分辨率/DRM 双重判断/NCX 目录），不生成 CBZ，结束自动清理临时目录；图片预览仅列前 5 张，图数 > 5 时末尾追加省略号行（英文 `...`，如 `...（共 N 张）`）；目录(NCX) / nav 预览截断统一为英文 `...`                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `--inspect-all`         | 检查全部电子书（等价 `--inspect all`，兼容旧命令）                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `--no-comicinfo`        | 不生成 ComicInfo.xml（默认生成：向 CBZ 根目录写入 Title / Series / Number / Writer / Publisher / Year / LanguageISO / PageCount / Summary 漫画元数据）                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `--setinfo FIELD=VALUE` | 覆盖/新增 ComicInfo 字段（可多次指定，优先级最高）：`FIELD` 为 ComicInfo 字段名（需在 ComicInfo 标准字段白名单内，白名单外 warning 忽略），`VALUE` 支持固定值 / `%series` / `%number` / `%title`/ `%writer` / `%publisher` / `%date` / `%language` / `%description` / `%filename` / `%leftN` / `%rightN` / `%subN_M` 占位符（`%subN_M`=第 N 字符起 M 个，1-based；整段恰为单个已知占位符且对应值缺失时该字段不写入）；占位符可与固定文本混用（如 `%writer·重制`、`第%number话`），混用时缺失值渲染为空串；智能拆分：仅当逗号后紧跟"字段名="时才拆分，否则逗号视为值的一部分（如 `Summary=Vol. 1, First Edition` 不拆分）；值内含 `Key=` 结构请用多次 `--setinfo` 传入；`Manga` 默认不写入，需显式 `--setinfo Manga=Unknown\|No\|Yes\|YesAndRightToLeft`（限官方 v2.0 枚举）；另支持 `CommunityRating`（0-5）/ `MainCharacterOrTeam` / `Review` 三个官方字段；已有 CBZ 场景下 `%series`/`%number`/`%volume` 优先读取 ComicInfo 内显式 Series/Number/Volume，缺失才回退文件名推断；开启 `--setinfo` 时输入目录中混有的已有 `.cbz` 会就地修改其 ComicInfo.xml（未指定字段保留原值），其余文件照常转换 |
+| `--unpack`              | 解包查看：只解压不转换，输出到各源文件所在目录的同名子目录（已存在自动加序号避让）；mobi 走 extract 保留完整结构，cbz 走 extractall（含 zip-slip 路径穿越防护）；`--unpack` / `--setinfo` 时也会收集 `.cbz` 输入                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `--double-page VALUE`   | 双页检测：不传或 `auto` 开启（阈值 2.0，检测宽/高 ≥ 阈值的横幅跨页大图，ComicInfo 写入逐页 `Type="DoublePage"`，`Manga` 不再自动声明）；传数值（如 `2.5`）开启并调整阈值；`off` / `no` / `0` 关闭；非法值报错                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `--drop-small VALUE`    | 丢弃小图：转换时剔除尺寸明显偏小的图片（封面缩略图 / 版权页等）——宽和高均 < 中位数×比例 判为小图；不传或 `auto` 用默认比例 0.5，可传 `0~1` 数值（如 `0.4`）调比例；`off` / `no` / `0` 关闭（默认关闭，不改变现有行为）；丢弃后 ComicInfo `PageCount` 按实际剩余图数重算，汇总 / `--log` / `--json` 新增"丢弃小图"计数（`--json` 输出 `dropped_small` 字段）并逐条列出被丢弃文件名（`--short-summary` 下只显示数量）；`--inspect` 预览会提示"开启 --drop-small 时将丢弃 N 张"；横幅双页（宽不小）不会被误删；仅转换模式生效                                                                                                                                                                                                 |
+| `--list-images FILTER`  | 只读图片清单（`nargs='?'`）：列出目标电子书内全部图片（序号 / 文件名 / 分辨率 / 大小 / 模式·色深 / 方向 / 目录 / 标记）+ 全量统计区块（格式 / 模式·色深 / 尺寸分布 / 双页横幅 / 动图 / 小图 / 异常明细），不转换、不写 CBZ、不生成 ComicInfo、不落盘；与 `--inspect` 完全独立。无值 = 全部列出；带值 = FILTER 筛选表达式（与 `--drop-extra` 同源引擎：格式 / `res` / `size` / 方向 / 模式 / 位深 / 标记 条件词，逗号 = OR、`+` = AND，`-` 前缀排除，如 `jpeg,size>1MB`、`-webp`），筛选只影响清单行，统计恒全量。CBZ 直读 zip 不落盘（无目录列 / 无转换态标记）；配 `--json` 每文件一行精简 JSON，配 `--quiet` 抑制明细只剩计数                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `--log FILE`            | 将全部输出追加写入指定日志文件；不带文件名时自动生成 `manga-mobi2cbz_YYYYMMDD_HHMMSS.log`（当前目录）                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `--json`                | stdout 输出 JSON（供 AI / 管道 / 脚本读取），开启时屏蔽人类可读文本输出（进度条 / emit 提示 / 汇总）；转换/修改模式为整体单行紧凑 JSON，检查（`--inspect`）模式为每文件一行精简 JSON（status/series/number/source/page_count/drm，status 取值 ok/drm/invalid/noimg/timeout/fail）；试运行（`--dry-run`）输出带 `dry_run` 标记的 JSON（status 取值 will_skip/pending），unpack 模式不输出；进度条写 stderr 不混流，但 `2>&1` 合并重定向会混入进度条                                                                                                                                                                                                                                                                                 |
+| `--json-out FILE`       | 将结构化结果写入 JSON 文件（缩进格式）；不带文件名时自动生成时间戳文件（当前目录），带文件名写入指定路径，行为对齐 `--log`；与 `--json` 可共存；转换/修改模式写入文件级结果，检查（`--inspect`）模式写入全量（含 spine/toc 与 summary）                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `--version`             | 显示版本号                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 
 ## 输出
 
@@ -227,6 +246,19 @@ python manga-mobi2cbz.py --version
 - 0 字节 / 文件头损坏的电子书在预处理阶段直接跳过，日志输出完整路径与原因
 - 每个文件转换耗时实时输出，汇总底部显示总耗时
 - 转换失败的文件会打印错误信息，不影响其他文件继续转换
+
+## JSON 输出契约
+
+`--json` / `--json-out` 的结构化输出中，`status` 字段是机器消费的关键契约，三种模式取值如下：
+
+| 模式 | status 取值 | 失败细分 |
+|---|---|---|
+| 转换（默认） | `ok` / `skip` / `fail` / `timeout` | 失败原因走 `reason` 字段：`drm` / `corrupt` / `verify` / `comicinfo` / `other` |
+| 检查（`--inspect`） | `ok` / `drm` / `invalid` / `noimg` / `timeout` / `fail` | `--json` 每文件一行精简 JSON；`--json-out` 落盘全量（含 spine/toc 与 summary） |
+| 修改（`--setinfo`） | `modified` / `nochange` / `fail` | 失败原因在 `reason` 字段 |
+| 试运行（`--dry-run`） | `will_skip` / `pending` | 每条记录带 `dry_run: true` 标记，机器可与真实运行区分 |
+
+每条记录固定字段：`source` / `status` / `target` / `reason` / `elapsed_sec`；转换模式额外含 `series_source` / `number_source` / `cover_source` / `dropped_small`。
 
 ## 已知限制
 
@@ -248,7 +280,7 @@ A: 双目录 mobi（mobi7+mobi8）默认 `auto` 只保留有内容的一份（�
 A: 单文件转换默认有 600 秒超时（`--timeout` 可调），超时后会自动跳过该文件并计入失败，主流程继续处理后续文件。若你更早发现某个文件卡住，可用 `--timeout 30` 之类的较小值加快跳过，或用 `--quiet` 减少输出。
 
 **Q: 使用 --output-dir 后为什么保留了子目录？**
-A: v1.9.0 起 `--output-dir` 默认保留相对输入的子目录结构（旧版一律平铺，属破坏性变更）。需要平铺时加 `--flatten`，旧命令 `python manga-mobi2cbz.py Manga --output-dir CBZ` 改为 `python manga-mobi2cbz.py Manga --output-dir CBZ --flatten` 即可恢复旧行为。
+A: v1.9.0 起 `--output-dir` 默认保留相对输入的子目录结构（旧版一律平铺，属破坏性变更）。需要平铺时加 `--flatten`，旧命令 `python manga-mobi2cbz.py ComicsLibrary --output-dir CBZ_Output` 改为 `python manga-mobi2cbz.py ComicsLibrary --output-dir CBZ_Output --flatten` 即可恢复旧行为。
 
 **Q: 支持 .azw / .azw3 吗？**
 A: 支持。v1.8.0 起输入扩展名扩展为 `.mobi` / `.azw` / `.azw3`，三种格式统一走同一转换链路；同目录同名不同扩展名时默认保留 azw3，可用 `--ext-priority` 调整。
@@ -257,6 +289,83 @@ A: 支持。v1.8.0 起输入扩展名扩展为 `.mobi` / `.azw` / `.azw3`，三�
 A: 支持。v2.4.0 起输入扩展名扩展为 `.mobi` / `.azw` / `.azw3` / `.epub`。EPUB 本质为 ZIP 容器，直接走 zipfile 安全解包并复用 OPF spine 提取链路；封面自动识别支持 EPUB2（`<meta name="cover">`）与 EPUB3（`properties="cover-image"`）两种约定；无 EXTH 头时元数据从 OPF `dc:` 字段读取；`--prefer` 对 EPUB 静默忽略。加密 EPUB（Adobe DRM 等）无法解析内容，会提示无图片/无有效元数据并跳过，请先去除 DRM 再转换。
 
 ## 更新日志
+
+### [3.0.0] - 2026-08-24
+#### 破坏性变更
+
+- **许可证切换为 GPL-3.0-only** — 因运行时依赖 mobi 库（GPL-3.0-only），本项目公开分发即构成分发，许可证由 MIT 切换为 GPL-3.0-only；LICENSE 替换为 GNU GPL v3，本 README 许可章节已同步更新
+- **进度条默认关闭** — 不再智能自动显示，需显式 `--progress on` / `--progress auto` 开启；统一为 `--progress auto|on|off`（不传或 `off` = 关闭；`auto` = TTY 且文件数 ≥ 2 且未用 `--json`/`--json-out` 时显示）；旧 `--no-progress` 保留为隐藏别名
+- **`--inspect` 参数收敛** — `--inspect [sample|all]`（默认 `sample` = 旧抽查 1 个，`all` = 旧 `--inspect-all`）；旧 `--inspect-all` 单独使用时自动启用 `--inspect` 的黑盒行为已删除，需显式 `--inspect all`；`--inspect-all` 保留为隐藏别名
+
+#### 新增
+
+- **target 支持 glob 通配符** — `target` 可传含 `*` / `?` 的模式（如 `*.epub`、`卷*/001.mobi`），命中多个文件时按扩展名过滤后作为平铺文件列表处理；处理当前目录可写 `.`
+- **`--top-only`** — 仅处理 target 目录顶层的电子书文件，不递归子目录
+- **`--setinfo` 新增 `%subN_M` 占位符** — 截取文件名第 N 个字符（1-based）起的 M 个字符，如 `[Anon][Demo Series]話005-006` 配 `--setinfo "Series=%sub8_11"` 得 `Demo Series`；越界时该字段不写入
+- **`--inspect` 支持 JSON 输出** — `--json` 每文件一行精简 JSON（`status` / `series` / `number` / `source` / `page_count` / `drm`，`status` 取值 `ok` / `drm` / `invalid` / `noimg` / `timeout` / `fail`）；`--json-out` 落盘全量（含 `spine` / `toc` 与 summary）；`inspect_ebook` 内部重构为返回 `(InspectStatus, info dict)` 结构化元组
+- **dry-run 配合 `--setinfo` 字段级预览** — 逐文件列出将变更的 ComicInfo 字段（`~ 字段: 旧 → 新`；仅新增标 `+`；值不变省略），不写盘
+- **`--inspect` 分辨率分布摘要** — 抽查 / 全量扫描末尾输出分辨率分布摘要：主分辨率 `WxH` 张数及占比、异常小图数量（判定口径与 `--drop-small` 一致：宽高均 < 中位数 × 0.5）
+- **`--debug` 调试日志** — 新增 `--debug` 参数 + emit debug 级：仅指定 `--debug` 时向 stderr 输出 debug 级日志（默认静默，不刷屏），与 `--quiet` 同给时 debug 仍输出；四语言 help.debug
+- **`--inspect` 刷屏治理** — inspect 逐文件进度行降为 info 级，`--quiet` 可抑制刷屏，零新参数
+- **磁盘空间预检** — 新增 `estimate_expanded_size` + `check_disk_space`，主循环逐文件预检解压所需空间，不足时 `warn.disk_space` 提示但放行继续（不阻断批量，四语言）
+- **临时目录清理失败提示** — 三处 `rmtree(ignore_errors=True)` 改为 try/except + `warn.cleanup_tmp_fail`，清理失败不再静默吞掉（四语言）
+- **`--drop-extra` / `--drop-small` 输出对称** — 两者处理结果均逐条列出文件名（`--drop-extra` 列出放弃追加的多余图片、`--drop-small` 列出被丢弃的小图），配合 `--short-summary` 时只显示数量不列路径，与成功/跳过文件汇总口径一致
+- **`--rename` 输出重命名** — 重命名输出的 CBZ 文件名（可选模板，默认关闭）：无值 = 默认模板（系列名 + 自动标记前缀，前缀按类型自动选 `[Vol.x]` / `[Ch.x]` / `[Vol.x][Ch.x]` / `[x]`，连话 `話005-006` 标 `[Ch.5-6]`）；模板支持 `%series` / `%number` / `%volume` / `%title`/ `%writer` / `%publisher` / `%date` / `%language` / `%description` / `%filename` / `%leftN` / `%rightN` / `%subN_M` 及 `%03number` 补零占位符；来源优先级：文件名推断 > 文件自带元数据（OPF / ComicInfo.xml）兜底，`--setinfo` 不参与；输入为已有 `.cbz` 时进入独立重命名模式（只改名不转换，可与其他模式叠加）；`%description` 不建议用于文件名（内容可能过长），可配合 `%subN_M` 截取片段；建议配合 `--dry-run` 先预览
+- **`--no-color` 颜色控制** — 禁用 ANSI 颜色输出（即使终端支持也不上色）；日志 / JSON / 管道输出本就不含颜色
+- **撞名分类提示** — `--rename` 跳过时区分两类提示：目标文件已存在（`skip_existing`，建议加 `--overwrite`）与本批内部撞名（`skip_conflict`，建议调整命名模板），dry-run 与非 dry-run 分支均区分，JSON `reason` 字段分别写 `existing` / `conflict`
+- **新增 `--list-images [FILTER]` 只读图片清单** — 列出目标电子书内全部图片（序号 / 文件名 / 分辨率 / 大小 / 模式·色深 / 方向 / 目录 / 标记）+ 全量统计区块（格式 / 模式·色深 / 尺寸分布 / 双页横幅 / 动图 / 小图 / 异常明细），不转换、不写 CBZ、不生成 ComicInfo、不落盘；与 `--inspect` 完全独立。无值 = 全部列出；带值 = FILTER 筛选表达式（格式 / `res` / `size` / 方向 / 模式 / 位深 / 标记 条件词，逗号 = OR、`+` = AND，`-` 前缀排除，如 `jpeg,size>1MB`、`-webp`），筛选只影响清单行，统计恒全量；CBZ 直读 zip 不落盘（无目录列 / 无转换态标记）；配 `--json` 每文件一行精简 JSON，配 `--quiet` 抑制明细只剩计数
+- **`--drop-extra` 改造为通用丢弃过滤器** — 由布尔改为 `nargs='?'`：无值 = `extra` 丢弃全部多余图片（等价旧行为）；带值按条件丢弃（格式 / `res` / `size` / 方向 / 模式 / 位深 / 标记 条件词，与 `--list-images` 同源引擎，逗号 = OR、`+` = AND，如 `--drop-extra gif`、`--drop-extra gif,extra`）；`off` / `no` / `0` 关闭；执行顺序：多余图丢弃 → 去重 → 条件过滤 → 小图丢弃，与 `--drop-small` 可叠加
+- **`--inspect` 省略号统一英文 `...`** — 图片预览仅列前 5 张，图数 > 5 时末尾追加省略号行（如 `...（共 N 张）`）；目录(NCX) / nav 预览截断统一为英文 `...`（替换原 Unicode `…`）
+- **撞名 A/B 预览着色与汇总分组统计** — `--rename` dry-run 预览中 `[将跳过]` 按撞名类别着色：A 类（磁盘已存在同名目标）黄色、B 类（本批内部撞名）品红（仅 TTY 且未 `--no-color` 时生效）；实际执行汇总将跳过总数拆分为「磁盘同名 N / 本批撞名 M」，跳过文件列表按两类分组列出（各自带标题）；JSON `reason` 字段沿用 `existing` / `conflict`，`skipped` 计数口径不变（两组合计 + nochange）
+
+#### 修复
+
+- **NCX 定位漏检** — 新增 `find_ncx` 统一定位（优先按 OPF manifest 的 `media-type=application/x-dtbncx+xml`，其次 spine 的 `toc` 属性指向 id，最后兜底 `*.ncx`），兼容把 NCX 命名为 `xml/vol.nav` 等非 `.ncx` 扩展名的封装；`parse_ncx_toc` / `parse_ncx_entries` 均改用
+- **`--inspect` 目录(NCX) 计数口径** — 仅统计 `<navLabel><text>` 目录条目（此前把 docTitle/docAuthor 也算入，条目数虚高 1-2）
+- **`--rename` 的 `%title%` 占位符支持 OPF `dc:title` 兜底** — 此前 `%title%` 仅取 ComicInfo.xml `<Title>`，epub 无 ComicInfo 时恒空；现补充 OPF `dc:title` 兜底，来源优先级：OPF `dc:title` → ComicInfo.xml `<Title>`（与 series/number 的 OPF 兜底一致）
+- **`--rename` / `--setinfo` 新增 `%writer` / `%publisher` / `%date` / `%language` / `%description` 占位符** — OPF 读 `dc:creator` / `dc:publisher` / `dc:date` / `dc:language`（经归一化）/ `dc:description`，ComicInfo 读 `<Writer>` / `<Publisher>` / `<LanguageISO>` / `<Summary>`；`%date` 保留原始日期字符串（如 `2024-01-15`，ComicInfo 无对应字段）；OPF 优先于 ComicInfo
+- **DRM 误报修复** — `get_drm_flag` 原读 PalmDB 头偏移 12 的 2 字节（落在 name 字段，文件名含 `-`/`_` 的 [Anon] 系列等被误判加密），改读 attributes 偏移 32 的 copy-protection 位 + PalmDOC header encryption type（偏移 78 + 8×nrec + 0x0E）作为权威判据
+- **`--inspect` 遇 DRM 标记不再跳过解包** — DRM 标记降级为信息项，仍尝试解包：解出图片 → `status=ok` 并带 `drm` 标记，仅当解包失败且图片数为 0 才判 DRM
+- **`--drop-extra cover` 原子哑弹修复** — 封面按 OPF guide + COVER_KEYWORDS 打标，list 与转换两链路均生效，`--drop-extra cover` 可可靠舍弃封面
+- **`--setinfo` 占位符与固定文本混用** — 值支持占位符与固定文本混写（如 `%writer·重制`、`第%number话`），与 `--rename` 一致的全局替换：缺失值渲染为空串、未知占位符原样保留；整段恰为单个已知占位符时保留原语义（缺值不写入该字段）
+- **NCX / NAV 目录解析顺序与实体解码** — `parse_ncx_entries` 改栈建树 + 文档顺序先序遍历（父条目恒在子条目前、同层保持文档顺序），标题剥离嵌套标签并解码 HTML 实体（`&amp;` → `&`）；`parse_nav_entries` 同步补实体解码
+
+#### 安全修复
+
+- **XXE 注入防护（P0）** — `ET.parse` 全部替换为 `safe_et_parse`（7 处调用点），仅拦截 `<!ENTITY` 实体声明（裸 DOCTYPE 放行）；字符串路径仅拦截 `..` 穿越（放行 `./` 前缀与纯相对路径，兼容解包内 OPF/NCX 引用）
+
+#### 修复 / 维护
+
+- **转换链路超时残留提示** — 补充 `run.timeout_residue`（此前仅 inspect 链路有）
+- **卷号推断修正** — 4 位年份（`19xx` / `20xx`）不再误判为卷号（如 `Series 2024`）
+- **卷/话号推断增强（Kavita 语义对齐）** — 新增话/章族词库（話 / 话 / 話数 / 话数 / Chapter / Ch. / ch / chp / c / Episode / 화 / 회 / 回 / 集 / บทที่ / ตอนที่ / Глава），支持紧贴式（`c001` / `ch001` / `v01` / `T3` / `S01`）、卷+章同现（`Vol.0001 Ch.0001`、`Том 1 Глава 3`）、卷/章区间（`v16-17`、`c001-006` 取起始值）、小数（`025.5`）、尾字母半话（`153b` → 153.5）、多语言卷补漏（`冊N` / `1권` / `장N` / `季N` / `第N季`）、括号/方括号注释剔除；修复英文标记词被吞入系列名与区间取尾数的旧缺陷
+- **魔数提升为命名常量** — `HEAD_READ_BYTES = 65536`、`DEFAULT_TIMEOUT = 600`
+- **错误状态字符串收敛为枚举** — `ConvStatus` / `InspectStatus`
+- **清理死代码** — 实跑链路 `used_names` 死参数、`target_cbz_path` 死形参、`sys.argv` 扫描
+- **维护性** — `_VOLUME_PATTERNS` 补充匹配语义注释；游离注释归位
+- **ComicInfo 错误分级** — 生成失败与写入失败拆分独立文案（`comicinfo.build_fail` / `comicinfo.write_fail`），错误提示更精准
+- **`validate_cbz` 文档卫生** — 补充 EOCD 读取策略、ComicInfo 三连校验与返回语义说明（无行为变更）
+- **类型注解补齐** — `_main() -> None` 等函数返回类型注解补齐
+- **natural_key 超长数字兜底** — 超长纯数字串（Python int 位数上限）不再中断排序，回退按字符串比较
+- **`extract_epub_to_temp` 异常自愈** — 解包中途异常时自行清理本次 mkdtemp 的临时目录再上抛，避免目录泄漏
+- **ZIP_EOCD_READ_TAIL 命名常量** — `validate_cbz` 读取 EOCD 的尾部字节数提升为命名常量（70000，远大于单条 EOCD 上限）
+- **磁盘预检目录级缓存** — `check_disk_space` 按目录缓存磁盘剩余空间（`_disk_free`），批量多文件时避免重复 syscall
+- **ComicInfo setinfo 白名单移除 PageCount** — `PageCount` 不再可被 `--setinfo` 覆盖，始终按实际写入图片数计算（白名单 42 → 41）
+- **HTML 实体解码补齐（P1-3）** — `extract_images_from_html` 正则路径对提取到的 src 补一轮 `html.unescape` 实体解码（此前仅 HtmlImgParser 兜底路径解码实体，畸形 HTML 中 `&amp;` 等实体 src 会残留）
+- **残留 `.cbz.tmp` 启动告警** — 启动时扫描输出侧目录中上次中断/强杀/断电残留的 `*.cbz.tmp` 半成品，发现即 warning 提示（只告警不自动删除，保护数据），与原子写入 finally 兜底形成完整兜底链
+- **JSON 状态契约文档化** — 见下方「JSON 输出契约」小节，三模式 `status` 枚举显性化，机器消费不再依赖猜测
+- **文档与注释修正** — `--double-page` 过时注释（"写入 Manga>Yes"）改为"仅 DoublePage、Manga 用 --setinfo"；顶层用法行补 `--json` / `--json-out` / `--double-page` / `--drop-small` / `--debug`；`dedupe_ebook_files` docstring 兜底顺序补 epub；删除错位过时的旧签名注释
+- **ComicInfo 来源标签本地化** — `--inspect` 预览块 Series/Number 的来源标注（`setinfo` / `opf` / `inferred`）改走 i18n、随界面语言显示（中文下 `[文件名推断]` 等）；`--json` 的 `series_source` / `number_source` 字段保持英文机器可读不变；原 `comicinfo.inferred` 单键重构为 `comicinfo.src.setinfo` / `comicinfo.src.opf` / `comicinfo.src.inferred` 三键（四语言同步）
+- **dry-run JSON 输出修复** — `--dry-run` 配合 `--json` / `--json-out` 时输出结构化 JSON（此前契约缺失、文档称不输出）：每条记录带 `dry_run` 布尔标记区分试运行与真实运行，dry-run 状态取值 `will_skip` / `pending`；同步修正「JSON 输出契约」小节与参数说明中"dry-run 不输出"的旧描述
+- **脚本头 SPDX 标识** — 补充 `SPDX-License-Identifier: GPL-3.0-only`
+
+#### 评审修复（追加批）
+
+- **GIF 帧数误报修复（P0）** — `gif_frame_count` 由 `head.count(b"\x2c")` 扫描 LZW 压缩数据改为按 GIF 结构块解析（仅计数图像描述符 `0x2C`，LZW 子块按边界整体跳过、不读内容），静态 GIF 压缩数据内任意 `0x2C` 不再被误计为帧而误标 `animated`；头部截断安全退出
+- **zip-slip 盘符 / UNC 逃逸防护（P0）** — `_safe_zip_extract` 补 `Path.is_absolute()` 检查，拦截 `C:/...` 盘符与 `//server/share` UNC 绝对路径条目的越界写盘（此前仅拦 `/` 开头与 `..` 段）
+- **`validate_cbz` 尾部 seek（P1）** — 文件 > 70KB 时 `seek` 只读末尾 `ZIP_EOCD_READ_TAIL`（70000）字节，不再整包 `read_bytes()` 后切片，大 CBZ 校验内存峰值由 O(文件大小) 降为 O(70KB)
+- **`build_cbz_image_attrs` 流式取头（P1）** — 改用 `zf.open().read(HEAD_READ_BYTES)` 惰性解压取头，不再 `zf.read(name)` 整图解压后切片，大图条目解压与内存占用下降
+- **`_fill_small_mark` 魔法数字替换（P2）** — 硬编码 `0.5` 替换为常量 `DEFAULT_DROP_SMALL_RATIO`，语义与行为完全不变
 
 ### [2.5.1] - 2026-08-20
 
@@ -362,7 +471,7 @@ A: 支持。v2.4.0 起输入扩展名扩展为 `.mobi` / `.azw` / `.azw3` / `.ep
 - **失败分类** — `ebook_to_cbz` 返回三元组 `(result, status, reason)`，失败原因分类 `timeout` / `drm` / `corrupt` / `no_images` / `comicinfo` / `verify` / `other`，主流程新增 `failed_reasons` 统计并在汇总输出
 - **`--inspect` 支持 CBZ** — 合并进 `inspect_ebook`，CBZ 分支纯 zipfile 读取不解压；抽出 `image_dimensions_bytes(bytes)` 复用
 - **`--inspect` 输出增强** — 封面行加分辨率+大小，格式统计加总文件数，Spine 前 5 列表每行加宽高
-- **`--setinfo FIELD=VALUE`** — 覆盖/新增 ComicInfo 字段（可多次指定，优先级最高）；VALUE 支持固定值 / `%series` / `%number` / `%title` / `%filename` / `%leftN` / `%rightN`；智能拆分（逗号后紧跟字段名=才拆）；CBZ 修改模式直接重写 zip；`--inspect` 预览块同步应用
+- **`--setinfo FIELD=VALUE`** — 覆盖/新增 ComicInfo 字段（可多次指定，优先级最高）；VALUE 支持固定值 / `%series` / `%number` / `%title`/ `%writer` / `%publisher` / `%date` / `%language` / `%description` / `%filename` / `%leftN` / `%rightN` / `%subN_M`；智能拆分（逗号后紧跟字段名=才拆）；CBZ 修改模式直接重写 zip；`--inspect` 预览块同步应用
 - **ComicInfo 并入同一次 zip 写入** — 删除 `write_comicinfo` 函数，Step4 with 块内 `zf.writestr`
 - **`--log` 自动命名** — `nargs="?"` + `const="auto"`，auto 时生成 `manga-mobi2cbz_YYYYMMDD_HHMMSS.log`（当前目录）
 - **`--unpack` 解包查看** — 只解压不转换，mobi 走 extract 保留完整结构，cbz 走 extractall；默认解到文件名同名目录，已存在自动加序号避让 `(2)(3)`
@@ -380,7 +489,7 @@ A: 支持。v2.4.0 起输入扩展名扩展为 `.mobi` / `.azw` / `.azw3` / `.ep
 
 - 修复 PageCount 一致性：物理去重提前到 ComicInfo 生成之前，PageCount 与打包均用去重后实际写入数
 - 修复 `run_with_timeout` 跨版本：except 同时捕获内置 `TimeoutError` 与 `concurrent.futures.TimeoutError`（Python 3.10 兼容）
-- 修复 `infer_series_number` 点号失效：改用 `path.name` 手动去扩展名，`One Piece Vol.01` 等点号卷号可正确推断
+- 修复 `infer_series_number` 点号失效：改用 `path.name` 手动去扩展名，`Sample Series Vol.01` 等点号卷号可正确推断
 - LanguageISO 白名单 + alias：ISO 639-1 全量 184 个白名单校验，新增 `jp→ja` / `cn→zh` / `zhtw→zh` 等常见别名
 - Year 严格日期解析：优先完整日期字段，范围/多值（`2001-2005`）返回 None
 - `emit` warning 在 `--quiet` 下可见
@@ -418,8 +527,8 @@ A: 支持。v2.4.0 起输入扩展名扩展为 `.mobi` / `.azw` / `.azw3` / `.ep
 
 #### 破坏性变更（Breaking Change）
 
-- `--output-dir DIR` 由「一律平铺到 DIR」改为「**默认保留相对输入的子目录结构**」（如 `One Piece/001.mobi` → `DIR/One Piece/001.cbz`）
-- 迁移方式：旧命令 `python manga-mobi2cbz.py Manga --output-dir CBZ` 需改为 `python manga-mobi2cbz.py Manga --output-dir CBZ --flatten` 才能恢复「平铺」行为
+- `--output-dir DIR` 由「一律平铺到 DIR」改为「**默认保留相对输入的子目录结构**」（如 `Sample Series/001.mobi` → `DIR/Sample Series/001.cbz`）
+- 迁移方式：旧命令 `python manga-mobi2cbz.py ComicsLibrary --output-dir CBZ_Output` 需改为 `python manga-mobi2cbz.py ComicsLibrary --output-dir CBZ_Output --flatten` 才能恢复「平铺」行为
 
 #### 新增
 
@@ -571,4 +680,8 @@ A: 支持。v2.4.0 起输入扩展名扩展为 `.mobi` / `.azw` / `.azw3` / `.ep
 
 ## License
 
-[MIT](./LICENSE)
+本项目使用 [GPL-3.0](./LICENSE) 许可。
+
+### 第三方依赖许可
+
+本工具运行时依赖 mobi 库（v0.4.1，Titusz Pan 维护版），其许可证为 GPL-3.0-only，公开分发请遵守 GPL-3.0 相关要求。
