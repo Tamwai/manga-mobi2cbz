@@ -1,5 +1,4 @@
 name: Build CLI Release Binaries
-
 on:
   workflow_dispatch:
     inputs:
@@ -7,15 +6,12 @@ on:
         description: 'Release tag (例: v1.0.0)'
         required: true
         default: 'v3.1.0'
-
 permissions:
   contents: write
-
 env:
   APP_NAME: manga-mobi2cbz
   VERSION: ${{ github.event.inputs.tag }}
   PACKAGE_FOLDER: manga-mobi2cbz-cli
-
 jobs:
   build-binary:
     runs-on: ${{ matrix.os }}
@@ -41,25 +37,21 @@ jobs:
         shell: ${{ matrix.shell }}
     steps:
       - name: Checkout source
-        uses: actions/checkout@v4
-
+        uses: actions/checkout@v5
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.12'
           cache: 'pip'
-
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements-dev.txt
-
       - name: PyInstaller build
         run: >
           pyinstaller --onefile --console
           --hidden-import mobi
           --name ${{ env.APP_NAME }} ${{ env.APP_NAME }}.py
-
       - name: Package Windows
         if: matrix.os == 'windows-latest'
         run: |
@@ -68,12 +60,10 @@ jobs:
           Copy-Item LICENSE ${{ env.PACKAGE_FOLDER }}
           Copy-Item README*.md ${{ env.PACKAGE_FOLDER }} -ErrorAction SilentlyContinue
           Compress-Archive -Path ${{ env.PACKAGE_FOLDER }} -DestinationPath ${{ env.APP_NAME }}-${{ env.VERSION }}-${{ matrix.archive_suffix }}
-
       - name: Package Windows exe only
         if: matrix.os == 'windows-latest'
         run: |
           Copy-Item dist/${{ env.APP_NAME }}${{ matrix.bin_ext }} -Destination ${{ env.APP_NAME }}-${{ env.VERSION }}-windows-x64.exe
-
       - name: Package Linux / macOS
         if: matrix.os != 'windows-latest'
         run: |
@@ -82,16 +72,14 @@ jobs:
           cp LICENSE ${{ env.PACKAGE_FOLDER }}
           cp README*.md ${{ env.PACKAGE_FOLDER }} 2>/dev/null || true
           tar -zcvf ${{ env.APP_NAME }}-${{ env.VERSION }}-${{ matrix.archive_suffix }} ${{ env.PACKAGE_FOLDER }}
-
       - name: Upload artifact (compressed packages)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: ${{ matrix.archive_suffix }}
           path: ${{ env.APP_NAME }}-${{ env.VERSION }}-${{ matrix.archive_suffix }}
-
       - name: Upload artifact (Windows exe)
         if: matrix.os == 'windows-latest'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: windows-x64-exe
           path: ${{ env.APP_NAME }}-${{ env.VERSION }}-windows-x64.exe
@@ -101,15 +89,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           path: ./build_assets
-
       - name: Publish Release
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ github.event.inputs.tag }}
           name: Release ${{ github.event.inputs.tag }}
           files: ./build_assets/*/*
-          overwrite: true
+          overwrite_files: true
           draft: false
