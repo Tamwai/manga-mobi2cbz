@@ -136,7 +136,7 @@ python manga-mobi2cbz.py "D:\ComicsLibrary" --output-dir "E:\CBZ_Output" --flatt
 python manga-mobi2cbz.py "D:\ComicsLibrary" --dry-run
 ```
 
-> When run against existing CBZ files together with `--setinfo`, it lists the ComicInfo fields that would change per file (`~ field: old -> new`); fields that would only be added are marked with `+`, and unchanged fields are omitted.
+> When run against existing CBZ files together with `--setinfo`, both real runs and dry-runs list the ComicInfo fields that would change per file before running (`~ field: old -> new`); fields that would only be added are marked with `+`, and unchanged fields are omitted.
 
 ### Quiet mode + write output to a log
 
@@ -289,6 +289,23 @@ A: Yes. Since v1.8.0 the accepted input extensions are `.mobi` / `.azw` / `.azw3
 A: Yes. Since v2.4.0 the accepted input extensions are `.mobi` / `.azw` / `.azw3` / `.epub`. EPUB is a ZIP container, so it is safely unpacked via zipfile and reuses the OPF spine extraction pipeline; cover detection supports both EPUB2 (`<meta name="cover">`) and EPUB3 (`properties="cover-image"`); without an EXTH header, metadata is read from OPF `dc:` fields; `--prefer` is silently ignored for EPUB. Encrypted EPUBs (e.g. Adobe DRM) cannot be parsed — they are reported as no images / no usable metadata and skipped; remove the DRM before converting.
 
 ## Changelog
+
+### [3.1.0] - 2026-08-24
+#### New features
+- **Multilingual filter expressions** — the FILTER of `--list-images` / `--drop-extra` now accepts aliases in four languages (e.g. `封面` / `cover` / `表紙`); display tags can be pasted directly (square brackets are stripped automatically)
+- **New statistics tag keywords** — `overscale` / `rotated_double` / `anom` (超大页 / 疑似旋转跨页 / 异常); also supported by `--drop-extra` for dropping matching images during conversion; abnormal and extra are independent dimensions and never cascade into each other
+- **Filename filter `name=keyword`** — case-insensitive substring match on the filename (incl. extension); combinable with tag and attribute conditions
+- **Disposition filter keywords** — `append` / `drop` / `filter` (追加 / 舍弃 / 筛选) to select images that will be appended, dropped, or matched by the drop filter
+- **`--repack` mode** — repack an unpacked `_cbz` directory (name ending in `_cbz`, e.g. `vol_cbz/`) back into a CBZ, restoring the source filename (`vol_cbz` → `vol.cbz`); accepts a single directory or a parent directory for batch processing, and lists the todo list before running. A `ComicInfo.xml` inside is carried back as-is, or a basic one is generated if missing; combine with `--setinfo` to override fields or `--no-comicinfo` to disable. Skips existing output by default, `--overwrite` to force
+- **Uniform unpack directory naming `source_ext`** — `--unpack` output directories are renamed from `vol.cbz/` to `vol_cbz/` (`vol.mobi` → `vol_mobi/`), so they never collide with the source file and no numbered fallback appears; any `_cbz`-suffixed directory can be repacked with `--repack`
+- **`--setinfo` prints a change plan before running** — the non-dry-run branch also lists the ComicInfo fields to add/modify per file before executing (`~ field: old -> new`, new-only fields marked with `+`), consistent with the "todo list + done summary" convention of `--unpack` / `--repack`
+#### Fixes
+- `cover` / `extra` filter keywords did not cover the cover-fallback image (cover_extra), so the cover filter used to match 0 rows
+- `_parse_atom` crash on `8bit`; `name` atom crashed on Windows due to `WindowsPath`
+- Cover-fallback image was wrongly counted in the "abnormal" detail
+- `_safe_zip_extract` now guards against drive-relative path escape (`C:foo`), closing the zip-slip defense chain
+#### Maintenance
+- New regression tests `tests/test_mobi2cbz.py` (30 cases: multilingual aliases / bracket pasting / `name` / anomaly tags / disposition filters / cover_extra fix)
 
 ### [3.0.0] - 2026-08-24
 #### Breaking changes
