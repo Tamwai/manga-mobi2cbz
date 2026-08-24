@@ -53,11 +53,14 @@ manga-mobi2cbz — 将 mobi/azw/azw3/epub 电子书漫画文件批量转换为 c
     # 检查全部电子书内部信息（--inspect all 等价旧 --inspect-all）
     python manga-mobi2cbz.py "D:\\ComicsLibrary" --inspect all
 
-    # 覆盖/新增 ComicInfo 字段（可多次；VALUE 支持 %series/%number/%title/%writer/%publisher/%date/%language/%description/%filename/%leftN/%rightN/%subN_M）
+    # 覆盖/新增 ComicInfo 字段（可多次；VALUE 支持 %series/%number/%title/%writer/%publisher/%date/%language/%%description/%filename/%leftN/%rightN/%%subN_M）
     python manga-mobi2cbz.py "D:\\ComicsLibrary\\Vol.01.mobi" --setinfo "Series=Sample Series" --setinfo "Number=%number" --setinfo "Summary=hello, world"
 
     # 解包查看：只解压不转换，输出到源文件所在目录的同名子目录
     python manga-mobi2cbz.py "D:\\ComicsLibrary\\Vol.01.mobi" --unpack
+
+    # 重新打包：把已解包的 CBZ 解包目录（目录名以 .cbz 结尾）打包回 CBZ
+    python manga-mobi2cbz.py "D:\\ComicsLibrary\\Vol.cbz" --repack
 
 参数:
     --language LANG  输出语言：auto 按系统语言自动选择（zh 前缀→中文，
@@ -108,16 +111,25 @@ manga-mobi2cbz — 将 mobi/azw/azw3/epub 电子书漫画文件批量转换为 c
     --setinfo FIELD=VALUE 设置 ComicInfo 字段（可多次，后出现覆盖先出现；
                      优先级最高，覆盖自动推断/元数据来源）。VALUE 支持
                      固定值或占位符：%series/%number/%title/%writer/%publisher/
-                     %date/%language/%description/%filename/%leftN/%rightN/
-                     %subN_M（%leftN=文件名前 N 字符，
-                     %rightN=后 N 字符，%subN_M=第 N 字符起 M 个，1-based；
+                     %date/%language/%%description/%filename/%leftN/%rightN/
+                     %%subN_M（%leftN=文件名前 N 字符，
+                     %rightN=后 N 字符，%%subN_M=第 N 字符起 M 个，1-based；
                      占位符对应值缺失时该字段不写入）。智能拆分：
                      仅当逗号后紧跟"字段名="时才拆分，否则逗号视为值的
                      一部分（如 Summary=hello, world 不拆分）。Manga 默认
                      不写入，需显式 --setinfo Manga=Unknown|No|Yes|YesAndRightToLeft
     --unpack        解包查看：只解压不转换，输出到各源文件所在目录的
-                     同名子目录（已存在自动加序号避让）；mobi 走 extract
-                     保留完整结构，cbz 走 extractall
+                     同名子目录（已存在自动加序号避让）；目录名统一为
+                     源名_扩展名（如 vol.cbz → vol_cbz/），与源文件不撞名，
+                     _cbz 结尾的解包目录可直接被 --repack 重新打包；
+                     mobi 走 extract 保留完整结构，cbz 走 extractall
+    --repack       重新打包：把已解包的 CBZ 解包目录（目录名以 _cbz
+                     结尾）重新打包回 CBZ，输出名还原为源文件
+                     （vol_cbz → vol.cbz）；可配合 --setinfo 修改元数据，
+                     目录里有 ComicInfo.xml 则原样带回（--setinfo 叠加
+                     覆盖），无则生成基础版（--no-comicinfo 关闭）；
+                     已存在默认跳过，--overwrite 覆盖，--output-dir
+                     指定输出目录；执行前先列出待处理清单
     --log FILE       将全部输出追加写入指定日志文件
     --version        显示版本号
 
@@ -125,6 +137,28 @@ manga-mobi2cbz — 将 mobi/azw/azw3/epub 电子书漫画文件批量转换为 c
 要求: Python 3.10+
 
 更新日志:
+    v3.1.0 (2026-08-24)
+        - 新增：过滤表达式多语言别名（中/繁/日/英），支持直接粘贴
+          [标签]（自动剥壳），如 封面/[封面]/cover/表紙 等价
+        - 新增：统计标签筛选词 超大页/疑似旋转跨页/异常
+          （overscale / rotated_double / anom）及四语别名
+        - 新增：文件名子串筛选 name=关键词（大小写不敏感，含扩展名）
+        - 新增：处置筛选 追加/舍弃/筛选（append/drop/filter）；
+          --drop-extra 同步支持全部新标签词
+        - 新增：--repack 重新打包模式（把已解包的 _cbz 解包目录打包回
+          CBZ，目录名以 _cbz 结尾识别，支持批量，执行前先列出待处理
+          清单；目录内 ComicInfo.xml 有则原样带回、无则生成基础版，
+          --setinfo 叠加覆盖，--no-comicinfo 关闭；输出名还原为源文件
+          （vol_cbz → vol.cbz），已存在默认跳过，--overwrite 覆盖）
+        - 变更：--unpack 解包目录名统一为 源名_扩展名（vol.cbz →
+          vol_cbz/，vol.mobi → vol_mobi/），与源文件不撞名，不再出现
+          序号避让；解包/重新打包均先输出处理清单再执行
+        - 修复：_safe_zip_extract 补驱动器相对路径（C:foo）逃逸防护
+        - 修复：cover/extra 筛选词未覆盖封面补位图（cover_extra），
+          封面筛选此前命中 0；封面补位不再计入异常明细
+        - 修复：_parse_atom 对 8bit 解析崩溃、name 原子在 WindowsPath
+          上的崩溃
+        - 维护：新增回归测试 tests/test_mobi2cbz.py（30 项）
     v3.0.0 (2026-08-24)
         - 变更：许可证由 MIT 切换为 GPL-3.0-only（因依赖 mobi 库为
           GPL-3.0-only，公开发布即构成分发）；LICENSE 替换为 GNU GPL v3，
@@ -201,7 +235,7 @@ manga-mobi2cbz — 将 mobi/azw/azw3/epub 电子书漫画文件批量转换为 c
           默认模板（系列名+自动标记前缀，前缀按类型自动选：整卷[Vol.x]/单话
           [Ch.x]/卷+章[Vol.x][Ch.x]/无类型[x]，连话話005-006 标 [Ch.5-6]）；
           占位符 %series/%number/%volume/%title/%writer/%publisher/%date/
-          %language/%description/%filename/%leftN/%rightN/%subN_M 及
+          %language/%%description/%filename/%leftN/%rightN/%%subN_M 及
           %03number 补零；来源优先级：文件名推断 > 文件自带元数据
           (OPF/ComicInfo.xml) 兜底，setinfo 不参与；输入为已有 .cbz 时进入
           独立重命名模式（只改名不转换，可与其他模式叠加）；建议配合
@@ -219,7 +253,7 @@ manga-mobi2cbz — 将 mobi/azw/azw3/epub 电子书漫画文件批量转换为 c
           （此前 %title% 仅取 ComicInfo.xml <Title>，epub 无 ComicInfo 时
           恒空；现与 series/number 的 OPF 兜底一致，来源优先级：OPF
           dc:title → ComicInfo.xml <Title>）
-        - 新增占位符 %writer/%publisher/%date/%language/%description
+        - 新增占位符 %writer/%publisher/%date/%language/%%description
           （--rename 与 --setinfo 均支持）：OPF 读 dc:creator/dc:publisher/
           dc:date/dc:language（经 normalize 归一）/dc:description，ComicInfo
           读 Writer/Publisher/LanguageISO/Summary；date 原样保留（如
@@ -611,7 +645,7 @@ manga-mobi2cbz — 将 mobi/azw/azw3/epub 电子书漫画文件批量转换为 c
           EOCD + testzip 完整性校验、失败清理半成品
 """
 
-__version__ = "3.0.0"
+__version__ = "3.1.0"
 
 SCRIPT_NAME = "manga-mobi2cbz"
 
@@ -689,7 +723,7 @@ LANGUAGES = {
         "run.drop_small_total": "丢弃小图合计: {count} 张",
         "inspect.drop_small_preview": "  [提示] 图片中 {count} 张为小图（开启 --drop-small 时将被丢弃）",
         "help.setinfo": "设置 ComicInfo 字段（可多次，格式 FIELD=VALUE；VALUE 支持 %%series/%%number/%%title/%%writer/%%publisher/%%date/%%language/%%description/%%filename/%%leftN/%%rightN/%%subN_M（%%subN_M=第 N 字符起 M 个，1-based）；逗号后紧跟字段名=才拆分，值内含 Key= 结构请用多次 --setinfo 传入；Manga 取值限 Unknown/No/Yes/YesAndRightToLeft，默认不写；--setinfo 开启时输入中的已有 .cbz 会就地修改其 ComicInfo.xml）",
-"help.rename": "重命名输出 CBZ 文件名（可选模板，默认关闭）。--rename 无值=默认模板（系列名+自动标记前缀）；标记前缀按类型自动选：整卷[Vol.x]/单话[Ch.x]/卷+章[Vol.x][Ch.x]/无类型[x]，连话（話005-006）标 [Ch.5-6]；占位符 %%series/%%number/%%volume/%%title/%%writer/%%publisher/%%date/%%language/%%description/%%filename/%%leftN/%%rightN/%%subN_M 及 %%03number 补零；来源优先级：文件名推断 > 文件自带元数据(OPF/ComicInfo.xml) 兜底，setinfo 不参与；%description 不建议用于文件名（内容可能过长），确需使用可配合 %subN_M 截取片段；建议配合 --dry-run 先预览；带值请用 --选项=值 写法，或把目标路径放在本选项之前",
+"help.rename": "重命名输出 CBZ 文件名（可选模板，默认关闭）。--rename 无值=默认模板（系列名+自动标记前缀）；标记前缀按类型自动选：整卷[Vol.x]/单话[Ch.x]/卷+章[Vol.x][Ch.x]/无类型[x]，连话（話005-006）标 [Ch.5-6]；占位符 %%series/%%number/%%volume/%%title/%%writer/%%publisher/%%date/%%language/%%description/%%filename/%%leftN/%%rightN/%%subN_M 及 %%03number 补零；来源优先级：文件名推断 > 文件自带元数据(OPF/ComicInfo.xml) 兜底，setinfo 不参与；%%description 不建议用于文件名（内容可能过长），确需使用可配合 %%subN_M 截取片段；建议配合 --dry-run 先预览；带值请用 --选项=值 写法，或把目标路径放在本选项之前",
         "comicinfo.generating": "生成 ComicInfo.xml",
         "comicinfo.created": "已写入 ComicInfo.xml",
         "comicinfo.disabled": "ComicInfo.xml 已禁用（--no-comicinfo）",
@@ -704,8 +738,19 @@ LANGUAGES = {
         "help.json_out": "将转换结果写入 JSON 文件（省略文件名时自动生成时间戳文件，或指定路径；同 --json 仅转换/修改模式写入）；带值请用 --选项=值 写法，或把目标路径放在本选项之前",
         "log.auto_named": "日志文件: {path}（自动命名）",
         "json.written": "JSON 结果已写入: {path}",
-        "help.unpack": "解包模式：只解压不转换，输出到源文件所在目录的同名子目录（已存在自动加序号避让）",
+        "help.unpack": "解包模式：只解压不转换，输出到源文件所在目录的同名子目录（已存在自动加序号避让）；目录名为「源名_扩展名」（如 vol_cbz），_cbz 结尾的解包目录可直接被 --repack 重新打包",
         "unpack.done": "已解包 {name} -> {dir}",
+        "help.repack": "重新打包：将已解包的 CBZ 解包目录（目录名以 _cbz 结尾）重新打包回 CBZ（输出名还原为源文件名，如 vol_cbz → vol.cbz），可配合 --setinfo 修改元数据",
+        "repack.none_found": "未找到 _cbz 结尾的解包目录: {path}",
+        "repack.no_images": "[错误] {dir}：目录内未找到图片",
+        "repack.skip_exists": "[跳过] {path} 已存在（--overwrite 强制覆盖）",
+        "repack.done": "[完成] {name}：共 {count} 张图片，{size} MB",
+        "repack.fail": "[失败] {dir} 重新打包失败: {err}",
+        "repack.done_summary": "重新打包完成：成功 {ok} 个，失败 {fail} 个",
+        "repack.plan": "将重新打包 {count} 个解包目录：",
+        "unpack.plan": "将解包 {count} 个文件：",
+        "unpack.done_summary": "解包完成：成功 {ok} 个，失败 {fail} 个",
+        "error.repack_need_dir": "repack 模式仅接受目录（_cbz 结尾的解包目录，或含 *_cbz 解包目录的父目录）: {path}",
         # ---- 输出标签 ----
         "tag.info": "[提示]",
         "tag.fail": "[失败]",
@@ -906,6 +951,8 @@ LANGUAGES = {
         "anom.extra_append": "目录外图片（默认追加末尾）",
         "anom.extra_drop": "目录外图片（配 --drop-extra 将舍弃）",
         "anom.small": "异常小图",
+        "anom.overscale": "超大页",
+        "anom.rotated_double": "疑似旋转跨页",
         "anom.thumbnail": "疑似缩略图",
         "convert.drop_filter": "按过滤表达式丢弃 {count} 张图片{names}",
         "dir.landscape": "横向",
@@ -950,6 +997,8 @@ LANGUAGES = {
         "mark.filter": "[筛选]",
         "mark.drop": "[舍弃]",
         "mark.append": "[追加]",
+        "mark.overscale": "[超大页]",
+        "mark.rotated_double": "[疑似旋转跨页]",
         "mode.gray": "灰度",
         "mode.graya": "灰度A",
         "mode.index": "索引",
@@ -998,7 +1047,7 @@ LANGUAGES = {
         "run.drop_small_total": "丟棄小圖合計: {count} 張",
         "inspect.drop_small_preview": "  [提示] 圖片中 {count} 張為小圖（開啟 --drop-small 時將被丟棄）",
         "help.setinfo": "設定 ComicInfo 欄位（可多次，格式 FIELD=VALUE；VALUE 支援 %%series/%%number/%%title/%%writer/%%publisher/%%date/%%language/%%description/%%filename/%%leftN/%%rightN/%%subN_M（%%subN_M=第 N 字元起 M 個，1-based）；逗號後緊跟欄位名=才拆分，值內含 Key= 結構請用多次 --setinfo 傳入；Manga 取值限 Unknown/No/Yes/YesAndRightToLeft，預設不寫；--setinfo 開啟時輸入中的既有 .cbz 會就地修改其 ComicInfo.xml）",
-"help.rename": "重新命名輸出 CBZ 檔名（可選範本，預設關閉）。--rename 無值=預設範本（系列名+自動標記前綴）；標記前綴依類型自動選：整卷[Vol.x]/單話[Ch.x]/卷+章[Vol.x][Ch.x]/無類型[x]，連話（話005-006）標 [Ch.5-6]；佔位符 %%series/%%number/%%volume/%%title/%%writer/%%publisher/%%date/%%language/%%description/%%filename/%%leftN/%%rightN/%%subN_M 及 %%03number 補零；來源優先序：檔名推斷 > 檔案中繼資料(OPF/ComicInfo.xml) 兜底，setinfo 不參與；%description 不建議用於檔案名稱（內容可能過長），確需使用可搭配 %subN_M 截取片段；建議搭配 --dry-run 先預覽；帶值請用 --選項=值 寫法，或將目標路徑放在本選項之前",
+"help.rename": "重新命名輸出 CBZ 檔名（可選範本，預設關閉）。--rename 無值=預設範本（系列名+自動標記前綴）；標記前綴依類型自動選：整卷[Vol.x]/單話[Ch.x]/卷+章[Vol.x][Ch.x]/無類型[x]，連話（話005-006）標 [Ch.5-6]；佔位符 %%series/%%number/%%volume/%%title/%%writer/%%publisher/%%date/%%language/%%description/%%filename/%%leftN/%%rightN/%%subN_M 及 %%03number 補零；來源優先序：檔名推斷 > 檔案中繼資料(OPF/ComicInfo.xml) 兜底，setinfo 不參與；%%description 不建議用於檔案名稱（內容可能過長），確需使用可搭配 %%subN_M 截取片段；建議搭配 --dry-run 先預覽；帶值請用 --選項=值 寫法，或將目標路徑放在本選項之前",
         "comicinfo.generating": "生成 ComicInfo.xml",
         "comicinfo.created": "已寫入 ComicInfo.xml",
         "comicinfo.disabled": "ComicInfo.xml 已停用（--no-comicinfo）",
@@ -1013,8 +1062,19 @@ LANGUAGES = {
         "help.json_out": "將轉換結果寫入 JSON 檔案（省略檔名時自動產生時間戳檔案，或指定路徑；同 --json 僅轉換/修改模式寫入）；帶值請用 --選項=值 寫法，或將目標路徑放在本選項之前",
         "log.auto_named": "日誌檔案: {path}（自動命名）",
         "json.written": "JSON 結果已寫入: {path}",
-        "help.unpack": "解包模式：只解壓不轉換，輸出到來源檔案所在目錄的同名子目錄（已存在自動加序號避讓）",
+        "help.unpack": "解包模式：只解壓不轉換，輸出到來源檔案所在目錄的同名子目錄（已存在自動加序號避讓）；目錄名為「來源名_副檔名」（如 vol_cbz），_cbz 結尾的解包目錄可直接被 --repack 重新打包",
         "unpack.done": "已解包 {name} -> {dir}",
+        "help.repack": "重新打包：將已解包的 CBZ 解包目錄（目錄名以 _cbz 結尾）重新打包回 CBZ（輸出名還原為來源檔名，如 vol_cbz → vol.cbz），可搭配 --setinfo 修改元資料",
+        "repack.none_found": "未找到 _cbz 結尾的解包目錄: {path}",
+        "repack.no_images": "[錯誤] {dir}：目錄內未找到圖片",
+        "repack.skip_exists": "[跳過] {path} 已存在（--overwrite 強制覆寫）",
+        "repack.done": "[完成] {name}：共 {count} 張圖片，{size} MB",
+        "repack.fail": "[失敗] {dir} 重新打包失敗: {err}",
+        "repack.done_summary": "重新打包完成：成功 {ok} 個，失敗 {fail} 個",
+        "repack.plan": "將重新打包 {count} 個解包目錄：",
+        "unpack.plan": "將解包 {count} 個檔案：",
+        "unpack.done_summary": "解包完成：成功 {ok} 個，失敗 {fail} 個",
+        "error.repack_need_dir": "repack 模式僅接受目錄（_cbz 結尾的解包目錄，或含 *_cbz 解包目錄的父目錄）: {path}",
         # ---- 输出标签 ----
         "tag.info": "[提示]",
         "tag.fail": "[失敗]",
@@ -1148,6 +1208,8 @@ LANGUAGES = {
         "anom.extra_append": "目錄外圖片（預設追加末尾）",
         "anom.extra_drop": "目錄外圖片（配 --drop-extra 將捨棄）",
         "anom.small": "異常小圖",
+        "anom.overscale": "超大頁",
+        "anom.rotated_double": "疑似旋轉跨頁",
         "anom.thumbnail": "疑似縮圖",
         "convert.drop_filter": "按過濾表達式丟棄 {count} 張圖片{names}",
         "dir.landscape": "橫向",
@@ -1192,6 +1254,8 @@ LANGUAGES = {
         "mark.filter": "[篩選]",
         "mark.drop": "[捨棄]",
         "mark.append": "[追加]",
+        "mark.overscale": "[超大頁]",
+        "mark.rotated_double": "[疑似旋轉跨頁]",
         "mode.gray": "灰度",
         "mode.graya": "灰度A",
         "mode.index": "索引",
@@ -1307,7 +1371,7 @@ LANGUAGES = {
         "run.drop_small_total": "Total small images dropped: {count}",
         "inspect.drop_small_preview": "  [Note] {count} small image(s) found (will be dropped when --drop-small is enabled)",
         "help.setinfo": "Set ComicInfo field (repeatable, FIELD=VALUE; VALUE supports %%series/%%number/%%title/%%writer/%%publisher/%%date/%%language/%%description/%%filename/%%leftN/%%rightN/%%subN_M (%%subN_M = M chars from the Nth char, 1-based); split on comma only when followed by FIELD=; use multiple --setinfo for a value containing Key=; Manga accepts Unknown/No/Yes/YesAndRightToLeft, not written by default; when enabled, existing .cbz inputs have their ComicInfo.xml modified in place)",
-"help.rename": "Rename output CBZ filename (optional template, off by default). --rename (no value) uses default template (series + auto mark prefix); mark prefix by type: [Vol.x] volume-only / [Ch.x] chapter-only / [Vol.x][Ch.x] volume+chapter / [x] untyped; consecutive episodes (話005-006) -> [Ch.5-6]; placeholders %%series/%%number/%%volume/%%title/%%writer/%%publisher/%%date/%%language/%%description/%%filename/%%leftN/%%rightN/%%subN_M and zero-pad %%03number; source priority: filename inference > file metadata (OPF/ComicInfo.xml), setinfo excluded; %description is not recommended for filenames (content may be very long); if needed, slice it with %subN_M; combine with --dry-run to preview; when passing a value use --option=value, or place the target path before this option",
+"help.rename": "Rename output CBZ filename (optional template, off by default). --rename (no value) uses default template (series + auto mark prefix); mark prefix by type: [Vol.x] volume-only / [Ch.x] chapter-only / [Vol.x][Ch.x] volume+chapter / [x] untyped; consecutive episodes (話005-006) -> [Ch.5-6]; placeholders %%series/%%number/%%volume/%%title/%%writer/%%publisher/%%date/%%language/%%description/%%filename/%%leftN/%%rightN/%%subN_M and zero-pad %%03number; source priority: filename inference > file metadata (OPF/ComicInfo.xml), setinfo excluded; %%description is not recommended for filenames (content may be very long); if needed, slice it with %%subN_M; combine with --dry-run to preview; when passing a value use --option=value, or place the target path before this option",
         "comicinfo.generating": "Generating ComicInfo.xml",
         "comicinfo.created": "ComicInfo.xml written",
         "comicinfo.disabled": "ComicInfo.xml disabled (--no-comicinfo)",
@@ -1322,8 +1386,19 @@ LANGUAGES = {
         "help.json_out": "Write conversion results to a JSON file (omit filename to auto-generate a timestamped file, or specify a path; like --json, only written in conversion/modify mode); when passing a value use --option=value, or place the target path before this option",
         "log.auto_named": "Log file: {path} (auto-named)",
         "json.written": "JSON result written to: {path}",
-        "help.unpack": "Unpack mode: extract only without converting, output to a same-named subdirectory next to the source (auto-append number if exists)",
+        "help.unpack": "Unpack mode: extract only without converting, output to a same-named subdirectory next to the source (auto-append number if exists); the directory is named `<source>_<ext>` (e.g. vol_cbz), and _cbz-suffixed directories can be repacked with --repack",
         "unpack.done": "Unpacked {name} -> {dir}",
+        "help.repack": "Repack mode: repack an unpacked CBZ directory (name ending in _cbz) back into a CBZ (output name restored to the source, e.g. vol_cbz → vol.cbz); use with --setinfo to edit metadata",
+        "repack.none_found": "No _cbz unpack directories found: {path}",
+        "repack.no_images": "[Error] {dir}: no images found in directory",
+        "repack.skip_exists": "[Skip] {path} already exists (use --overwrite to force)",
+        "repack.done": "[Done] {name}: {count} images, {size} MB",
+        "repack.fail": "[Failed] repack failed for {dir}: {err}",
+        "repack.done_summary": "Repack finished: {ok} succeeded, {fail} failed",
+        "repack.plan": "Will repack {count} unpack directory(ies):",
+        "unpack.plan": "Will unpack {count} file(s):",
+        "unpack.done_summary": "Unpack finished: {ok} succeeded, {fail} failed",
+        "error.repack_need_dir": "repack mode accepts only directories (an _cbz unpack dir, or a parent dir containing *_cbz unpack dirs): {path}",
         # ---- 输出标签 ----
         "tag.info": "[Info]",
         "tag.fail": "[Failed]",
@@ -1402,6 +1477,8 @@ LANGUAGES = {
         "anom.extra_append": "extra image (not in spine, appended to end)",
         "anom.extra_drop": "extra image (not in spine, dropped via --drop-extra)",
         "anom.small": "abnormally small",
+        "anom.overscale": "overscale",
+        "anom.rotated_double": "rotated double-page",
         "anom.thumbnail": "suspected thumbnail",
         "convert.drop_filter": "Dropped {count} image(s) by filter{names}",
         "dir.landscape": "landscape",
@@ -1446,6 +1523,8 @@ LANGUAGES = {
         "mark.filter": "[filtered]",
         "mark.drop": "[drop]",
         "mark.append": "[append]",
+        "mark.overscale": "[overscale]",
+        "mark.rotated_double": "[rotated?]",
         "mode.gray": "gray",
         "mode.graya": "gray+alpha",
         "mode.index": "index",
@@ -1616,7 +1695,7 @@ LANGUAGES = {
         "run.drop_small_total": "破棄した小画像の合計: {count} 枚",
         "inspect.drop_small_preview": "  [注意] 小画像が {count} 枚（--drop-small 有効時は破棄されます）",
         "help.setinfo": "ComicInfo フィールドを設定（複数可、形式 FIELD=VALUE；VALUE は %%series/%%number/%%title/%%writer/%%publisher/%%date/%%language/%%description/%%filename/%%leftN/%%rightN/%%subN_M をサポート（%%subN_M=N 文字目から M 文字、1-based）；カンマ直後にフィールド名= がある場合のみ分割、値に Key= 構造が含まれる場合は --setinfo を複数回指定；Manga は Unknown/No/Yes/YesAndRightToLeft のみ有効、デフォルトでは書かない；--setinfo 有効時、入力中の既存 .cbz は ComicInfo.xml を直接変更）",
-"help.rename": "出力 CBZ のファイル名をリネーム（テンプレート任意、デフォルト無効）。--rename 値なし=デフォルトテンプレート（シリーズ名+自動マーク接頭辞）；マーク接頭辞は種類別に自動選択：単巻[Vol.x]/単話[Ch.x]/巻+話[Vol.x][Ch.x]/型なし[x]、連話（話005-006）は [Ch.5-6]；プレースホルダ %%series/%%number/%%volume/%%title/%%writer/%%publisher/%%date/%%language/%%description/%%filename/%%leftN/%%rightN/%%subN_M と %%03number ゼロ埋め；優先順位：ファイル名推測 > ファイルメタデータ(OPF/ComicInfo.xml)、setinfo は不参加；%description はファイル名への使用は推奨しません（内容が非常に長くなる可能性があります）。使用する場合は %subN_M で切り出してください；--dry-run でプレビュー推奨；値を渡す場合は --オプション=値 の形式にするか、対象パスをこのオプションの前に置いてください",
+"help.rename": "出力 CBZ のファイル名をリネーム（テンプレート任意、デフォルト無効）。--rename 値なし=デフォルトテンプレート（シリーズ名+自動マーク接頭辞）；マーク接頭辞は種類別に自動選択：単巻[Vol.x]/単話[Ch.x]/巻+話[Vol.x][Ch.x]/型なし[x]、連話（話005-006）は [Ch.5-6]；プレースホルダ %%series/%%number/%%volume/%%title/%%writer/%%publisher/%%date/%%language/%%description/%%filename/%%leftN/%%rightN/%%subN_M と %%03number ゼロ埋め；優先順位：ファイル名推測 > ファイルメタデータ(OPF/ComicInfo.xml)、setinfo は不参加；%%description はファイル名への使用は推奨しません（内容が非常に長くなる可能性があります）。使用する場合は %%subN_M で切り出してください；--dry-run でプレビュー推奨；値を渡す場合は --オプション=値 の形式にするか、対象パスをこのオプションの前に置いてください",
         "comicinfo.generating": "ComicInfo.xml を生成中",
         "comicinfo.created": "ComicInfo.xml を書き込みました",
         "comicinfo.disabled": "ComicInfo.xml は無効です（--no-comicinfo）",
@@ -1631,8 +1710,19 @@ LANGUAGES = {
         "help.json_out": '変換結果を JSON ファイルに書き出し（ファイル名省略でタイムスタンプ付きファイルを自動生成、またはパス指定。--json と同様、変換/変更モードのみ書き込み）；値を渡す場合は --オプション=値 の形式にするか、対象パスをこのオプションの前に置いてください',
         "log.auto_named": 'ログファイル: {path}（自動命名）',
         "json.written": 'JSON 結果を書き込みました: {path}',
-        "help.unpack": '解凍モード：解凍のみで変換は行わず、元ファイルと同じディレクトリの同名サブディレクトリに出力（既存の場合は自動で番号を付与）',
+        "help.unpack": '解凍モード：解凍のみで変換は行わず、元ファイルと同じディレクトリの同名サブディレクトリに出力（既存の場合は自動で番号を付与）。ディレクトリ名は「元名_拡張子」（例 vol_cbz）で、_cbz で終わる解凍ディレクトリは --repack で再パックできます',
         "unpack.done": '解凍しました {name} -> {dir}',
+        "help.repack": '再パックモード：解凍済みの CBZ ディレクトリ（_cbz で終わるディレクトリ名）を CBZ に再パック（出力名は元ファイル名に復元、例 vol_cbz → vol.cbz）。--setinfo と併用してメタデータを編集できます',
+        "repack.none_found": '_cbz で終わる解凍ディレクトリが見つかりません: {path}',
+        "repack.no_images": '[エラー] {dir}: ディレクトリ内に画像が見つかりません',
+        "repack.skip_exists": '[スキップ] {path} は既に存在します（--overwrite で強制上書き）',
+        "repack.done": '[完了] {name}: 画像 {count} 枚、{size} MB',
+        "repack.fail": '[失敗] {dir} の再パックに失敗: {err}',
+        "repack.done_summary": '再パック完了：成功 {ok} 件、失敗 {fail} 件',
+        "repack.plan": '再パックする解凍ディレクトリ {count} 件：',
+        "unpack.plan": '解凍するファイル {count} 件：',
+        "unpack.done_summary": '解凍完了：成功 {ok} 件、失敗 {fail} 件',
+        "error.repack_need_dir": 'repack モードはディレクトリのみ受け付けます（_cbz で終わる解凍ディレクトリ、または *_cbz 解凍ディレクトリを含む親ディレクトリ）: {path}',
         # ---- 输出标签 ----
         "tag.info": '[情報]',
         "tag.fail": '[失敗]',
@@ -1658,6 +1748,8 @@ LANGUAGES = {
         "anom.extra_append": "目次外画像（デフォルトは末尾に追加）",
         "anom.extra_drop": "目次外画像（--drop-extra で破棄）",
         "anom.small": "異常に小さい",
+        "anom.overscale": "特大ページ",
+        "anom.rotated_double": "回転見開き",
         "anom.thumbnail": "縮小サムネイルの疑い",
         "convert.drop_filter": "フィルタで {count} 枚の画像を破棄{names}",
         "dir.landscape": "横向き",
@@ -1702,6 +1794,8 @@ LANGUAGES = {
         "mark.filter": "[フィルタ]",
         "mark.drop": "[破棄]",
         "mark.append": "[追加]",
+        "mark.overscale": "[特大ページ]",
+        "mark.rotated_double": "[回転見開き]",
         "mode.gray": "グレー",
         "mode.graya": "グレー+α",
         "mode.index": "インデックス",
@@ -2942,10 +3036,17 @@ def ebook_to_cbz(ebook_path: Path, delete_original: bool = False, prefer: str = 
             for img in images:
                 if any(k in img.name.lower() for k in COVER_KEYWORDS):
                     cover_paths.add(norm_path(img))
+            # 先构建全量 attrs 并回填 small/overscale 标记（与 --list-images 侧一致），
+            # 使 --drop-extra 的 small/超大页/疑似旋转跨页/异常 等标记条件在转换链路同样生效
+            attrs_list = []
             for img in images:
                 attrs = build_image_attrs(img, double_page)
                 if norm_path(img) in cover_paths:
                     attrs["cover"] = True
+                attrs_list.append(attrs)
+            _fill_small_mark(attrs_list)
+            _fill_overscale_mark(attrs_list)
+            for img, attrs in zip(images, attrs_list):
                 # drop_extra 为二维组列表（组间 OR、组内 AND），需逐组求值
                 if any(eval_filter_atoms(attrs, g) for g in drop_extra):
                     dropped_filter += 1
@@ -3101,9 +3202,12 @@ def _safe_zip_extract(zf: zipfile.ZipFile, out_dir: Path) -> None:
     cbz / epub 共用；拒绝绝对路径与 .. 跳转条目，目录条目仅建目录。"""
     for member in zf.infolist():
         name = member.filename
-        # 路径穿越防护：拒绝绝对路径与 .. 跳转，防止 zip-slip
+        # 路径穿越防护：拒绝绝对路径、驱动器相对路径（如 C:foo）与 .. 跳转
+        # Path('C:foo').is_absolute() 为 False 但 .drive 非空，拼接时 drive 会
+        # 替换左侧逃逸 out_dir，故需显式检查 .drive
         norm_name = name.replace("\\", "/")
         if (norm_name.startswith("/") or Path(norm_name).is_absolute()
+                or Path(norm_name).drive
                 or ".." in norm_name.split("/")):
             emit(t("unpack.path_skip", name=Path(zf.filename).name, entry=name), level="warning")
             continue
@@ -3715,7 +3819,7 @@ def _resolve_setinfo_value(raw: str, series, number, volume, title, stem,
                            writer=None, publisher=None, date=None,
                            language=None, description=None) -> str | None:
     """解析 --setinfo 值中的占位符：%series/%number/%volume/%title/%writer/%publisher/
-    %date/%language/%description/%filename/%leftN/%rightN/%subN_M。
+    %date/%language/%%description/%filename/%leftN/%rightN/%%subN_M。
 
     两种语义：
     - 整段恰好是单个已知占位符：对应值缺失时返回 None（该字段不写入），保持原语义；
@@ -3797,7 +3901,7 @@ def _render_name_template(raw: str, series, number, volume, title, stem,
                           writer=None, publisher=None, date=None,
                           language=None, description=None) -> str:
     """渲染 --rename 模板占位符：%series/%number/%volume/%title/%writer/%publisher/
-    %date/%language/%description/%filename/%leftN/%rightN/%subN_M；
+    %date/%language/%%description/%filename/%leftN/%rightN/%%subN_M；
     支持 %0<N>number 补零（如 %03number -> '005'）；缺失值渲染为空串，未知占位符原样保留。"""
     if not raw:
         return raw
@@ -4388,67 +4492,72 @@ def inspect_res_summary(res_list, t) -> str | None:
     )
 
 
-def get_opf_guide_cover_href(opf_path: Path) -> str | None:
-    """解析 OPF 文件中的封面引用（返回 href 字符串），命中优先级：
+def _opf_cover_href_scan(text: str) -> str | None:
+    """从 OPF 文本中解析封面引用 href（纯文本正则扫描，兼容属性顺序互换、无命名空间 OPF）。
 
+    命中优先级：
     1. <guide><reference type="cover" href="...">
     2. <manifest><item properties="cover-image" href="...">（EPUB3 约定）
     3. <meta name="cover" content="{id}"> 对应的 manifest item href（EPUB2 约定）
+    均未命中返回 None。"""
+    # 1) guide reference type=cover
+    m = re.search(
+        r'<reference\s+[^>]*type=["\']cover["\'][^>]*href=["\']([^"\']+)["\']',
+        text, re.I,
+    )
+    if not m:
+        m = re.search(
+            r'<reference\s+[^>]*href=["\']([^"\']+)["\'][^>]*type=["\']cover["\']',
+            text, re.I,
+        )
+    if m:
+        return m.group(1)
+    # 2) manifest item properties 含 cover-image
+    m = re.search(
+        r'<item\b[^>]*properties=["\'][^"\']*cover-image[^"\']*["\'][^>]*href=["\']([^"\']+)["\']',
+        text, re.I,
+    )
+    if not m:
+        m = re.search(
+            r'<item\b[^>]*href=["\']([^"\']+)["\'][^>]*properties=["\'][^"\']*cover-image[^"\']*["\']',
+            text, re.I,
+        )
+    if m:
+        return m.group(1)
+    # 3) meta name=cover content={id} → 查 manifest 对应 item 的 href
+    m = re.search(
+        r'<meta\b[^>]*name=["\']cover["\'][^>]*content=["\']([^"\']+)["\']',
+        text, re.I,
+    )
+    if not m:
+        m = re.search(
+            r'<meta\b[^>]*content=["\']([^"\']+)["\'][^>]*name=["\']cover["\']',
+            text, re.I,
+        )
+    if m:
+        cover_id = m.group(1)
+        for it in re.finditer(
+            r'<item\b[^>]*id=["\']([^"\']+)["\'][^>]*href=["\']([^"\']+)["\']',
+            text, re.I,
+        ):
+            if it.group(1) == cover_id:
+                return it.group(2)
+        for it in re.finditer(
+            r'<item\b[^>]*href=["\']([^"\']+)["\'][^>]*id=["\']([^"\']+)["\']',
+            text, re.I,
+        ):
+            if it.group(2) == cover_id:
+                return it.group(1)
+    return None
 
-    全程文本正则扫描（兼容属性顺序互换、无命名空间 OPF），均未命中返回 None。"""
+
+def get_opf_guide_cover_href(opf_path: Path) -> str | None:
+    """解析 OPF 文件中的封面引用（返回 href 字符串），委托 _opf_cover_href_scan。"""
     try:
         text = opf_path.read_text("utf-8", errors="replace")
-        # 1) guide reference type=cover
-        m = re.search(
-            r'<reference\s+[^>]*type=["\']cover["\'][^>]*href=["\']([^"\']+)["\']',
-            text, re.I,
-        )
-        if not m:
-            m = re.search(
-                r'<reference\s+[^>]*href=["\']([^"\']+)["\'][^>]*type=["\']cover["\']',
-                text, re.I,
-            )
-        if m:
-            return m.group(1)
-        # 2) manifest item properties 含 cover-image
-        m = re.search(
-            r'<item\b[^>]*properties=["\'][^"\']*cover-image[^"\']*["\'][^>]*href=["\']([^"\']+)["\']',
-            text, re.I,
-        )
-        if not m:
-            m = re.search(
-                r'<item\b[^>]*href=["\']([^"\']+)["\'][^>]*properties=["\'][^"\']*cover-image[^"\']*["\']',
-                text, re.I,
-            )
-        if m:
-            return m.group(1)
-        # 3) meta name=cover content={id} → 查 manifest 对应 item 的 href
-        m = re.search(
-            r'<meta\b[^>]*name=["\']cover["\'][^>]*content=["\']([^"\']+)["\']',
-            text, re.I,
-        )
-        if not m:
-            m = re.search(
-                r'<meta\b[^>]*content=["\']([^"\']+)["\'][^>]*name=["\']cover["\']',
-                text, re.I,
-            )
-        if m:
-            cover_id = m.group(1)
-            for it in re.finditer(
-                r'<item\b[^>]*id=["\']([^"\']+)["\'][^>]*href=["\']([^"\']+)["\']',
-                text, re.I,
-            ):
-                if it.group(1) == cover_id:
-                    return it.group(2)
-            for it in re.finditer(
-                r'<item\b[^>]*href=["\']([^"\']+)["\'][^>]*id=["\']([^"\']+)["\']',
-                text, re.I,
-            ):
-                if it.group(2) == cover_id:
-                    return it.group(1)
-        return None
     except Exception:
         return None
+    return _opf_cover_href_scan(text)
 
 
 def find_ncx(base_dir: Path) -> Path | None:
@@ -5112,7 +5221,7 @@ def _meta_from_comicinfo_root(root) -> dict:
     publisher/language/summary/date 等）。
 
     供 --setinfo 修改/预览已有 CBZ 时解析 %series/%number/%volume/%writer/%publisher/
-    %language/%description/%date 占位符；无对应字段时省略（与转换链路语义一致，不生成空值）。
+    %language/%%description/%date 占位符；无对应字段时省略（与转换链路语义一致，不生成空值）。
     """
     meta: dict = {}
     for tag, key in (("Title", "title"), ("Series", "series"), ("Number", "number"),
@@ -5364,6 +5473,15 @@ def modify_cbz_mode(cbz_files: list[Path], args) -> None:
                   interrupted=False, total_elapsed=time.perf_counter() - total_start)
         return
 
+    # 处理前清单：逐文件列出将修改的字段变更（与 dry-run 分支一致）
+    for mf in cbz_files:
+        emit(t("modify.plan", name=mf.name), level="summary")
+        for field, old_val, new_val in _preview_modify_changes(mf, args.setinfo):
+            if old_val is None:
+                emit(t("modify.plan_add", field=field, value=new_val), level="summary")
+            else:
+                emit(t("modify.plan_change", field=field, old=old_val, new=new_val), level="summary")
+
     success = 0
     nochange = 0
     failed_files = []
@@ -5421,16 +5539,42 @@ def modify_cbz_mode(cbz_files: list[Path], args) -> None:
               total_elapsed=total_elapsed)
 
 
+def _unpack_dir_parts(name: str) -> tuple[str, str, str]:
+    """把解包目录名拆成 (还原stem, 序号后缀, 来源扩展名)。
+
+    vol_cbz → ("vol", "", "cbz")；vol_cbz (2) → ("vol", " (2)", "cbz")
+    vol_mobi → ("vol", "", "mobi")；非解包目录名返回 (name, "", "")。
+    供 --repack 识别 `_cbz` 来源并还原输出名。
+    """
+    num = ""
+    m = re.match(r"^(.*?)(\s*\(\d+\))?$", name)
+    base = m.group(1) if m else name
+    num = (m.group(2) if m else "") or ""
+    for ext in (".cbz", ".mobi", ".epub"):
+        suf = "_" + ext.lstrip(".")
+        if base.lower().endswith(suf):
+            return base[: -len(suf)], num, ext.lstrip(".")
+    return name, "", ""
+
+
+def _is_unpack_cbz_dir(name: str) -> bool:
+    """目录名是否为 cbz 解包目录（以 _cbz 结尾，允许带 (N) 序号）。"""
+    return _unpack_dir_parts(name)[2] == "cbz"
+
+
 def unpack_ebook(p: Path, out_root: Path) -> Path:
     """解包电子书到 out_root 下的同名子目录（已存在自动加序号避让）。
 
+    目录名为 `源名_扩展名`（如 vol.cbz → vol_cbz/，vol.mobi → vol_mobi/），
+    统一来源标签且与源文件不撞名；--repack 按 _cbz 结尾识别 cbz 解包目录。
     mobi 走 mobi.extract 保留完整结构（mobi7/mobi8 等），cbz/epub 逐条目
     安全解压（含 zip-slip 路径穿越防护）。返回实际解包到的目录。
     """
-    out_dir = out_root / p.stem
+    base = f"{p.stem}_{p.suffix.lstrip('.')}"
+    out_dir = out_root / base
     n = 2
     while out_dir.exists():
-        out_dir = out_root / f"{p.stem} ({n})"
+        out_dir = out_root / f"{base} ({n})"
         n += 1
     out_dir.mkdir(parents=True, exist_ok=True)
     if p.suffix.lower() in (".cbz", ".epub"):
@@ -5451,13 +5595,167 @@ def unpack_ebook(p: Path, out_root: Path) -> Path:
 
 
 def unpack_mode(ebook_files: list[Path], args) -> None:
-    """--unpack 模式入口：只解包不转换，输出到各源文件所在目录的同名子目录。"""
+    """--unpack 模式入口：只解包不转换，输出到各源文件所在目录的同名子目录。
+
+    执行前先列出待解包文件清单，逐个解包后输出完成汇总。
+    """
+    if not ebook_files:
+        emit(t("inspect_mode.none"), level="error")
+        sys.exit(0)
+    # 处理清单：先列出将解包的文件
+    emit(t("unpack.plan", count=len(ebook_files)), level="summary")
+    for i, mf in enumerate(ebook_files, 1):
+        emit(f"  {i}. {mf}", level="summary")
+    ok_n = fail_n = 0
     for mf in ebook_files:
         try:
             out_dir = unpack_ebook(mf, mf.parent)
             emit(t("unpack.done", name=mf.name, dir=out_dir))
+            ok_n += 1
         except Exception as e:
             emit(t("inspect.unpack_fail", err=e), level="error")
+            fail_n += 1
+    emit(t("unpack.done_summary", ok=ok_n, fail=fail_n), level="summary")
+
+
+def repack_one(src_dir: Path, args) -> bool:
+    """把单个 cbz 解包目录（目录名以 _cbz 结尾，允许带 (N) 序号）打包回 CBZ。
+
+    忠实打包：只收白名单图片（jpg/jpeg/png/gif/webp/bmp/tiff），自然排序，
+    ZIP_STORED 不二次压缩，跨子目录重名自动加序号前缀（_compute_arcnames）。
+    ComicInfo.xml：--no-comicinfo 关闭；目录内有则原样带回（--setinfo 叠加
+    覆盖）；无则生成基础版（页数=实际图数，标题/卷号从还原后的源文件名
+    推断，如 vol_cbz → vol）。输出到解包目录旁，文件名还原为源文件
+    （vol_cbz → vol.cbz，vol_cbz (2) → vol (2).cbz），已存在默认跳过，
+    --overwrite 强制覆盖；--output-dir 指定目录。
+    校验通过才原子替换，失败只删 .tmp 半成品，不碰已有目标。
+    """
+    recon_stem, num_suffix, _ext = _unpack_dir_parts(src_dir.name)
+    # 还原后的虚拟源文件名（vol_cbz → vol.cbz），供元数据推断按源文件语义走
+    virtual_src = src_dir.with_name(recon_stem + num_suffix + ".cbz")
+    images: list[Path] = []
+    for root, _dirs, files in os.walk(src_dir):
+        for fn in files:
+            if Path(fn).suffix.lower() in IMAGE_EXTENSIONS:
+                images.append(Path(root) / fn)
+    images.sort(key=natural_key)
+    if not images:
+        emit(t("repack.no_images", dir=src_dir), level="error")
+        return False
+
+    # arcname 预计算（跨子目录重名加序号前缀），与 ComicInfo Page Image 共用
+    arcnames, skipped_dup = _compute_arcnames(images)
+
+    # ComicInfo.xml：--no-comicinfo 关闭；有则原样带回（--setinfo 叠加）；无则生成基础版
+    xml_bytes: bytes | None = None
+    existing_ci = src_dir / "ComicInfo.xml"
+    if args.no_comicinfo:
+        xml_bytes = None
+    elif existing_ci.exists():
+        try:
+            root = safe_et_parse(existing_ci.read_bytes()).getroot()
+        except Exception as e:
+            emit(t("comicinfo.invalid", err=e), level="error")
+            root = None
+        if root is not None:
+            meta = _meta_from_comicinfo_root(root)
+            inferred = infer_series_number(virtual_src)
+            setinfo = parse_setinfo_args(args.setinfo, meta, inferred, virtual_src)
+            for field, value in setinfo.items():
+                if field == "Summary" and value:
+                    cleaned = _strip_html(str(value))
+                    if cleaned is not None:
+                        value = cleaned
+                node = root.find(field)
+                if node is None:
+                    node = ET.SubElement(root, field)
+                node.text = str(value)
+            xml_bytes = ET.tostring(root, encoding="utf-8", xml_declaration=True)
+    else:
+        # 无 ComicInfo：生成基础版，标题兜底用还原后的源文件名（vol_cbz → vol）
+        meta = {"title": recon_stem + num_suffix}
+        inferred = infer_series_number(virtual_src)
+        built = build_comicinfo(meta, images, inferred,
+                                parse_setinfo_args(args.setinfo, meta, inferred, virtual_src),
+                                arcnames=arcnames)
+        if built is not None:
+            xml_bytes = built[0].encode("utf-8")
+
+    # 输出路径：解包目录旁，文件名还原为源文件（vol_cbz → vol.cbz）；
+    # --output-dir 指定目录
+    out_name = recon_stem + num_suffix + ".cbz"
+    if args.output_dir:
+        out_file = Path(args.output_dir) / out_name
+    else:
+        out_file = src_dir.parent / out_name
+    if out_file.exists() and not args.overwrite:
+        emit(t("repack.skip_exists", path=out_file), level="warning")
+        return True
+
+    # 原子打包：先写 .tmp，校验通过后 os.replace；失败只删 .tmp 不碰已有目标
+    tmp = out_file.with_name(out_file.name + ".tmp")
+    try:
+        with zipfile.ZipFile(str(tmp), "w", zipfile.ZIP_STORED) as zf:
+            seen: set = set()
+            for img in images:
+                norm = norm_path(img)
+                if norm in seen:
+                    continue
+                seen.add(norm)
+                zf.write(str(img), arcnames[img])
+            if xml_bytes is not None:
+                zf.writestr("ComicInfo.xml", xml_bytes)
+        ok, msg = validate_cbz(tmp, require_comicinfo=(xml_bytes is not None))
+        if not ok:
+            tmp.unlink(missing_ok=True)
+            emit(t("convert.verify_fail", name=out_file.name, msg=msg), level="error")
+            return False
+        os.replace(str(tmp), str(out_file))
+    except Exception as e:
+        tmp.unlink(missing_ok=True)
+        emit(t("repack.fail", dir=src_dir, err=e), level="error")
+        return False
+    if skipped_dup:
+        emit(t("convert.dedup_physical", count=skipped_dup), level="summary")
+    size_mb = out_file.stat().st_size / (1024 * 1024)
+    emit(t("repack.done", name=out_file.name, count=len(images), size=f"{size_mb:.1f}"))
+    return True
+
+
+def repack_mode(target: Path, args) -> None:
+    """--repack 模式入口：把已解包的 CBZ 解包目录（目录名以 _cbz 结尾）打包回 CBZ。
+
+    target 自身是 _cbz 结尾目录 → 单目录；target 是普通目录 → 递归收集其下
+    所有 _cbz 结尾目录批量打包（不递归进解包目录内部，避免嵌套重复）。
+    执行前先列出待处理清单，逐个打包后输出完成汇总。
+    """
+    dirs: list[Path] = []
+    if target.is_dir() and _is_unpack_cbz_dir(target.name):
+        dirs = [target]
+    elif target.is_dir():
+        for root, dnames, _ in os.walk(target):
+            for d in list(dnames):
+                if _is_unpack_cbz_dir(d):
+                    dirs.append(Path(root) / d)
+                    dnames.remove(d)  # 不递归进解包目录内部
+        dirs.sort(key=lambda p: str(p).lower())
+    else:
+        emit(t("error.repack_need_dir", path=target), level="error")
+        sys.exit(0)
+    if not dirs:
+        emit(t("repack.none_found", path=target), level="error")
+        sys.exit(0)
+    # 处理清单：先列出将重新打包的解包目录
+    emit(t("repack.plan", count=len(dirs)), level="summary")
+    for i, d in enumerate(dirs, 1):
+        emit(f"  {i}. {d}", level="summary")
+    ok_n = fail_n = 0
+    for d in dirs:
+        if repack_one(d, args):
+            ok_n += 1
+        else:
+            fail_n += 1
+    emit(t("repack.done_summary", ok=ok_n, fail=fail_n), level="summary")
 
 
 def inspect_mode(ebook_files: list[Path], precheck_skipped: list, args) -> None:
@@ -5724,6 +6022,13 @@ def _parse_double_page_arg(s: str) -> float | None:
 # 丢弃小图默认比例：宽和高均 < 中位数×该值 判为小图（封面缩略图等杂图）
 DEFAULT_DROP_SMALL_RATIO = 0.5
 
+# --list-images 异常尺寸增强判定参数：
+#   超大页 = 宽或高 ≥ 中位数×LIST_OVERSCALE_RATIO（1.3）；
+#   疑似旋转跨页 = 超大页 且 宽<高 且 (宽/高 − 中位比) ≥ LIST_RATIO_DELTA（0.08）
+#   （旋转跨页被旋转 90° 存储：宽<高但宽高比明显变方，普通页 ~0.65 → 异常 ~0.75）
+LIST_OVERSCALE_RATIO = 1.3
+LIST_RATIO_DELTA = 0.08
+
 
 def _parse_drop_small_arg(s: str) -> float | None:
     """--drop-small 参数值解析：off/no/0/false → None（关闭）；auto 或数值 → 比例。
@@ -5777,9 +6082,6 @@ def drop_small_images(images: list[Path], ratio: float) -> tuple[list[Path], lis
 import unicodedata  # CJK 显示宽度（列对齐），重复 import 无副作用
 
 _EXT_WORDS = {"jpg", "jpeg", "png", "gif", "webp", "bmp", "tiff", "tif"}
-_MODE_WORDS = {"gray": "gray", "rgb": "rgb", "index": "index", "graya": "graya", "rgba": "rgba"}
-_DIR_WORDS = {"landscape", "portrait", "square"}
-_MARK_WORDS = {"cover", "double", "animated", "thumbnail", "small"}
 _CLOSE_WORDS = {"off", "no", "0", "false", "none"}
 _NUM_SUFFIX = {"b": 1, "k": 1024, "m": 1024 ** 2, "g": 1024 ** 3}
 
@@ -5794,25 +6096,70 @@ def _parse_num_token(s: str) -> int | None:
     return int(float(m.group(1)) * _NUM_SUFFIX[m.group(2) or "b"])
 
 
+# 多语言筛选别名表：四语（简中/繁中/日文/英文）别名 → 规范原子元组。
+# 允许直接粘贴展示标签写法（[封面] 等，解析时剥掉方括号）；英文规范词
+# 保持原样兼容。name= 文件名筛选、ext/位深/res/size 走 _parse_atom 其余分支。
+_ATOM_ALIASES = {
+    # —— 标记类（mark）——
+    "cover": ("mark", "cover"), "封面": ("mark", "cover"), "表紙": ("mark", "cover"),
+    "double": ("mark", "double"), "双页": ("mark", "double"), "雙頁": ("mark", "double"),
+    "見開き": ("mark", "double"),
+    "animated": ("mark", "animated"), "动图": ("mark", "animated"), "動圖": ("mark", "animated"),
+    "アニメ": ("mark", "animated"),
+    "thumbnail": ("mark", "thumbnail"), "thumb": ("mark", "thumbnail"),
+    "疑似缩略图": ("mark", "thumbnail"), "疑似縮圖": ("mark", "thumbnail"),
+    "縮小サムネ": ("mark", "thumbnail"), "サムネイル": ("mark", "thumbnail"),
+    "small": ("mark", "small"), "异常小图": ("mark", "small"), "異常小圖": ("mark", "small"),
+    "極小画像": ("mark", "small"), "異常小画像": ("mark", "small"),
+    # —— 多余 / 处置标记（非属性，按 attrs 处置状态求值）——
+    "extra": ("extra",), "多余": ("extra",), "多餘": ("extra",), "余分": ("extra",),
+    "filter": ("mark", "filter"), "filtered": ("mark", "filter"),
+    "筛选": ("mark", "filter"), "篩選": ("mark", "filter"), "フィルタ": ("mark", "filter"),
+    "append": ("mark", "append"), "追加": ("mark", "append"),
+    "drop": ("mark", "drop"), "舍弃": ("mark", "drop"), "捨棄": ("mark", "drop"),
+    "破棄": ("mark", "drop"),
+    # —— 方向类（dir）——
+    "landscape": ("dir", "landscape"), "横向": ("dir", "landscape"), "橫向": ("dir", "landscape"),
+    "横向き": ("dir", "landscape"),
+    "portrait": ("dir", "portrait"), "纵向": ("dir", "portrait"), "縱向": ("dir", "portrait"),
+    "縦向き": ("dir", "portrait"),
+    "square": ("dir", "square"), "方形": ("dir", "square"), "正方形": ("dir", "square"),
+    # —— 模式类（mode）——
+    "gray": ("mode", "gray"), "灰度": ("mode", "gray"), "グレー": ("mode", "gray"),
+    "graya": ("mode", "graya"), "灰度a": ("mode", "graya"), "gray+alpha": ("mode", "graya"),
+    "rgb": ("mode", "rgb"), "rgba": ("mode", "rgba"),
+    "index": ("mode", "index"), "索引": ("mode", "index"), "インデックス": ("mode", "index"),
+    # —— 异常尺寸标签（overscale / rotated_double / anom，依赖 attrs 增强字段）——
+    "overscale": ("mark", "overscale"), "超大页": ("mark", "overscale"),
+    "超大頁": ("mark", "overscale"), "特大ページ": ("mark", "overscale"),
+    "巨大ページ": ("mark", "overscale"),
+    "rotated_double": ("mark", "rotated_double"), "疑似旋转跨页": ("mark", "rotated_double"),
+    "疑似旋轉跨頁": ("mark", "rotated_double"), "回転見開き": ("mark", "rotated_double"),
+    "縦向き見開き": ("mark", "rotated_double"),
+    "anom": ("mark", "anom"), "anomaly": ("mark", "anom"),
+    "异常": ("mark", "anom"), "異常": ("mark", "anom"),
+}
+
+
 def _parse_atom(atom: str):
     """解析单个条件词 → 原子元组；无法识别返回 None。
     原子: ('extra',) ('ext',fmt) ('mode',m) ('depth',n) ('dir',d)
-          ('mark',m) ('res',op,n) ('size',op,n)"""
-    al = atom.strip().lower()
+          ('mark',m) ('res',op,n) ('size',op,n) ('name',kw)
+    支持多语言别名与 [标签] 方括号写法（见 _ATOM_ALIASES）。"""
+    al = atom.strip().strip("[]").lower()
     if not al:
         return None
-    if al == "extra":
-        return ("extra",)
+    hit = _ATOM_ALIASES.get(al)
+    if hit is not None:
+        return hit
+    # 按文件名关键词筛选：name=关键词（文件名含关键词即命中，不区分大小写）
+    m = re.fullmatch(r"name=(.+)", al)
+    if m and m.group(1):
+        return ("name", m.group(1))
     if al in _EXT_WORDS:
         return ("ext", "jpg" if al == "jpeg" else al)
-    if al in _MODE_WORDS:
-        return ("mode", _MODE_WORDS[al])
-    if al in _DIR_WORDS:
-        return ("dir", al)
-    if al in _MARK_WORDS:
-        return ("mark", al)
     if al in ("8bit", "16bit", "24bit", "32bit"):
-        return ("depth", int(al[:2]))
+        return ("depth", int(al.replace("bit", "")))
     m = re.fullmatch(r"(res|size)([<>])(\d+(?:\.\d+)?(?:[kmg]?b?))", al)
     if m:
         n = _parse_num_token(m.group(3))
@@ -5998,7 +6345,8 @@ def eval_filter_atoms(attrs: dict, atoms) -> bool:
 def eval_filter_atom(attrs: dict, a) -> bool:
     t = a[0]
     if t == "extra":
-        return bool(attrs.get("extra"))
+        # 与 _mark_strs 的 [多余] 展示一致：封面补位图也计入
+        return bool(attrs.get("extra") or attrs.get("cover_extra"))
     if t == "ext":
         return attrs.get("ext") == a[1]
     if t == "mode":
@@ -6008,9 +6356,28 @@ def eval_filter_atom(attrs: dict, a) -> bool:
     if t == "dir":
         return attrs.get("dir") == a[1]
     if t == "mark":
-        if a[1] == "cover":
-            return bool(attrs.get("cover"))
-        return a[1] in (attrs.get("mark") or set())
+        m = a[1]
+        if m == "cover":
+            # 封面补位图（cover_extra）与 spine 内封面均可命中
+            return bool(attrs.get("cover") or attrs.get("cover_extra"))
+        if m == "filter":
+            return bool(attrs.get("filter_hit"))
+        if m == "drop":
+            return attrs.get("disposition") == "drop"
+        if m == "append":
+            return attrs.get("disposition") == "append"
+        if m == "overscale":
+            return "overscale" in (attrs.get("mark") or set())
+        if m == "rotated_double":
+            return "rotated_double" in (attrs.get("mark") or set())
+        if m == "anom":
+            # 汇总标签：任一异常标记命中即算
+            return bool(attrs.get("anom"))
+        return m in (attrs.get("mark") or set())
+    if t == "name":
+        # 按文件名关键词子串匹配（不区分大小写），只匹配纯文件名（zname/path 均归一为文件名）
+        nm = str(attrs.get("zname") or attrs.get("path") or "").replace("\\", "/")
+        return a[1] in nm.rsplit("/", 1)[-1].lower()
     if t == "res":
         w, h = attrs.get("w"), attrs.get("h")
         if w is None or h is None:
@@ -6036,6 +6403,38 @@ def _fill_small_mark(attrs_list: list[dict]) -> None:
     for a in attrs_list:
         if a.get("w") and a.get("h") and a["w"] < med_w * DEFAULT_DROP_SMALL_RATIO and a["h"] < med_h * DEFAULT_DROP_SMALL_RATIO:
             a["mark"].add("small")
+
+
+def _fill_overscale_mark(attrs_list: list[dict]) -> None:
+    """按全集中位数回填超大页/疑似旋转跨页标记与异常汇总。
+
+    overscale      = 宽或高 ≥ 中位×LIST_OVERSCALE_RATIO（默认 1.3）
+    rotated_double = overscale 且 宽<高 且 (宽/高 − 中位宽高比) ≥ LIST_RATIO_DELTA（默认 0.08）
+                     —— 纵向存储的旋转跨页，宽高比明显变方
+    封面页尺寸异常不豁免，照标异常并叠加 [封面] 标签；a['anom'] 汇总任一异常标记。"""
+    dims = [(a["w"], a["h"]) for a in attrs_list if a.get("w") and a.get("h")]
+    for a in attrs_list:
+        a["anom"] = False
+    if not dims:
+        return
+    med_w = statistics.median(d[0] for d in dims)
+    med_h = statistics.median(d[1] for d in dims)
+    ratios = [d[0] / d[1] for d in dims if d[1]]
+    med_ratio = statistics.median(ratios) if ratios else None
+    for a in attrs_list:
+        w, h = a.get("w"), a.get("h")
+        if not (w and h):
+            continue
+        if w >= med_w * LIST_OVERSCALE_RATIO or h >= med_h * LIST_OVERSCALE_RATIO:
+            a["mark"].add("overscale")
+            if w < h and med_ratio and (w / h - med_ratio) >= LIST_RATIO_DELTA:
+                a["mark"].add("rotated_double")
+        # 封面补位（cover_extra）仅"不在 spine 的多余图"，非尺寸异常，不计入 anom；
+        # 尺寸异常的封面（overscale 等）走 mark 判定，自然计入。
+        if ("overscale" in a["mark"] or "rotated_double" in a["mark"]
+                or "small" in a["mark"] or "thumbnail" in a["mark"]
+                or "animated" in a["mark"] or a.get("extra")):
+            a["anom"] = True
 
 
 def build_image_attrs(path: Path, double_ratio: float | None) -> dict:
@@ -6375,8 +6774,8 @@ def _strip_ansi(s: str) -> str:
 
 
 def _mark_color(key: str) -> int | None:
-    """标记颜色映射：黄=可疑（多余/小图/缩略图/筛选），红=舍弃，绿=追加，青=中性（封面/跨页/动图）。"""
-    if key in ("extra", "small", "thumbnail", "filter"):
+    """标记颜色映射：黄=可疑（多余/小图/缩略图/筛选/超大页），红=舍弃，绿=追加，青=中性（封面/跨页/动图）。"""
+    if key in ("extra", "small", "thumbnail", "filter", "overscale", "rotated_double"):
         return 33
     if key == "drop":
         return 31
@@ -6410,15 +6809,19 @@ def _mark_strs(attrs: dict, is_cbz: bool, drop_expr, drop_small: float | None) -
         keys.append("animated")
     if "small" in mark:
         keys.append("small")
+    if "overscale" in mark:
+        keys.append("overscale")
+    if "rotated_double" in mark:
+        keys.append("rotated_double")
     d = _dropped_desc(drop_expr, attrs) if drop_expr is not None else None
     if d and "extra" not in d:
         keys.append("filter")
     # 处置标记（仅非 CBZ；CBZ 为已转换产物无转换态）
     if not is_cbz:
-        filter_hit = bool(d) and "extra" not in d
-        if attrs.get("extra_dropped") or attrs.get("drop_small_hit") or filter_hit:
+        disp = attrs.get("disposition")
+        if disp == "drop":
             keys.append("drop")
-        elif attrs.get("extra") or attrs.get("cover_extra"):
+        elif disp == "append":
             keys.append("append")
     marks = [t(f"mark.{k}") for k in keys]
     if _color_enabled:
@@ -6465,10 +6868,14 @@ def _render_stats(attrs_list: list[dict], has_toc: bool, extra_dropped: bool, dr
     emit(t("list.small", n=small_n))
     if drop_small is not None:
         emit(t("list.drop_small_note", ratio=drop_small))
-    # 异常图片明细（疑似缩略图 / 异常小图 / 动图 / 目录外）
+    # 异常图片明细（超大页 / 疑似旋转跨页 / 疑似缩略图 / 异常小图 / 动图 / 目录外）
     anoms = []
     for a in attrs_list:
         descs = []
+        if "overscale" in a["mark"]:
+            descs.append(t("anom.overscale"))
+        if "rotated_double" in a["mark"]:
+            descs.append(t("anom.rotated_double"))
         if "thumbnail" in a["mark"]:
             descs.append(t("anom.thumbnail"))
         if "small" in a["mark"]:
@@ -6539,18 +6946,30 @@ def _list_ebook(p: Path, args, double_ratio, list_expr) -> None:
             emit(t("list.no_images"), level="error")
             return
         spine_set = {norm_path(i) for i in images}
-        # 封面补齐（复用 ensure_cover_first 逻辑，记录是否追加）
+        # 封面补齐：OPF guide 封面优先，未命中回退文件名关键词（与 inspect 链路口径一致）
         cover_extra = False
+        cover_guide_path = None
+        if images and opf_path:
+            href = get_opf_guide_cover_href(opf_path)
+            if href:
+                clean = href.split("#", 1)[0]
+                cand = (opf_path.parent / clean).resolve()
+                if not (cand.is_file() and cand.suffix.lower() in IMAGE_EXTENSIONS):
+                    cand = (base_dir / clean).resolve()
+                if cand.is_file() and cand.suffix.lower() in IMAGE_EXTENSIONS:
+                    cover_guide_path = cand
         if images:
-            cover_cands = [cp for cp in base_dir.rglob("*")
-                           if cp.is_file() and cp.suffix.lower() in IMAGE_EXTENSIONS
-                           and any(k in cp.name.lower() for k in COVER_KEYWORDS)]
-            if cover_cands:
-                cover_cands.sort(key=natural_key)
-                cover = cover_cands[0]
-                if norm_path(cover) not in spine_set:
-                    images.insert(0, cover)
-                    cover_extra = True
+            cover = cover_guide_path
+            if cover is None:
+                cover_cands = [cp for cp in base_dir.rglob("*")
+                               if cp.is_file() and cp.suffix.lower() in IMAGE_EXTENSIONS
+                               and any(k in cp.name.lower() for k in COVER_KEYWORDS)]
+                if cover_cands:
+                    cover_cands.sort(key=natural_key)
+                    cover = cover_cands[0]
+            if cover is not None and norm_path(cover) not in spine_set:
+                images.insert(0, cover)
+                cover_extra = True
         # 目录对齐：多余图（extra 条件决定追加或舍弃）
         collected = {norm_path(i) for i in images}
         extras = [ep for ep in base_dir.rglob("*")
@@ -6587,7 +7006,8 @@ def _list_ebook(p: Path, args, double_ratio, list_expr) -> None:
             a["extra"] = nk in extra_marks
             if cover_extra and nk == norm_path(images[0]):
                 a["cover_extra"] = True
-            elif nk in spine_set and any(k in img.name.lower() for k in COVER_KEYWORDS):
+            elif ((cover_guide_path is not None and nk == norm_path(cover_guide_path))
+                  or (nk in spine_set and any(k in img.name.lower() for k in COVER_KEYWORDS))):
                 a["cover"] = True
             a["extra_dropped"] = extra_marks.get(nk) == "dropped"
             # drop-small 命中标记
@@ -6595,6 +7015,7 @@ def _list_ebook(p: Path, args, double_ratio, list_expr) -> None:
             a["toc"] = toc_label_for(nk, ncx_map, nav_map, multi_src)
             attrs_list.append(a)
         _fill_small_mark(attrs_list)
+        _fill_overscale_mark(attrs_list)
         # drop-small 命中判定（中位数口径，标记 [舍弃·小图] 但保留在清单）
         if args.drop_small is not None:
             dims = [(a["w"], a["h"]) for a in attrs_list if a.get("w") and a.get("h")]
@@ -6604,6 +7025,16 @@ def _list_ebook(p: Path, args, double_ratio, list_expr) -> None:
                 for a in attrs_list:
                     if a.get("w") and a.get("h") and a["w"] < mw * args.drop_small and a["h"] < mh * args.drop_small:
                         a["drop_small_hit"] = True
+        # 处置状态固化（append/drop，供 filter/drop/append 筛选原子与标记复用）
+        for a in attrs_list:
+            d = _dropped_desc(drop_expr, a) if drop_expr is not None else None
+            filter_hit = bool(d) and "extra" not in d
+            if a.get("extra_dropped") or a.get("drop_small_hit") or filter_hit:
+                a["disposition"] = "drop"
+            elif a.get("extra") or a.get("cover_extra"):
+                a["disposition"] = "append"
+            else:
+                a["disposition"] = None
         # 清单行（FILTER 筛选）+ 目录预览
         has_toc = has_ncx or has_nav
         if has_toc:
@@ -6644,6 +7075,54 @@ def _list_ebook(p: Path, args, double_ratio, list_expr) -> None:
                 pass
 
 
+def _cbz_opf_cover_zname(zf) -> str | None:
+    """从 CBZ zip 内 OPF 解析封面条目名（zip 内路径），无 OPF / 未命中返回 None。
+
+    定位 OPF：META-INF/container.xml 指定 rootfile 优先，回退 *.opf 条目；
+    解析逻辑与 _opf_cover_href_scan 一致（guide > cover-image > meta cover）。"""
+    try:
+        names = zf.namelist()
+    except Exception:
+        return None
+    opf_entry = None
+    try:
+        if "META-INF/container.xml" in names:
+            ctext = zf.read("META-INF/container.xml").decode("utf-8", "replace")
+            m = re.search(r'full-path=["\']([^"\']+\.opf)["\']', ctext, re.I)
+            if m and m.group(1) in names:
+                opf_entry = m.group(1)
+    except Exception:
+        opf_entry = None
+    if opf_entry is None:
+        for n in names:
+            if n.lower().endswith(".opf") and not n.endswith("/"):
+                opf_entry = n
+                break
+    if opf_entry is None:
+        return None
+    try:
+        otext = zf.read(opf_entry).decode("utf-8", "replace")
+    except Exception:
+        return None
+    href = _opf_cover_href_scan(otext)
+    if not href:
+        return None
+    href = href.split("#", 1)[0]
+    # href 相对 OPF 所在 zip 目录解析（支持 ../ 归一）
+    parts = []
+    if "/" in opf_entry:
+        parts = [seg for seg in opf_entry.rsplit("/", 1)[0].split("/") if seg not in ("", ".")]
+    for seg in href.replace("\\", "/").split("/"):
+        if seg in ("", "."):
+            continue
+        if seg == "..":
+            if parts:
+                parts.pop()
+            continue
+        parts.append(seg)
+    return "/".join(parts)
+
+
 def _list_cbz(p: Path, args, double_ratio, list_expr) -> None:
     """CBZ 单文件清单：zipfile 直读不落盘；无目录列、无转换态标记。"""
     emit(t("list.file_line", name=p.name))
@@ -6657,12 +7136,16 @@ def _list_cbz(p: Path, args, double_ratio, list_expr) -> None:
                 emit(t("list.no_images"), level="error")
                 return
             attrs_list = []
+            cover_zname = _cbz_opf_cover_zname(zf)
             for n in names:
                 a = build_cbz_image_attrs(zf, n, double_ratio)
-                if any(k in Path(n).name.lower() for k in COVER_KEYWORDS):
+                if cover_zname and cover_zname == n.replace("\\", "/"):
+                    a["cover"] = True
+                elif any(k in Path(n).name.lower() for k in COVER_KEYWORDS):
                     a["cover"] = True
                 attrs_list.append(a)
             _fill_small_mark(attrs_list)
+            _fill_overscale_mark(attrs_list)
             if args.drop_small is not None:
                 dims = [(a["w"], a["h"]) for a in attrs_list if a.get("w") and a.get("h")]
                 if len(dims) >= 2:
@@ -6937,7 +7420,7 @@ def build_parser() -> argparse.ArgumentParser:
     # 输入：是否重命名输出文件名（nargs='?' 可选模板，默认关闭）；输出：CBZ 文件名按模板+自动标记前缀生成
     # 取值：不传 → 关闭（保持原名）；--rename 无值 → 默认模板（系列名+自动标记前缀）；--rename=TEMPLATE → 自定义模板
     #       标记前缀按类型自动选：整卷[Vol.x]/单话[Ch.x]/卷+章[Vol.x][Ch.x]/无类型[x]；连话（話005-006）标 [Ch.5-6]
-    #       占位符：%series/%number/%volume/%title/%writer/%publisher/%date/%language/%description/%filename/%leftN/%rightN/%subN_M、%0<N>number 补零
+    #       占位符：%series/%number/%volume/%title/%writer/%publisher/%date/%language/%%description/%filename/%leftN/%rightN/%%subN_M、%0<N>number 补零
     #       来源优先级：文件名推断 > 文件自带元数据(OPF/ComicInfo.xml) 兜底；setinfo 解耦不参与
     parser.add_argument(
         "--rename",
@@ -6974,6 +7457,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--unpack",
         action="store_true",
         help=t("help.unpack"),
+    )
+    # 输入：重新打包；输出：将已解包的 CBZ 目录（目录名以 .cbz 结尾）打包回 CBZ
+    parser.add_argument(
+        "--repack",
+        action="store_true",
+        help=t("help.repack"),
     )
     return parser
 
@@ -7054,6 +7543,12 @@ def _main() -> None:
     # input_root：target 为目录时作为相对子目录结构的基准；
     # target 为文件时不计算相对路径，直接输出 DIR/stem.cbz
     input_root = target if target.is_dir() else None
+
+    # --repack 模式：target 是 .cbz 解包目录或含 *.cbz 解包目录的父目录，
+    # 不走电子书收集流程，直接打包回 CBZ 后返回
+    if args.repack:
+        repack_mode(target, args)
+        return
 
     ebook_files = collect_ebook_files(target, include_cbz=args.inspect or args.unpack or args.list_images or bool(args.setinfo) or bool(args.rename), top_only=args.top_only)
     if not ebook_files:
