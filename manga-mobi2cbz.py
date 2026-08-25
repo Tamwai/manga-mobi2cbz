@@ -137,6 +137,41 @@ manga-mobi2cbz — 将 mobi/azw/azw3/epub 电子书漫画文件批量转换为 c
 要求: Python 3.10+
 
 更新日志:
+    v3.3.0 (2026-08-25)
+        - 新增：--drop [EXPR] 统一丢弃入口——无值 = 丢弃目录外多余图
+          （同旧 --drop-extra 无值语义）；格式词 / 条件词 /
+          small[=比例] 均可；多条件逗号 = OR、加号 = AND、- 前缀排除，
+          off 关闭；旧 --drop-extra / --drop-small 降为隐藏别名并入
+        - 新增：--inspect [MODE][,FILTER]——在 sample/all 基础上可附
+          过滤器（如 all,small=0.6），命中条件的图片输出数量 + 文件名
+          清单（含尺寸）；--json 对应新增 filter_hits 结构
+        - 新增：small 独立带参条件词——无参 / auto = 默认比例 0.5，
+          可传 0~1 数值；四语别名（异常小图 / 異常小圖 / 異常小画像 /
+          極小画像）均可带参
+        - 变更：三链路（转换丢弃 / inspect 预览 / list 清单）统一由
+          --drop 表达式驱动，小图面积口径单一来源
+        - 变更：--drop-extra / --drop-small 从 --help 隐藏（兼容仍可用）
+        - 维护：回归测试增至 46 项
+    v3.2.0 (2026-08-24)
+        - 新增：[异常] 行内恒显标记（首列，汇总该行任一异常），一眼可见
+        - 新增：[推断] 独立推断标记，替代"疑似"：旋转跨页/缩略图/封面补位
+          等推断性标注去"疑似"，仅凭尺寸/文件名推断、非 OPF 明确声明者标
+          [推断]（OPF guide 封面/动图/多余不标）；新增四语筛选别名
+          inferred/推断/推斷/推測/推定
+        - 变更：模式列统一英文规范名（index/gray/rgb/graya/rgba），
+          取消四语本地化键，省维护
+        - 变更：小图判定改面积口径（宽×高 < 面积中位数×比例），并与
+          --drop-small 比例统一——标了即会丢；--list-images /
+          --inspect 预览 / 转换丢弃三条链路同一口径
+        - 变更：--drop-small 关闭时不再标 [小图]（与"标了即会丢"一致）
+        - 维护：回归测试同步（34 项全通过）
+    v3.1.1 (2026-08-24)
+        - 修复：--unpack 的 help 文案残留旧「自动加序号避让」描述，
+          与 v3.1.0 起「源名_扩展名」统一命名矛盾；四语同步更正
+        - 维护：--repack 的 help 注明 --rename 不适用于本模式；
+          --list-images 的 help 补充 [追加]/[舍弃]/[筛选] 处置标记说明
+        - 维护：回归测试扩充至 34 项（新增 repack 还原+ComicInfo 叠加、
+          _safe_zip_extract 的 C:foo 逃逸、name 原子 WindowsPath 三组）
     v3.1.0 (2026-08-24)
         - 新增：过滤表达式多语言别名（中/繁/日/英），支持直接粘贴
           [标签]（自动剥壳），如 封面/[封面]/cover/表紙 等价
@@ -645,7 +680,7 @@ manga-mobi2cbz — 将 mobi/azw/azw3/epub 电子书漫画文件批量转换为 c
           EOCD + testzip 完整性校验、失败清理半成品
 """
 
-__version__ = "3.1.0"
+__version__ = "3.3.0"
 
 SCRIPT_NAME = "manga-mobi2cbz"
 
@@ -695,7 +730,8 @@ LANGUAGES = {
         "help.delete": "转换成功后删除原始电子书文件",
         "help.prefer": "双目录 mobi（mobi7/mobi8）时保留哪份：auto 默认优先 mobi8、空壳自动回退 mobi7；指定 mobi7/mobi8 时，指定目录为空也自动回退另一份",
         "help.ext_priority": "同目录同名（仅扩展名不同）时保留哪种格式：逗号分隔、顺序即优先级从高到低，仅接受 mobi/azw/azw3/epub，默认 azw3；优先级未覆盖时回退兜底顺序 azw3→epub→mobi→azw；与 --prefer（双目录选择）无关",
-        "help.drop_extra": "丢弃指定格式/条件的图片（过滤器）：无值/extra=丢弃目录外多余图（默认追加）；传格式词丢弃对应格式（如 gif 丢 gif）；extra 可与格式组合；off/no/0=关闭（多余图追加、不按格式丢弃）；过滤面与 --list-images 同源；带值请用 --选项=值 写法，或把目标路径放在本选项之前",
+        "help.drop_extra": "丢弃目录外多余图（隐藏别名，已并入 --drop extra）：无值=丢弃目录外多余图（默认追加）；off/no/0=关闭；带值请用 --选项=值 写法，或把目标路径放在本选项之前",
+        "help.drop": "丢弃指定图片（统一丢弃入口）：无值/extra=丢弃目录外多余图（默认追加）；格式词丢弃对应格式（如 gif 丢 gif）；条件词过滤（small[=比例] 小图、超大页、疑似旋转跨页、异常、封面、宽高比等，支持中/日/英多语言别名）；off/no/0=关闭；多条件逗号=OR、加号=AND、- 前缀排除；过滤面与 --list-images 同源；带值请用 --选项=值 写法，或把目标路径放在本选项之前",
         "help.overwrite": "目标 cbz 已存在时强制重新生成（默认跳过）",
         "help.timeout": "单文件转换超时秒数，超时自动跳过并计入失败（默认 600，0 表示不限制；超时后底层解包线程可能后台残留）",
         "help.min_size": "过滤小于指定字节的电子书；不带数字默认1000字节，0关闭大小过滤，不传则关闭；带值请用 --选项=值 写法，或把目标路径放在本选项之前",
@@ -712,16 +748,18 @@ LANGUAGES = {
         "warn.disk_space": "磁盘空间不足：{label} {path} 剩余 {free_mb} MB < 估算需要 {need_mb} MB",
         "help.short_summary": "精简汇总：成功/跳过文件只显示数量不列出路径，失败文件始终全路径列出",
         "help.compress": "zip 压缩级别 0-9：0=不压缩（默认，图片本身已压缩），1-9=deflate 压缩（PNG 源有收益，级别越高越小但越慢）",
-        "help.inspect": "检查模式：sample 随机抽查 1 个（默认），all 全量检查；只解包读取内部信息（元数据/结构/图片/分辨率/DRM），不生成 CBZ，结束自动清理临时目录；带值请用 --选项=值 写法，或把目标路径放在本选项之前",
+        "help.inspect": "检查模式：sample 随机抽查 1 个（默认），all 全量检查；可附过滤器 [MODE][,FILTER]（如 all,small=0.6）输出命中条件图的数量+文件名清单；只解包读取内部信息（元数据/结构/图片/分辨率/DRM），不生成 CBZ，结束自动清理临时目录；带值请用 --选项=值 写法，或把目标路径放在本选项之前",
         "help.inspect_all": "检查全部电子书（等价 --inspect all，兼容旧命令）",
         "help.no_comicinfo": "不生成 ComicInfo.xml（默认生成：向 CBZ 根目录写入漫画元数据）",
         "help.double_page": "双页检测：不传/auto 开启（阈值 2.0）；数值调阈值；off/no/0 关闭（开启时写入逐页 DoublePage 标记，不写 Manga 声明；如需 Manga 请用 --setinfo Manga=）；带值请用 --选项=值 写法，或把目标路径放在本选项之前",
         "error.double_page_invalid": "无效的 --double-page 值 '{value}'：支持 auto/数值/off/no/0",
-        "help.drop_small": "丢弃小图：转换时剔除尺寸明显偏小的图片（宽和高均 < 中位数×比例 判为小图；不传/auto=0.5，可传 0~1 数值调比例，off/no/0 关闭）；丢弃后 PageCount 按实际剩余图数重算；带值请用 --选项=值 写法，或把目标路径放在本选项之前",
+        "help.drop_small": "丢弃小图（隐藏别名，已并入 --drop small）：转换时剔除尺寸明显偏小的图片（面积 宽×高 < 面积中位数×比例 判为小图；不传/auto=0.5，可传 0~1 数值调比例，off/no/0 关闭）；丢弃后 PageCount 按实际剩余图数重算；带值请用 --选项=值 写法，或把目标路径放在本选项之前",
         "error.drop_small_invalid": "无效的 --drop-small 值 '{value}'：支持 auto/数值(0~1)/off/no/0",
         "convert.drop_small": "  [清理] 丢弃小图 {count} 张{names}",
         "run.drop_small_total": "丢弃小图合计: {count} 张",
-        "inspect.drop_small_preview": "  [提示] 图片中 {count} 张为小图（开启 --drop-small 时将被丢弃）",
+        "inspect.drop_small_preview": "  [提示] 图片中 {count} 张为小图（开启 --drop small 时将被丢弃）",
+        "inspect.filter_hits": "  [命中] {count} 张图片命中过滤条件（--inspect 过滤器）",
+        "inspect.filter_no_hit": "  [无命中] 没有图片命中过滤条件",
         "help.setinfo": "设置 ComicInfo 字段（可多次，格式 FIELD=VALUE；VALUE 支持 %%series/%%number/%%title/%%writer/%%publisher/%%date/%%language/%%description/%%filename/%%leftN/%%rightN/%%subN_M（%%subN_M=第 N 字符起 M 个，1-based）；逗号后紧跟字段名=才拆分，值内含 Key= 结构请用多次 --setinfo 传入；Manga 取值限 Unknown/No/Yes/YesAndRightToLeft，默认不写；--setinfo 开启时输入中的已有 .cbz 会就地修改其 ComicInfo.xml）",
 "help.rename": "重命名输出 CBZ 文件名（可选模板，默认关闭）。--rename 无值=默认模板（系列名+自动标记前缀）；标记前缀按类型自动选：整卷[Vol.x]/单话[Ch.x]/卷+章[Vol.x][Ch.x]/无类型[x]，连话（話005-006）标 [Ch.5-6]；占位符 %%series/%%number/%%volume/%%title/%%writer/%%publisher/%%date/%%language/%%description/%%filename/%%leftN/%%rightN/%%subN_M 及 %%03number 补零；来源优先级：文件名推断 > 文件自带元数据(OPF/ComicInfo.xml) 兜底，setinfo 不参与；%%description 不建议用于文件名（内容可能过长），确需使用可配合 %%subN_M 截取片段；建议配合 --dry-run 先预览；带值请用 --选项=值 写法，或把目标路径放在本选项之前",
         "comicinfo.generating": "生成 ComicInfo.xml",
@@ -738,9 +776,9 @@ LANGUAGES = {
         "help.json_out": "将转换结果写入 JSON 文件（省略文件名时自动生成时间戳文件，或指定路径；同 --json 仅转换/修改模式写入）；带值请用 --选项=值 写法，或把目标路径放在本选项之前",
         "log.auto_named": "日志文件: {path}（自动命名）",
         "json.written": "JSON 结果已写入: {path}",
-        "help.unpack": "解包模式：只解压不转换，输出到源文件所在目录的同名子目录（已存在自动加序号避让）；目录名为「源名_扩展名」（如 vol_cbz），_cbz 结尾的解包目录可直接被 --repack 重新打包",
+        "help.unpack": "解包模式：只解压不转换，输出到源文件所在目录的「源名_扩展名」子目录（如 vol.cbz → vol_cbz/），与源文件不撞名；_cbz 结尾的解包目录可直接被 --repack 重新打包",
         "unpack.done": "已解包 {name} -> {dir}",
-        "help.repack": "重新打包：将已解包的 CBZ 解包目录（目录名以 _cbz 结尾）重新打包回 CBZ（输出名还原为源文件名，如 vol_cbz → vol.cbz），可配合 --setinfo 修改元数据",
+        "help.repack": "重新打包：将已解包的 CBZ 解包目录（目录名以 _cbz 结尾）重新打包回 CBZ（输出名还原为源文件名，如 vol_cbz → vol.cbz），可配合 --setinfo 修改元数据（--rename 不适用于本模式）",
         "repack.none_found": "未找到 _cbz 结尾的解包目录: {path}",
         "repack.no_images": "[错误] {dir}：目录内未找到图片",
         "repack.skip_exists": "[跳过] {path} 已存在（--overwrite 强制覆盖）",
@@ -952,14 +990,14 @@ LANGUAGES = {
         "anom.extra_drop": "目录外图片（配 --drop-extra 将舍弃）",
         "anom.small": "异常小图",
         "anom.overscale": "超大页",
-        "anom.rotated_double": "疑似旋转跨页",
-        "anom.thumbnail": "疑似缩略图",
+        "anom.rotated_double": "旋转跨页",
+        "anom.thumbnail": "缩略图",
         "convert.drop_filter": "按过滤表达式丢弃 {count} 张图片{names}",
         "dir.landscape": "横向",
         "dir.portrait": "纵向",
         "dir.square": "方形",
         "error.filter_token": "无效的过滤条件词 '{token}'（表达式: {expr}）",
-        "help.list_images": "列出电子书内部图片清单（只读，不转换、不生成 CBZ）：无值列出全部；带值按 FILTER 过滤（逗号=OR、'+'=AND；类目：格式/extra/res/size/方向/模式/位深/标记，如 gif,res<200 或 jpg+size>1mb）；与 --drop-extra 共用过滤引擎；配 --json 每文件精简 JSON；配 --quiet 只留计数；带值请用 --选项=值 写法，或把目标路径放在本选项之前",
+        "help.list_images": "列出电子书内部图片清单（只读，不转换、不生成 CBZ）：无值列出全部；带值按 FILTER 过滤（逗号=OR、'+'=AND；类目：格式/extra/res/size/方向/模式/位深/标记，如 gif,res<200 或 jpg+size>1mb）；与 --drop-extra 共用过滤引擎；清单中 [异常]/[推断] 为汇总/推断标记，[追加]/[舍弃]/[筛选] 对应 append/drop/filter 处置；配 --json 每文件精简 JSON；配 --quiet 只留计数；带值请用 --选项=值 写法，或把目标路径放在本选项之前",
         "inspect.status_fail": "清单提取失败: {err}",
         "list.animated": "动图: {n} 张",
         "list.anomaly": "异常图片: {n} 张",
@@ -985,25 +1023,22 @@ LANGUAGES = {
         "list.res_other_note": "（尺寸分布较散，可能含扫描差异）",
         "list.res_title": "尺寸分布:",
         "list.small": "小图: {n} 张",
-        "list.drop_small_note": "[提示] 小图阈值 = 中位数 × {ratio}（可用 --drop-small 调严/调松）",
+        "list.drop_small_note": "[提示] 小图阈值 = 面积中位数 × {ratio}（可用 --drop-small 调严/调松）",
         "list.total": "图片总数: {n} 张",
         "list.quiet_summary": "[提示] 共 {n} 张图片，其中 {anomalies} 张异常（--quiet 已抑制明细）",
         "mark.animated": "[动图]",
         "mark.extra": "[多余]",
         "mark.cover": "[封面]",
         "mark.double": "[双页]",
-        "mark.thumbnail": "[疑似缩略图]",
+        "mark.thumbnail": "[缩略图]",
         "mark.small": "[异常小图]",
         "mark.filter": "[筛选]",
         "mark.drop": "[舍弃]",
         "mark.append": "[追加]",
         "mark.overscale": "[超大页]",
-        "mark.rotated_double": "[疑似旋转跨页]",
-        "mode.gray": "灰度",
-        "mode.graya": "灰度A",
-        "mode.index": "索引",
-        "mode.rgb": "RGB",
-        "mode.rgba": "RGBA",
+        "mark.rotated_double": "[旋转跨页]",
+        "mark.anom": "[异常]",
+        "mark.inferred": "[推断]",
         "unpack.path_skip": "[警告] {name}: 跳过不安全解包路径 {entry}",
     },
     "zh-TW": {
@@ -1019,7 +1054,8 @@ LANGUAGES = {
         "help.delete": "轉換成功後刪除原始電子書檔案",
         "help.prefer": "雙目錄 mobi（mobi7/mobi8）時保留哪份：auto 預設優先 mobi8、空殼自動回退 mobi7；指定 mobi7/mobi8 時，指定目錄為空也自動回退另一份",
         "help.ext_priority": "同目錄同名（僅副檔名不同）時保留哪種格式：逗號分隔、順序即優先級從高到低，僅接受 mobi/azw/azw3/epub，預設 azw3；優先級未覆蓋時回退兜底順序 azw3→epub→mobi→azw；與 --prefer（雙目錄選擇）無關",
-        "help.drop_extra": "丟棄指定格式/條件的圖片（過濾器）：無值/extra=丟棄目錄外多餘圖（預設追加）；傳格式詞丟棄對應格式（如 gif 丟 gif）；extra 可與格式組合；off/no/0=關閉（多餘圖追加、不按格式丟棄）；過濾面與 --list-images 同源；帶值請用 --選項=值 寫法，或將目標路徑放在本選項之前",
+        "help.drop_extra": "丟棄目錄外多餘圖（隱藏別名，已併入 --drop extra）：無值=丟棄目錄外多餘圖（預設追加）；off/no/0=關閉；帶值請用 --選項=值 寫法，或將目標路徑放在本選項之前",
+        "help.drop": "丟棄指定圖片（統一丟棄入口）：無值/extra=丟棄目錄外多餘圖（預設追加）；格式詞丟棄對應格式（如 gif 丟 gif）；條件詞過濾（small[=比例] 小圖、超大頁、疑似旋轉跨頁、異常、封面、寬高比等，支援中/日/英多語言別名）；off/no/0=關閉；多條件逗號=OR、加號=AND、- 前綴排除；過濾面與 --list-images 同源；帶值請用 --選項=值 寫法，或將目標路徑放在本選項之前",
         "help.overwrite": "目標 cbz 已存在時強制重新生成（預設跳過）",
         "help.timeout": "單檔轉換逾時秒數，逾時自動跳過並計入失敗（預設 600，0 表示不限制；逾時後底層解包執行緒可能於背景殘留）",
         "help.min_size": "過濾小於指定位元組的電子書；不帶數字預設1000位元組，0關閉大小過濾，不傳則關閉；帶值請用 --選項=值 寫法，或將目標路徑放在本選項之前",
@@ -1036,16 +1072,18 @@ LANGUAGES = {
         "warn.disk_space": "磁碟空間不足：{label} {path} 剩餘 {free_mb} MB < 估算需要 {need_mb} MB",
         "help.short_summary": "精簡彙總：成功/跳過檔案只顯示數量不列出路徑，失敗檔案始終全路徑列出",
         "help.compress": "zip 壓縮級別 0-9：0=不壓縮（預設，圖片本身已壓縮），1-9=deflate 壓縮（PNG 來源有收益，級別越高越小但越慢）",
-        "help.inspect": "檢查模式：sample 隨機抽查 1 個（預設），all 全量檢查；只解包讀取內部資訊（中繼資料/結構/圖片/解析度/DRM），不生成 CBZ，結束自動清理臨時目錄；帶值請用 --選項=值 寫法，或將目標路徑放在本選項之前",
+        "help.inspect": "檢查模式：sample 隨機抽查 1 個（預設），all 全量檢查；可附過濾器 [MODE][,FILTER]（如 all,small=0.6）輸出命中條件圖的數量+檔名清單；只解包讀取內部資訊（中繼資料/結構/圖片/解析度/DRM），不生成 CBZ，結束自動清理臨時目錄；帶值請用 --選項=值 寫法，或將目標路徑放在本選項之前",
         "help.inspect_all": "檢查全部電子書（等價 --inspect all，相容舊命令）",
         "help.no_comicinfo": "不生成 ComicInfo.xml（預設生成：向 CBZ 根目錄寫入漫畫元資料）",
         "help.double_page": "雙頁偵測：不傳/auto 開啟（閾值 2.0）；數值調閾值；off/no/0 關閉（開啟時寫入逐頁 DoublePage 標記，不寫 Manga 宣告；如需 Manga 請用 --setinfo Manga=）；帶值請用 --選項=值 寫法，或將目標路徑放在本選項之前",
         "error.double_page_invalid": "無效的 --double-page 值 '{value}'：支援 auto/數值/off/no/0",
-        "help.drop_small": "丟棄小圖：轉換時剔除尺寸明顯偏小的圖片（寬和高均 < 中位數×比例 判為小圖；不傳/auto=0.5，可傳 0~1 數值調比例，off/no/0 關閉）；丟棄後 PageCount 按實際剩餘圖數重算；帶值請用 --選項=值 寫法，或將目標路徑放在本選項之前",
+        "help.drop_small": "丟棄小圖（隱藏別名，已併入 --drop small）：轉換時剔除尺寸明顯偏小的圖片（面積 寬×高 < 面積中位數×比例 判為小圖；不傳/auto=0.5，可傳 0~1 數值調比例，off/no/0 關閉）；丟棄後 PageCount 按實際剩餘圖數重算；帶值請用 --選項=值 寫法，或將目標路徑放在本選項之前",
         "error.drop_small_invalid": "無效的 --drop-small 值 '{value}'：支援 auto/數值(0~1)/off/no/0",
         "convert.drop_small": "  [清理] 丟棄小圖 {count} 張{names}",
         "run.drop_small_total": "丟棄小圖合計: {count} 張",
-        "inspect.drop_small_preview": "  [提示] 圖片中 {count} 張為小圖（開啟 --drop-small 時將被丟棄）",
+        "inspect.drop_small_preview": "  [提示] 圖片中 {count} 張為小圖（開啟 --drop small 時將被丟棄）",
+        "inspect.filter_hits": "  [命中] {count} 張圖片命中過濾條件（--inspect 過濾器）",
+        "inspect.filter_no_hit": "  [無命中] 沒有圖片命中過濾條件",
         "help.setinfo": "設定 ComicInfo 欄位（可多次，格式 FIELD=VALUE；VALUE 支援 %%series/%%number/%%title/%%writer/%%publisher/%%date/%%language/%%description/%%filename/%%leftN/%%rightN/%%subN_M（%%subN_M=第 N 字元起 M 個，1-based）；逗號後緊跟欄位名=才拆分，值內含 Key= 結構請用多次 --setinfo 傳入；Manga 取值限 Unknown/No/Yes/YesAndRightToLeft，預設不寫；--setinfo 開啟時輸入中的既有 .cbz 會就地修改其 ComicInfo.xml）",
 "help.rename": "重新命名輸出 CBZ 檔名（可選範本，預設關閉）。--rename 無值=預設範本（系列名+自動標記前綴）；標記前綴依類型自動選：整卷[Vol.x]/單話[Ch.x]/卷+章[Vol.x][Ch.x]/無類型[x]，連話（話005-006）標 [Ch.5-6]；佔位符 %%series/%%number/%%volume/%%title/%%writer/%%publisher/%%date/%%language/%%description/%%filename/%%leftN/%%rightN/%%subN_M 及 %%03number 補零；來源優先序：檔名推斷 > 檔案中繼資料(OPF/ComicInfo.xml) 兜底，setinfo 不參與；%%description 不建議用於檔案名稱（內容可能過長），確需使用可搭配 %%subN_M 截取片段；建議搭配 --dry-run 先預覽；帶值請用 --選項=值 寫法，或將目標路徑放在本選項之前",
         "comicinfo.generating": "生成 ComicInfo.xml",
@@ -1062,9 +1100,9 @@ LANGUAGES = {
         "help.json_out": "將轉換結果寫入 JSON 檔案（省略檔名時自動產生時間戳檔案，或指定路徑；同 --json 僅轉換/修改模式寫入）；帶值請用 --選項=值 寫法，或將目標路徑放在本選項之前",
         "log.auto_named": "日誌檔案: {path}（自動命名）",
         "json.written": "JSON 結果已寫入: {path}",
-        "help.unpack": "解包模式：只解壓不轉換，輸出到來源檔案所在目錄的同名子目錄（已存在自動加序號避讓）；目錄名為「來源名_副檔名」（如 vol_cbz），_cbz 結尾的解包目錄可直接被 --repack 重新打包",
+        "help.unpack": "解包模式：只解壓不轉換，輸出到來源檔案所在目錄的「來源名_副檔名」子目錄（如 vol.cbz → vol_cbz/），與來源檔案不撞名；_cbz 結尾的解包目錄可直接被 --repack 重新打包",
         "unpack.done": "已解包 {name} -> {dir}",
-        "help.repack": "重新打包：將已解包的 CBZ 解包目錄（目錄名以 _cbz 結尾）重新打包回 CBZ（輸出名還原為來源檔名，如 vol_cbz → vol.cbz），可搭配 --setinfo 修改元資料",
+        "help.repack": "重新打包：將已解包的 CBZ 解包目錄（目錄名以 _cbz 結尾）重新打包回 CBZ（輸出名還原為來源檔名，如 vol_cbz → vol.cbz），可搭配 --setinfo 修改元資料（--rename 不適用於本模式）",
         "repack.none_found": "未找到 _cbz 結尾的解包目錄: {path}",
         "repack.no_images": "[錯誤] {dir}：目錄內未找到圖片",
         "repack.skip_exists": "[跳過] {path} 已存在（--overwrite 強制覆寫）",
@@ -1209,14 +1247,14 @@ LANGUAGES = {
         "anom.extra_drop": "目錄外圖片（配 --drop-extra 將捨棄）",
         "anom.small": "異常小圖",
         "anom.overscale": "超大頁",
-        "anom.rotated_double": "疑似旋轉跨頁",
-        "anom.thumbnail": "疑似縮圖",
+        "anom.rotated_double": "旋轉跨頁",
+        "anom.thumbnail": "縮圖",
         "convert.drop_filter": "按過濾表達式丟棄 {count} 張圖片{names}",
         "dir.landscape": "橫向",
         "dir.portrait": "縱向",
         "dir.square": "方形",
         "error.filter_token": "無效的過濾條件詞 '{token}'（表達式: {expr}）",
-        "help.list_images": "列出電子書內部圖片清單（唯讀，不轉換、不生成 CBZ）：無值列出全部；帶值按 FILTER 過濾（逗號=OR、'+'=AND；類目：格式/extra/res/size/方向/模式/位深/標記，如 gif,res<200 或 jpg+size>1mb）；與 --drop-extra 共用過濾引擎；配 --json 每檔案精簡 JSON；配 --quiet 只留計數；帶值請用 --選項=值 寫法，或將目標路徑放在本選項之前",
+        "help.list_images": "列出電子書內部圖片清單（唯讀，不轉換、不生成 CBZ）：無值列出全部；帶值按 FILTER 過濾（逗號=OR、'+'=AND；類目：格式/extra/res/size/方向/模式/位深/標記，如 gif,res<200 或 jpg+size>1mb）；與 --drop-extra 共用過濾引擎；清單中 [異常]/[推斷] 為彙總/推斷標記，[追加]/[捨棄]/[篩選] 對應 append/drop/filter 處置；配 --json 每檔案精簡 JSON；配 --quiet 只留計數；帶值請用 --選項=值 寫法，或將目標路徑放在本選項之前",
         "inspect.status_fail": "清單提取失敗: {err}",
         "list.animated": "動圖: {n} 張",
         "list.anomaly": "異常圖片: {n} 張",
@@ -1242,25 +1280,22 @@ LANGUAGES = {
         "list.res_other_note": "（尺寸分佈較散，可能含掃描差異）",
         "list.res_title": "尺寸分佈:",
         "list.small": "小圖: {n} 張",
-        "list.drop_small_note": "[提示] 小圖閾值 = 中位數 × {ratio}（可用 --drop-small 調嚴/調鬆）",
+        "list.drop_small_note": "[提示] 小圖閾值 = 面積中位數 × {ratio}（可用 --drop-small 調嚴/調鬆）",
         "list.total": "圖片總數: {n} 張",
         "list.quiet_summary": "[提示] 共 {n} 張圖片，其中 {anomalies} 張異常（--quiet 已抑制明細）",
         "mark.animated": "[動圖]",
         "mark.extra": "[多餘]",
         "mark.cover": "[封面]",
         "mark.double": "[雙頁]",
-        "mark.thumbnail": "[疑似縮圖]",
+        "mark.thumbnail": "[縮圖]",
         "mark.small": "[異常小圖]",
         "mark.filter": "[篩選]",
         "mark.drop": "[捨棄]",
         "mark.append": "[追加]",
         "mark.overscale": "[超大頁]",
-        "mark.rotated_double": "[疑似旋轉跨頁]",
-        "mode.gray": "灰度",
-        "mode.graya": "灰度A",
-        "mode.index": "索引",
-        "mode.rgb": "RGB",
-        "mode.rgba": "RGBA",
+        "mark.rotated_double": "[旋轉跨頁]",
+        "mark.anom": "[異常]",
+        "mark.inferred": "[推斷]",
         "unpack.path_skip": "[警告] {name}: 跳過不安全解包路徑 {entry}",
         "main.ctrl_c": "[提示] 使用者中斷（Ctrl+C），程式退出",
         "main.crash": "程式崩潰，堆疊資訊如下：",
@@ -1343,7 +1378,8 @@ LANGUAGES = {
         "help.delete": "Delete the original ebook file after successful conversion",
         "help.prefer": "Which directory to keep when both mobi7/mobi8 exist: auto (default) prefers mobi8 and falls back to mobi7 if empty; when mobi7/mobi8 is specified, falls back to the other if the chosen one is empty",
         "help.ext_priority": "When same-name files differ only by extension in the same directory, which format to keep: comma-separated, order is priority high->low, only mobi/azw/azw3/epub accepted, default azw3; falls back to azw3->epub->mobi->azw when not covered; unrelated to --prefer (mobi7/mobi8 selection)",
-        "help.drop_extra": "Drop images matching the given formats/conditions (filter): no value/extra drops extra images outside the collection (default: appended); a format word drops that format (e.g. gif); extra can be combined with formats; off/no/0 disables (extras appended, no format filtering); shares the filter engine with --list-images; when passing a value use --option=value, or place the target path before this option",
+        "help.drop_extra": "Drop extra images outside the collection (hidden alias, merged into --drop extra): no value drops extra images (default: appended); off/no/0 disables; when passing a value use --option=value, or place the target path before this option",
+        "help.drop": "Drop images matching the given formats/conditions (unified drop entry): no value/extra drops extra images outside the collection (default: appended); a format word drops that format (e.g. gif); condition words filter (small[=ratio] small images, overscale, suspected rotated spread, anomaly, cover, aspect ratio etc., with zh/ja/en aliases); off/no/0 disables; comma = OR, plus = AND, - prefix excludes; shares the filter engine with --list-images; when passing a value use --option=value, or place the target path before this option",
         "help.overwrite": "Force regenerate when the target cbz already exists (default: skip)",
         "help.timeout": "Per-file conversion timeout in seconds; on timeout the file is skipped and counted as failed (default 600, 0 = no limit; on timeout the underlying unpack thread may linger in the background)",
         "help.min_size": "Filter out ebooks smaller than the given bytes; without a number defaults to 1000 bytes, 0 disables size filtering, omitted disables it; when passing a value use --option=value, or place the target path before this option",
@@ -1360,16 +1396,18 @@ LANGUAGES = {
         "warn.disk_space": "Disk space low: {label} {path} free {free_mb} MB < estimated {need_mb} MB needed",
         "help.short_summary": "Compact summary: list counts instead of paths for succeeded/skipped files; failed files always show full paths",
         "help.compress": "zip compression level 0-9: 0=none (default, images already compressed), 1-9=deflate (helps for PNG sources, higher is smaller but slower)",
-        "help.inspect": "Inspect mode: sample randomly inspects 1 ebook (default), all inspects every file; unpack only to read internal info (metadata/structure/images/resolution/DRM) without generating CBZ, then auto-clean temp dirs; when passing a value use --option=value, or place the target path before this option",
+        "help.inspect": "Inspect mode: sample randomly inspects 1 ebook (default), all inspects every file; optional filter [MODE][,FILTER] (e.g. all,small=0.6) prints the count + filename list of matched images; unpack only to read internal info (metadata/structure/images/resolution/DRM) without generating CBZ, then auto-clean temp dirs; when passing a value use --option=value, or place the target path before this option",
         "help.inspect_all": "Inspect all ebooks (equivalent to --inspect all; kept for old-command compatibility)",
         "help.no_comicinfo": "Do not generate ComicInfo.xml (default: write comic metadata into CBZ root)",
         "help.double_page": "Double-page detection: no value/auto enable (ratio 2.0); a number sets ratio; off/no/0 disable (when enabled, writes per-page DoublePage marks but no Manga element; use --setinfo Manga= for Manga); when passing a value use --option=value, or place the target path before this option",
         "error.double_page_invalid": "Invalid --double-page value '{value}': use auto, a number, or off/no/0",
-        "help.drop_small": "Drop small images: exclude images clearly smaller than others during conversion (an image is small if both its width and height are below median x ratio; no value/auto = 0.5, a 0~1 number sets ratio, off/no/0 disables). PageCount is recalculated after dropping; when passing a value use --option=value, or place the target path before this option",
+        "help.drop_small": "Drop small images (hidden alias, merged into --drop small): exclude images clearly smaller than others during conversion (an image is small if its area width x height is below median area x ratio; no value/auto = 0.5, a 0~1 number sets ratio, off/no/0 disables). PageCount is recalculated after dropping; when passing a value use --option=value, or place the target path before this option",
         "error.drop_small_invalid": "Invalid --drop-small value '{value}': use auto, a number (0~1), or off/no/0",
         "convert.drop_small": "  [Clean] Dropped {count} small image(s){names}",
         "run.drop_small_total": "Total small images dropped: {count}",
-        "inspect.drop_small_preview": "  [Note] {count} small image(s) found (will be dropped when --drop-small is enabled)",
+        "inspect.drop_small_preview": "  [Note] {count} small image(s) found (will be dropped when --drop small is enabled)",
+        "inspect.filter_hits": "  [Hits] {count} image(s) matched the filter (--inspect filter)",
+        "inspect.filter_no_hit": "  [No hits] no image matched the filter",
         "help.setinfo": "Set ComicInfo field (repeatable, FIELD=VALUE; VALUE supports %%series/%%number/%%title/%%writer/%%publisher/%%date/%%language/%%description/%%filename/%%leftN/%%rightN/%%subN_M (%%subN_M = M chars from the Nth char, 1-based); split on comma only when followed by FIELD=; use multiple --setinfo for a value containing Key=; Manga accepts Unknown/No/Yes/YesAndRightToLeft, not written by default; when enabled, existing .cbz inputs have their ComicInfo.xml modified in place)",
 "help.rename": "Rename output CBZ filename (optional template, off by default). --rename (no value) uses default template (series + auto mark prefix); mark prefix by type: [Vol.x] volume-only / [Ch.x] chapter-only / [Vol.x][Ch.x] volume+chapter / [x] untyped; consecutive episodes (話005-006) -> [Ch.5-6]; placeholders %%series/%%number/%%volume/%%title/%%writer/%%publisher/%%date/%%language/%%description/%%filename/%%leftN/%%rightN/%%subN_M and zero-pad %%03number; source priority: filename inference > file metadata (OPF/ComicInfo.xml), setinfo excluded; %%description is not recommended for filenames (content may be very long); if needed, slice it with %%subN_M; combine with --dry-run to preview; when passing a value use --option=value, or place the target path before this option",
         "comicinfo.generating": "Generating ComicInfo.xml",
@@ -1386,9 +1424,9 @@ LANGUAGES = {
         "help.json_out": "Write conversion results to a JSON file (omit filename to auto-generate a timestamped file, or specify a path; like --json, only written in conversion/modify mode); when passing a value use --option=value, or place the target path before this option",
         "log.auto_named": "Log file: {path} (auto-named)",
         "json.written": "JSON result written to: {path}",
-        "help.unpack": "Unpack mode: extract only without converting, output to a same-named subdirectory next to the source (auto-append number if exists); the directory is named `<source>_<ext>` (e.g. vol_cbz), and _cbz-suffixed directories can be repacked with --repack",
+        "help.unpack": "Unpack mode: extract only without converting, output to a `<source>_<ext>` subdirectory next to the source (e.g. vol.cbz → vol_cbz/, never clashing with the source name); _cbz-suffixed directories can be repacked with --repack",
         "unpack.done": "Unpacked {name} -> {dir}",
-        "help.repack": "Repack mode: repack an unpacked CBZ directory (name ending in _cbz) back into a CBZ (output name restored to the source, e.g. vol_cbz → vol.cbz); use with --setinfo to edit metadata",
+        "help.repack": "Repack mode: repack an unpacked CBZ directory (name ending in _cbz) back into a CBZ (output name restored to the source, e.g. vol_cbz → vol.cbz); use with --setinfo to edit metadata (--rename does not apply to this mode)",
         "repack.none_found": "No _cbz unpack directories found: {path}",
         "repack.no_images": "[Error] {dir}: no images found in directory",
         "repack.skip_exists": "[Skip] {path} already exists (use --overwrite to force)",
@@ -1479,13 +1517,13 @@ LANGUAGES = {
         "anom.small": "abnormally small",
         "anom.overscale": "overscale",
         "anom.rotated_double": "rotated double-page",
-        "anom.thumbnail": "suspected thumbnail",
+        "anom.thumbnail": "thumbnail",
         "convert.drop_filter": "Dropped {count} image(s) by filter{names}",
         "dir.landscape": "landscape",
         "dir.portrait": "portrait",
         "dir.square": "square",
         "error.filter_token": "Invalid filter token '{token}' (expression: {expr})",
-        "help.list_images": "List images inside the ebook (read-only; no conversion, no CBZ): no value lists all; a FILTER filters rows (comma=OR, '+''=AND; categories: format/extra/res/size/direction/mode/depth/mark, e.g. gif,res<200 or jpg+size>1mb); shares the filter engine with --drop-extra; with --json prints compact JSON per file; with --quiet keeps only counts; when passing a value use --option=value, or place the target path before this option",
+        "help.list_images": "List images inside the ebook (read-only; no conversion, no CBZ): no value lists all; a FILTER filters rows (comma=OR, '+''=AND; categories: format/extra/res/size/direction/mode/depth/mark, e.g. gif,res<200 or jpg+size>1mb); shares the filter engine with --drop-extra; rows show [anomaly]/[inferred] summary/inference marks and [append]/[drop]/[filtered] marks for append/drop/filter dispositions; with --json prints compact JSON per file; with --quiet keeps only counts; when passing a value use --option=value, or place the target path before this option",
         "inspect.status_fail": "Failed to extract listing: {err}",
         "list.animated": "Animated: {n}",
         "list.anomaly": "Anomalous images: {n}",
@@ -1511,25 +1549,22 @@ LANGUAGES = {
         "list.res_other_note": " (scattered sizes, may include scan variance)",
         "list.res_title": "Size distribution:",
         "list.small": "Small images: {n}",
-        "list.drop_small_note": "[note] small threshold = median x {ratio} (tune with --drop-small)",
+        "list.drop_small_note": "[note] small threshold = median area x {ratio} (tune with --drop-small)",
         "list.total": "Total images: {n}",
         "list.quiet_summary": "[note] {n} images total, {anomalies} anomalous (detail hidden by --quiet)",
         "mark.animated": "[animated]",
         "mark.extra": "[extra]",
         "mark.cover": "[cover]",
         "mark.double": "[double]",
-        "mark.thumbnail": "[thumb?]",
+        "mark.thumbnail": "[thumbnail]",
         "mark.small": "[small]",
         "mark.filter": "[filtered]",
         "mark.drop": "[drop]",
         "mark.append": "[append]",
         "mark.overscale": "[overscale]",
-        "mark.rotated_double": "[rotated?]",
-        "mode.gray": "gray",
-        "mode.graya": "gray+alpha",
-        "mode.index": "index",
-        "mode.rgb": "RGB",
-        "mode.rgba": "RGBA",
+        "mark.rotated_double": "[rotated]",
+        "mark.anom": "[anomaly]",
+        "mark.inferred": "[inferred]",
         "unpack.path_skip": "[Warning] {name}: skipping unsafe extraction path {entry}",
         "inspect.drm_unmarked": "DRM: no header flag",
         "inspect.below_min_size": "below --min-size({min})",
@@ -1667,7 +1702,8 @@ LANGUAGES = {
         "help.delete": '変換成功後に元の電子書籍ファイルを削除',
         "help.prefer": '二重ディレクトリ mobi（mobi7/mobi8）がある場合にどちらを残すか：auto（デフォルト）は mobi8 優先、空なら mobi7 に自動フォールバック。mobi7/mobi8 指定時も、指定先が空ならもう一方に自動フォールバック',
         "help.ext_priority": '同じディレクトリで同名（拡張子のみ異なる）の場合にどの形式を残すか：カンマ区切り、順序が優先度（高→低）、mobi/azw/azw3/epub のみ指定可能、デフォルト azw3；優先度がカバーしない場合は azw3→epub→mobi→azw にフォールバック；--prefer（二重ディレクトリ選択）とは無関係',
-        "help.drop_extra": "指定した形式・条件の画像を破棄（フィルタ）：値なし/extra=目次外の余分な画像を破棄（デフォルトは末尾に追加）；形式語でその形式を破棄（例: gif）；extra は形式と組み合わせ可；off/no/0 で無効（余分は追加、形式フィルタなし）；--list-images と同一フィルタエンジン；値を渡す場合は --オプション=値 の形式にするか、対象パスをこのオプションの前に置いてください",
+        "help.drop_extra": "目次外の余分な画像を破棄（隠しエイリアス、--drop extra に統合）：値なし=目次外の余分な画像を破棄（デフォルトは末尾に追加）；off/no/0 で無効；値を渡す場合は --オプション=値 の形式にするか、対象パスをこのオプションの前に置いてください",
+        "help.drop": "指定した形式・条件の画像を破棄（統合破棄エントリ）：値なし/extra=目次外の余分な画像を破棄（デフォルトは末尾に追加）；形式語でその形式を破棄（例: gif）；条件語でフィルタ（small[=比率] 小画像、超大、疑似回転見開き、異常、表紙、アスペクト比など、中/日/英の別名対応）；off/no/0 で無効；複数条件はカンマ=OR、プラス=AND、- プレフィックスで除外；--list-images と同一フィルタエンジン；値を渡す場合は --オプション=値 の形式にするか、対象パスをこのオプションの前に置いてください",
         "help.overwrite": '対象 cbz が既に存在する場合に強制的に再生成（デフォルトはスキップ）',
         "help.timeout": 'ファイルごとの変換タイムアウト秒数。タイムアウトで自動スキップし失敗に計上（デフォルト 600、0 は制限なし。タイムアウト後、基盤の解凍スレッドがバックグラウンドに残る可能性あり）',
         "help.min_size": '指定バイト数未満の電子書籍を除外；数字なしでデフォルト 1000 バイト、0 でサイズフィルタ無効、未指定で無効；値を渡す場合は --オプション=値 の形式にするか、対象パスをこのオプションの前に置いてください',
@@ -1684,16 +1720,18 @@ LANGUAGES = {
         "warn.disk_space": 'ディスク容量不足：{label} {path} 残り {free_mb} MB < 必要見込み {need_mb} MB',
         "help.short_summary": '簡潔サマリー：成功/スキップのファイルはパスを列挙せず数のみ表示、失敗ファイルは常にフルパス表示',
         "help.compress": 'zip 圧縮レベル 0-9：0=無圧縮（デフォルト、画像は既に圧縮済み）、1-9=deflate 圧縮（PNG 元で効果あり、レベルが高いほど小さく遅い）',
-        "help.inspect": '検査モード：sample はランダムに 1 冊を抽出（デフォルト）、all は全件検査；解凍して内部情報（メタデータ/構造/画像/解像度/DRM）を読み取るだけで CBZ は生成せず、終了後に一時ディレクトリを自動削除；値を渡す場合は --オプション=値 の形式にするか、対象パスをこのオプションの前に置いてください',
+        "help.inspect": '検査モード：sample はランダムに 1 冊を抽出（デフォルト）、all は全件検査；フィルタ [MODE][,FILTER] 付き（例: all,small=0.6）で条件一致画像の件数+ファイル名一覧を出力；解凍して内部情報（メタデータ/構造/画像/解像度/DRM）を読み取るだけで CBZ は生成せず、終了後に一時ディレクトリを自動削除；値を渡す場合は --オプション=値 の形式にするか、対象パスをこのオプションの前に置いてください',
         "help.inspect_all": '全電子書籍を検査（--inspect all と等価、旧コマンド互換用）',
         "help.no_comicinfo": "ComicInfo.xml を生成しない（既定: CBZ ルートに漫画メタデータを書き込む）",
         "help.double_page": "見開き検出：値なし/auto で有効（閾値 2.0）；数値で閾値調整；off/no/0 で無効（有効時はページ毎の DoublePage を書き込むが Manga 要素は書かない；Manga が必要なら --setinfo Manga= を使用）；値を渡す場合は --オプション=値 の形式にするか、対象パスをこのオプションの前に置いてください",
         "error.double_page_invalid": "無効な --double-page 値 '{value}'：auto/数値/off/no/0 のいずれか",
-        "help.drop_small": "小画像を破棄：明らかに小さい画像を変換時に除外（幅・高さとも 中央値×比率 未満で小画像と判定；値なし/auto=0.5、0〜1 の数値で比率調整、off/no/0 で無効）。破棄後は PageCount を実画像数で再計算；値を渡す場合は --オプション=値 の形式にするか、対象パスをこのオプションの前に置いてください",
+        "help.drop_small": "小画像を破棄（隠しエイリアス、--drop small に統合）：明らかに小さい画像を変換時に除外（面積 幅×高さ が 面積中央値×比率 未満で小画像と判定；値なし/auto=0.5、0〜1 の数値で比率調整、off/no/0 で無効）。破棄後は PageCount を実画像数で再計算；値を渡す場合は --オプション=値 の形式にするか、対象パスをこのオプションの前に置いてください",
         "error.drop_small_invalid": "無効な --drop-small 値 '{value}'：auto/数値(0〜1)/off/no/0 のいずれか",
         "convert.drop_small": "  [クリーン] 小画像を {count} 枚破棄{names}",
         "run.drop_small_total": "破棄した小画像の合計: {count} 枚",
-        "inspect.drop_small_preview": "  [注意] 小画像が {count} 枚（--drop-small 有効時は破棄されます）",
+        "inspect.drop_small_preview": "  [注意] 小画像が {count} 枚（--drop small 有効時は破棄されます）",
+        "inspect.filter_hits": "  [ヒット] {count} 枚の画像がフィルタ条件に一致（--inspect フィルタ）",
+        "inspect.filter_no_hit": "  [該当なし] フィルタ条件に一致する画像はありません",
         "help.setinfo": "ComicInfo フィールドを設定（複数可、形式 FIELD=VALUE；VALUE は %%series/%%number/%%title/%%writer/%%publisher/%%date/%%language/%%description/%%filename/%%leftN/%%rightN/%%subN_M をサポート（%%subN_M=N 文字目から M 文字、1-based）；カンマ直後にフィールド名= がある場合のみ分割、値に Key= 構造が含まれる場合は --setinfo を複数回指定；Manga は Unknown/No/Yes/YesAndRightToLeft のみ有効、デフォルトでは書かない；--setinfo 有効時、入力中の既存 .cbz は ComicInfo.xml を直接変更）",
 "help.rename": "出力 CBZ のファイル名をリネーム（テンプレート任意、デフォルト無効）。--rename 値なし=デフォルトテンプレート（シリーズ名+自動マーク接頭辞）；マーク接頭辞は種類別に自動選択：単巻[Vol.x]/単話[Ch.x]/巻+話[Vol.x][Ch.x]/型なし[x]、連話（話005-006）は [Ch.5-6]；プレースホルダ %%series/%%number/%%volume/%%title/%%writer/%%publisher/%%date/%%language/%%description/%%filename/%%leftN/%%rightN/%%subN_M と %%03number ゼロ埋め；優先順位：ファイル名推測 > ファイルメタデータ(OPF/ComicInfo.xml)、setinfo は不参加；%%description はファイル名への使用は推奨しません（内容が非常に長くなる可能性があります）。使用する場合は %%subN_M で切り出してください；--dry-run でプレビュー推奨；値を渡す場合は --オプション=値 の形式にするか、対象パスをこのオプションの前に置いてください",
         "comicinfo.generating": "ComicInfo.xml を生成中",
@@ -1710,9 +1748,9 @@ LANGUAGES = {
         "help.json_out": '変換結果を JSON ファイルに書き出し（ファイル名省略でタイムスタンプ付きファイルを自動生成、またはパス指定。--json と同様、変換/変更モードのみ書き込み）；値を渡す場合は --オプション=値 の形式にするか、対象パスをこのオプションの前に置いてください',
         "log.auto_named": 'ログファイル: {path}（自動命名）',
         "json.written": 'JSON 結果を書き込みました: {path}',
-        "help.unpack": '解凍モード：解凍のみで変換は行わず、元ファイルと同じディレクトリの同名サブディレクトリに出力（既存の場合は自動で番号を付与）。ディレクトリ名は「元名_拡張子」（例 vol_cbz）で、_cbz で終わる解凍ディレクトリは --repack で再パックできます',
+        "help.unpack": '解凍モード：解凍のみで変換は行わず、元ファイルと同じディレクトリの「元名_拡張子」サブディレクトリに出力（例 vol.cbz → vol_cbz/、元ファイルと衝突しない）。_cbz で終わる解凍ディレクトリは --repack で再パックできます',
         "unpack.done": '解凍しました {name} -> {dir}',
-        "help.repack": '再パックモード：解凍済みの CBZ ディレクトリ（_cbz で終わるディレクトリ名）を CBZ に再パック（出力名は元ファイル名に復元、例 vol_cbz → vol.cbz）。--setinfo と併用してメタデータを編集できます',
+        "help.repack": '再パックモード：解凍済みの CBZ ディレクトリ（_cbz で終わるディレクトリ名）を CBZ に再パック（出力名は元ファイル名に復元、例 vol_cbz → vol.cbz）。--setinfo と併用してメタデータを編集できます（--rename はこのモードでは使用できません）',
         "repack.none_found": '_cbz で終わる解凍ディレクトリが見つかりません: {path}',
         "repack.no_images": '[エラー] {dir}: ディレクトリ内に画像が見つかりません',
         "repack.skip_exists": '[スキップ] {path} は既に存在します（--overwrite で強制上書き）',
@@ -1750,13 +1788,13 @@ LANGUAGES = {
         "anom.small": "異常に小さい",
         "anom.overscale": "特大ページ",
         "anom.rotated_double": "回転見開き",
-        "anom.thumbnail": "縮小サムネイルの疑い",
+        "anom.thumbnail": "縮小サムネイル",
         "convert.drop_filter": "フィルタで {count} 枚の画像を破棄{names}",
         "dir.landscape": "横向き",
         "dir.portrait": "縦向き",
         "dir.square": "正方形",
         "error.filter_token": "無効なフィルタ条件 '{token}'（式: {expr}）",
-        "help.list_images": "電子書籍内の画像一覧を表示（読み取り専用、変換・CBZ 生成なし）：値なしで全件表示；FILTER で行をフィルタ（カンマ=OR、'+'=AND；カテゴリ：形式/extra/res/size/向き/モード/色深度/マーク、例: gif,res<200 または jpg+size>1mb）；--drop-extra と同一フィルタエンジンを共有；--json でファイル毎に簡潔 JSON；--quiet でカウントのみ；値を渡す場合は --オプション=値 の形式にするか、対象パスをこのオプションの前に置いてください",
+        "help.list_images": "電子書籍内の画像一覧を表示（読み取り専用、変換・CBZ 生成なし）：値なしで全件表示；FILTER で行をフィルタ（カンマ=OR、'+'=AND；カテゴリ：形式/extra/res/size/向き/モード/色深度/マーク、例: gif,res<200 または jpg+size>1mb）；--drop-extra と同一フィルタエンジンを共有；一覧の [異常]/[推測] は集計/推測マーク、[追加]/[破棄]/[フィルタ] は append/drop/filter の処置に対応；--json でファイル毎に簡潔 JSON；--quiet でカウントのみ；値を渡す場合は --オプション=値 の形式にするか、対象パスをこのオプションの前に置いてください",
         "inspect.status_fail": "一覧の抽出に失敗: {err}",
         "list.animated": "アニメ: {n} 枚",
         "list.anomaly": "異常画像: {n} 枚",
@@ -1782,25 +1820,22 @@ LANGUAGES = {
         "list.res_other_note": "（サイズばらつき大、スキャン差異の可能性あり）",
         "list.res_title": "サイズ分布:",
         "list.small": "小画像: {n} 枚",
-        "list.drop_small_note": "[ヒント] 小画像閾値 = 中央値 × {ratio}（--drop-small で調整可）",
+        "list.drop_small_note": "[ヒント] 小画像閾値 = 面積中央値 × {ratio}（--drop-small で調整可）",
         "list.total": "画像総数: {n} 枚",
         "list.quiet_summary": "[ヒント] 計 {n} 枚中 {anomalies} 枚異常（--quiet で明細非表示）",
         "mark.animated": "[アニメ]",
         "mark.extra": "[余分]",
         "mark.cover": "[表紙]",
         "mark.double": "[見開き]",
-        "mark.thumbnail": "[縮小サムネ?]",
+        "mark.thumbnail": "[縮小サムネ]",
         "mark.small": "[異常小画像]",
         "mark.filter": "[フィルタ]",
         "mark.drop": "[破棄]",
         "mark.append": "[追加]",
         "mark.overscale": "[特大ページ]",
         "mark.rotated_double": "[回転見開き]",
-        "mode.gray": "グレー",
-        "mode.graya": "グレー+α",
-        "mode.index": "インデックス",
-        "mode.rgb": "RGB",
-        "mode.rgba": "RGBA",
+        "mark.anom": "[異常]",
+        "mark.inferred": "[推測]",
         "unpack.path_skip": "[警告] {name}: 安全でない展開パス {entry} をスキップ",
         "progress.desc.convert": '変換中',
         "progress.desc.dry_run": '試運転',
@@ -2888,19 +2923,20 @@ def select_mobi_dir(tempdir: Path, prefer: str) -> Path:
 
 
     # 输入：电子书路径与转换选项（delete/prefer/drop_extra/overwrite/output_dir/compress）；输出：(cbz 路径或 None, ConvStatus, 原因, 来源)
-def ebook_to_cbz(ebook_path: Path, delete_original: bool = False, prefer: str = "mobi8", drop_extra: object | None = None, overwrite: bool = False, output_dir: Path | None = None, compress: int = 0, flatten: bool = False, input_root: Path | None = None, comicinfo: bool = True, setinfo_args: list | None = None, double_page: float | None = None, drop_small: float | None = None, rename_template: str | None = None) -> tuple[Path | None, ConvStatus, str | None, dict | None]:
+def ebook_to_cbz(ebook_path: Path, delete_original: bool = False, prefer: str = "mobi8", drop_expr: object | None = None, overwrite: bool = False, output_dir: Path | None = None, compress: int = 0, flatten: bool = False, input_root: Path | None = None, comicinfo: bool = True, setinfo_args: list | None = None, double_page: float | None = None, rename_template: str | None = None) -> tuple[Path | None, ConvStatus, str | None, dict | None]:
     """将单个电子书文件转换为 cbz
 
     prefer: "auto"（默认）双目录时优先 mobi8，mobi8 为空壳（无图片）自动回退 mobi7
-    drop_extra: --drop-extra 过滤表达式（parse_drop_expr 结果）；None=关闭；条件含 extra 时
-                放弃追加多余图片，其余条件在过滤阶段按格式/分辨率/大小/方向/模式/位深/标记丢弃
+    drop_expr: 统一丢弃表达式（parse_drop_expr 结果，即 --drop/--drop-extra/--drop-small 合并后的
+               组列表）；None=关闭。条件含 extra 时放弃追加多余图片；small 比例从表达式提取；
+               其余条件在过滤阶段按格式/分辨率/大小/方向/模式/位深/标记丢弃
     overwrite: 目标 cbz 已存在时强制重新生成（默认跳过）
     output_dir: 指定 CBZ 输出目录（自动创建），默认与源 mobi 同目录
     flatten: 与 output_dir 联用时平铺到输出目录根下（默认保留相对子目录结构）
     input_root: target 为目录时作为相对子目录结构计算的基准
     comicinfo: 是否生成 ComicInfo.xml（默认生成，--no-comicinfo 关闭）
     double_page: 双页检测阈值（宽/高 >= 该值判为跨页），None 表示关闭（--double-page off）
-    drop_small: 丢弃小图比例（宽和高均 < 中位数×该值 判为小图），None 表示关闭（--drop-small off）
+    小图丢弃: 面积口径（宽×高 < 中位面积×比例），比例来自 drop_expr 内 small 条件（--drop small）
     rename_template: --rename 模板；None=关闭（保持原名），"default"=默认模板（系列名+自动标记前缀），
                 其余为自定义模板（%series/%number/%volume 等占位符，自动补标记前缀）
 
@@ -2983,12 +3019,14 @@ def ebook_to_cbz(ebook_path: Path, delete_original: bool = False, prefer: str = 
         images = ensure_cover_first(images, base_dir)
 
         # 目录对齐兜底：目录图片数 vs 收集数不一致时，多出的图片追加到末尾
-        # drop_extra 表达式含 extra 条件时放弃追加（否则多余图默认追加，符合 --drop-extra 历史语义）
+        # drop 表达式含 extra 条件时放弃追加（否则多余图默认追加，符合历史 --drop-extra 语义）
         total_in_dir = count_images_in_dir(base_dir)
-        drop_extra_hit = bool(drop_extra and any(a[0] == "extra" for grp in drop_extra for a in grp))
-        # P0-1 修复：传入原始 drop_extra 列表（函数内自行判定是否含 extra），不再传 bool，
-        #           否则 --drop-extra extra 且有多余图时 any(... for g in True) 抛 TypeError
-        images, align_msg = align_images_with_dir(images, base_dir, drop_extra)
+        drop_extra_hit = bool(drop_expr and any(a[0] == "extra" for grp in drop_expr for a in grp))
+        # P0-1 修复：传入原始 drop 表达式列表（函数内自行判定是否含 extra），不再传 bool，
+        #           否则 --drop extra 且有多余图时 any(... for g in True) 抛 TypeError
+        images, align_msg = align_images_with_dir(images, base_dir, drop_expr)
+        # 小图比例从统一丢弃表达式提取（--drop small[=比例]）；None=关闭
+        drop_small = extract_small_ratio(drop_expr)
         if align_msg:
             emit(f"  {align_msg}")
         elif total_in_dir != len(images):
@@ -3008,7 +3046,7 @@ def ebook_to_cbz(ebook_path: Path, delete_original: bool = False, prefer: str = 
             emit(t("convert.dedup_physical", count=len(images) - len(deduped)))
         images = deduped
 
-        # 丢弃小图（--drop-small）：宽和高均 < 中位数×比例 判为小图（封面缩略图等）
+        # 丢弃小图（--drop small）：面积口径 宽×高 < 中位面积×比例 判为小图（封面缩略图等）
         dropped_small = 0
         if drop_small is not None:
             images, dropped_names = drop_small_images(images, drop_small)
@@ -3017,10 +3055,10 @@ def ebook_to_cbz(ebook_path: Path, delete_original: bool = False, prefer: str = 
                 names_suffix = ": " + ", ".join(dropped_names) if not _short_summary else ""
                 emit(t("convert.drop_small", count=dropped_small, names=names_suffix))
 
-        # 丢弃过滤（--drop-extra 非 extra 条件）：格式/分辨率/大小/方向/模式/位深/标记
+        # 丢弃过滤（--drop 非 extra 条件）：格式/分辨率/大小/方向/模式/位深/标记
         # 与 --list-images 共用 build_image_attrs/eval_filter_atoms 同一引擎
         dropped_filter = 0
-        if drop_extra and any(a[0] != "extra" for grp in drop_extra for a in grp):
+        if drop_expr and any(a[0] != "extra" for grp in drop_expr for a in grp):
             dropped_filter_names = []
             kept = []
             # 封面路径集合（OPF guide 优先，文件名关键词兜底），供 cover 原子过滤
@@ -3044,11 +3082,11 @@ def ebook_to_cbz(ebook_path: Path, delete_original: bool = False, prefer: str = 
                 if norm_path(img) in cover_paths:
                     attrs["cover"] = True
                 attrs_list.append(attrs)
-            _fill_small_mark(attrs_list)
+            _fill_small_mark(attrs_list, drop_small)
             _fill_overscale_mark(attrs_list)
             for img, attrs in zip(images, attrs_list):
-                # drop_extra 为二维组列表（组间 OR、组内 AND），需逐组求值
-                if any(eval_filter_atoms(attrs, g) for g in drop_extra):
+                # drop 表达式为二维组列表（组间 OR、组内 AND），需逐组求值
+                if any(eval_filter_atoms(attrs, g) for g in drop_expr):
                     dropped_filter += 1
                     dropped_filter_names.append(img.name)
                 else:
@@ -3209,7 +3247,8 @@ def _safe_zip_extract(zf: zipfile.ZipFile, out_dir: Path) -> None:
         if (norm_name.startswith("/") or Path(norm_name).is_absolute()
                 or Path(norm_name).drive
                 or ".." in norm_name.split("/")):
-            emit(t("unpack.path_skip", name=Path(zf.filename).name, entry=name), level="warning")
+            src_name = Path(zf.filename).name if zf.filename else (getattr(zf.fp, "name", None) or "<memory>")
+            emit(t("unpack.path_skip", name=src_name, entry=name), level="warning")
             continue
         if member.is_dir() or norm_name.endswith("/"):
             (out_dir / norm_name).mkdir(parents=True, exist_ok=True)
@@ -4668,7 +4707,7 @@ def parse_nav_toc(base_dir: Path) -> tuple[int, list[str]]:
 
 
     # 输入：电子书文件路径、最小字节数过滤与 prefer；输出：状态字符串 ok/invalid/noimg/drm/fail（供汇总计数）
-def inspect_ebook(p: Path, min_bytes: int, prefer: str = "mobi8", setinfo_args: list | None = None, drop_small: float | None = None) -> tuple:
+def inspect_ebook(p: Path, min_bytes: int, prefer: str = "mobi8", setinfo_args: list | None = None, drop_small: float | None = None, filter_expr: list | None = None, double_ratio: float | None = None) -> tuple:
     """检查单个电子书内部信息（--inspect 模式核心）。
 
     流程：头部基础检查（魔数/大小/DRM）→ EXTH 元数据 → 解包 →
@@ -4677,10 +4716,15 @@ def inspect_ebook(p: Path, min_bytes: int, prefer: str = "mobi8", setinfo_args: 
     解包失败/0 图且带标记→判 DRM；无标记+0 图→疑似。
     只解包不打包，结束后自动清理临时目录。
 
+    filter_expr：--inspect [MODE][,FILTER] 的过滤表达式；命中条件的图片输出数量+文件名清单
+    （复用过滤引擎与面积口径，small 比例取自表达式本身）。
+    drop_small：--drop 表达式中的 small 比例，用于小图预览。
+
     返回 (状态, 结构化信息 dict)：
     - 状态为 InspectStatus 枚举（OK / INVALID / NOIMG / DRM / FAIL）
     - info 含 source / status / series / number / volume / series_source /
-      number_source / volume_source / page_count / drm / spine / toc 等字段（spine/toc 为 --json-out 全量字段）
+      number_source / volume_source / page_count / drm / spine / toc / filter_hits 等字段
+      （spine/toc 为 --json-out 全量字段）
     """
     size = p.stat().st_size
     size_mb = size / (1024 * 1024)
@@ -4700,6 +4744,7 @@ def inspect_ebook(p: Path, min_bytes: int, prefer: str = "mobi8", setinfo_args: 
         "drm": None,
         "spine": None,
         "toc": None,
+        "filter_hits": None,
     }
 
     # CBZ 分支：纯 zipfile 读取，不解压
@@ -4793,6 +4838,20 @@ def inspect_ebook(p: Path, min_bytes: int, prefer: str = "mobi8", setinfo_args: 
                     emit(t("inspect.adv_jpeg"))
                 else:
                     emit(t("inspect.adv_mixed"))
+
+                # --inspect FILTER：命中条件的图片输出数量+清单（CBZ zip 内直读，不落盘）
+                if filter_expr:
+                    c_attrs = [build_cbz_image_attrs(zf, n, double_ratio) for n in img_names]
+                    _fill_small_mark(c_attrs, extract_small_ratio(filter_expr))
+                    c_hits = [a for a in c_attrs if any(eval_filter_atoms(a, g) for g in filter_expr)]
+                    info["filter_hits"] = [Path(a["zname"]).name for a in c_hits]
+                    if c_hits:
+                        emit(t("inspect.filter_hits", count=len(c_hits)), level="summary")
+                        for a in c_hits:
+                            dim = f"{a['w']}x{a['h']}" if a.get("w") and a.get("h") else "?"
+                            emit(f"    {Path(a['zname']).name}  {dim}", level="summary")
+                    else:
+                        emit(t("inspect.filter_no_hit"), level="info")
 
                 # ComicInfo.xml 预览（若存在）
                 if "ComicInfo.xml" in names:
@@ -5054,13 +5113,26 @@ def inspect_ebook(p: Path, min_bytes: int, prefer: str = "mobi8", setinfo_args: 
             if res_summary:
                 emit(res_summary)
 
-        # 丢弃小图预览：开启 --drop-small 时会丢弃多少张（仅提示，不改变转换）
+        # 丢弃小图预览：开启 --drop small 时会丢弃多少张（仅提示，不改变转换；面积口径）
         if drop_small is not None and len(res_list) > 1:
-            med_w = statistics.median(d[0] for d in res_list)
-            med_h = statistics.median(d[1] for d in res_list)
-            small_n = sum(1 for w, h in res_list if w < med_w * drop_small and h < med_h * drop_small)
+            med_area = _median_area(res_list)
+            small_n = sum(1 for w, h in res_list if w * h < med_area * drop_small)
             if small_n:
                 emit(t("inspect.drop_small_preview", count=small_n))
+
+        # --inspect FILTER：命中条件的图片输出数量+清单（复用过滤引擎与面积口径）
+        if filter_expr:
+            f_attrs = [build_image_attrs(fp, double_ratio) for fp in all_imgs]
+            _fill_small_mark(f_attrs, extract_small_ratio(filter_expr))
+            f_hits = [a for a in f_attrs if any(eval_filter_atoms(a, g) for g in filter_expr)]
+            info["filter_hits"] = [a["path"].name for a in f_hits]
+            if f_hits:
+                emit(t("inspect.filter_hits", count=len(f_hits)), level="summary")
+                for a in f_hits:
+                    dim = f"{a['w']}x{a['h']}" if a.get("w") and a.get("h") else "?"
+                    emit(f"    {a['path'].name}  {dim}", level="summary")
+            else:
+                emit(t("inspect.filter_no_hit"), level="info")
 
         # 压缩建议
         jpeg_ratio = (fmt_counter.get("jpg", 0) + fmt_counter.get("jpeg", 0)) / total_fmt
@@ -5769,7 +5841,7 @@ def inspect_mode(ebook_files: list[Path], precheck_skipped: list, args) -> None:
         emit(t("inspect_mode.none"), level="error")
         sys.exit(0)
 
-    if args.inspect == "all":
+    if args.inspect[0] == "all":
         targets = ebook_files
         emit(t("inspect_mode.all", count=len(targets)), level="summary")
     else:
@@ -5784,7 +5856,7 @@ def inspect_mode(ebook_files: list[Path], precheck_skipped: list, args) -> None:
         for mf in targets:
             if pbar is not None:
                 pbar.set_postfix_str(truncate_name(mf.name))
-            timed_out, result = run_with_timeout(inspect_ebook, args.timeout, mf, args.min_size, args.prefer, args.setinfo, args.drop_small)
+            timed_out, result = run_with_timeout(inspect_ebook, args.timeout, mf, args.min_size, args.prefer, args.setinfo, extract_small_ratio(args.drop), args.inspect[1], args.double_page)
             if timed_out:
                 emit(t("inspect_mode.timeout", name=mf.name, seconds=args.timeout), level="error")
                 emit(t("inspect_mode.timeout_residue"), level="warning")
@@ -5824,7 +5896,7 @@ def inspect_mode(ebook_files: list[Path], precheck_skipped: list, args) -> None:
             pbar.close()
 
     total_elapsed = time.perf_counter() - total_start
-    if args.inspect != "all":
+    if args.inspect[0] != "all":
         emit(t("inspect_mode.random_note", total=len(ebook_files)), level="summary")
     emit(
         t(
@@ -5846,7 +5918,7 @@ def _emit_inspect_json(records: list, total_elapsed: float) -> None:
     精简字段：source/status/series/number/volume/series_source/number_source/volume_source/page_count/drm；
     全量字段在精简基础上追加 spine/toc。status 值域：ok/drm/invalid/noimg/timeout/fail。
     """
-    base_fields = ("source", "status", "series", "number", "volume", "series_source", "number_source", "volume_source", "page_count", "drm")
+    base_fields = ("source", "status", "series", "number", "volume", "series_source", "number_source", "volume_source", "page_count", "drm", "filter_hits")
     summary = {
         "total": len(records),
         "ok": sum(1 for r in records if r.get("status") == "ok"),
@@ -5884,12 +5956,17 @@ def _emit_inspect_json(records: list, total_elapsed: float) -> None:
 def _attrs_marks(a: dict) -> list:
     """将 attrs 中的异常/处置标记转为 JSON 结构化 key 列表。
 
-    mark 集合（跨页/动图/小图/缩略图）+ 性质（多余/封面/封面补位）+ 处置（舍弃）。
+    mark 集合（跨页/动图/小图/缩略图/超大页/旋转跨页）+ 汇总（异常/推断）
+    + 性质（多余/封面/封面补位）+ 处置（舍弃）。
     """
     ms = []
-    for k in ("double", "animated", "small", "thumbnail"):
+    if a.get("anom"):
+        ms.append("anom")
+    for k in ("double", "animated", "small", "thumbnail", "overscale", "rotated_double"):
         if k in a.get("mark", ()):
             ms.append(k)
+    if a.get("inferred"):
+        ms.append("inferred")
     if a.get("extra"):
         ms.append("extra")
     if a.get("cover"):
@@ -6049,9 +6126,15 @@ def _parse_drop_small_arg(s: str) -> float | None:
     return ratio
 
 
-def drop_small_images(images: list[Path], ratio: float) -> tuple[list[Path], list[str]]:
-    """丢弃尺寸明显偏小的图片：宽和高均 < 中位数×ratio 判为小图（--drop-small）。
+def _median_area(dims: list) -> float:
+    """中位面积（宽×高 的中位数），小图判定统一面积口径。"""
+    return statistics.median(d[0] * d[1] for d in dims)
 
+
+def drop_small_images(images: list[Path], ratio: float) -> tuple[list[Path], list[str]]:
+    """丢弃尺寸明显偏小的图片：面积（宽×高）< 中位面积×ratio 判为小图（--drop-small）。
+
+    面积口径与 [小图] 标记 / --inspect 预览 / --list-images 的 drop_small_hit 统一；
     保持原顺序返回保留列表；无法解析尺寸的图片一律保留（不误删）。
     返回 (保留列表, 被丢弃文件名列表)。
     """
@@ -6061,11 +6144,10 @@ def drop_small_images(images: list[Path], ratio: float) -> tuple[list[Path], lis
     valid = [d for d in dims if d]
     if not valid:
         return images, []
-    med_w = statistics.median(d[0] for d in valid)
-    med_h = statistics.median(d[1] for d in valid)
+    med_area = _median_area(valid)
     kept, dropped = [], []
     for img, d in zip(images, dims):
-        if d and d[0] < med_w * ratio and d[1] < med_h * ratio:
+        if d and d[0] * d[1] < med_area * ratio:
             dropped.append(img)
         else:
             kept.append(img)
@@ -6109,8 +6191,8 @@ _ATOM_ALIASES = {
     "thumbnail": ("mark", "thumbnail"), "thumb": ("mark", "thumbnail"),
     "疑似缩略图": ("mark", "thumbnail"), "疑似縮圖": ("mark", "thumbnail"),
     "縮小サムネ": ("mark", "thumbnail"), "サムネイル": ("mark", "thumbnail"),
-    "small": ("mark", "small"), "异常小图": ("mark", "small"), "異常小圖": ("mark", "small"),
-    "極小画像": ("mark", "small"), "異常小画像": ("mark", "small"),
+    # 注：small（异常小图）已升级为独立带参条件词（('small', ratio|None)），
+    #     支持 small[=比例] 与多语言别名带参（异常小图=0.6 / 極小画像 等），见 _parse_atom。
     # —— 多余 / 处置标记（非属性，按 attrs 处置状态求值）——
     "extra": ("extra",), "多余": ("extra",), "多餘": ("extra",), "余分": ("extra",),
     "filter": ("mark", "filter"), "filtered": ("mark", "filter"),
@@ -6138,17 +6220,35 @@ _ATOM_ALIASES = {
     "縦向き見開き": ("mark", "rotated_double"),
     "anom": ("mark", "anom"), "anomaly": ("mark", "anom"),
     "异常": ("mark", "anom"), "異常": ("mark", "anom"),
+    # —— 推断性标记（inferred，独立维度：旋转跨页 / 缩略图 / 封面补位等）——
+    "inferred": ("mark", "inferred"), "推断": ("mark", "inferred"), "推斷": ("mark", "inferred"),
+    "推測": ("mark", "inferred"), "推定": ("mark", "inferred"),
 }
 
 
 def _parse_atom(atom: str):
     """解析单个条件词 → 原子元组；无法识别返回 None。
     原子: ('extra',) ('ext',fmt) ('mode',m) ('depth',n) ('dir',d)
-          ('mark',m) ('res',op,n) ('size',op,n) ('name',kw)
+          ('mark',m) ('res',op,n) ('size',op,n) ('name',kw) ('small',ratio|None)
+    small 为独立带参条件词：无参/auto=默认比例（None→0.5），可带比例 0<r<=1；
+    多语言别名通用（异常小图/異常小圖/異常小画像/極小画像 均可带参）。
     支持多语言别名与 [标签] 方括号写法（见 _ATOM_ALIASES）。"""
     al = atom.strip().strip("[]").lower()
     if not al:
         return None
+    # small 独立条件词：无参=默认比例（None→0.5），可带比例 0<r<=1；多语言别名通用
+    sm = re.fullmatch(r"(small|異常小圖|异常小图|異常小画像|極小画像)(?:=(.+))?", al)
+    if sm:
+        val = sm.group(2)
+        if val is None or val.lower() in ("auto", "on"):
+            return ("small", None)
+        try:
+            r = float(val)
+        except ValueError:
+            raise argparse.ArgumentTypeError(t("error.drop_small_invalid", value=val))
+        if not 0 < r <= 1:
+            raise argparse.ArgumentTypeError(t("error.drop_small_invalid", value=val))
+        return ("small", r)
     hit = _ATOM_ALIASES.get(al)
     if hit is not None:
         return hit
@@ -6191,6 +6291,45 @@ def parse_drop_expr(value: str | None):
         if atoms:
             groups.append(atoms)
     return groups or None
+
+
+def extract_small_ratio(drop_expr) -> float | None:
+    """从丢弃/过滤表达式提取 small 条件比例；无 small 条件返回 None。
+
+    small 无参（('small', None)）返回默认比例 DEFAULT_DROP_SMALL_RATIO，
+    带参返回其比例。供 list/inspect/转换三链路统一小图口径（面积判定共用）。"""
+    if not drop_expr:
+        return None
+    for grp in drop_expr:
+        for a in grp:
+            if a[0] == "small":
+                return a[1] if a[1] is not None else DEFAULT_DROP_SMALL_RATIO
+    return None
+
+
+def parse_inspect_arg(value: str | None):
+    """解析 --inspect 参数 → (mode, filter)。
+
+    值域混合解析：逗号切分后，sample/all 提取为检查范围 MODE（缺省 sample），
+    其余 token 进 parse_drop_expr 作为 FILTER（None 表示无过滤）。
+    例：all,small=0.6 → ('all', [[('small',0.6),],])；small → ('sample', [[('small',None),],])；
+        off → ('sample', None)。非法 token 抛 ArgumentTypeError。"""
+    if value is None:
+        return "sample", None
+    v = value.strip()
+    if not v:
+        return "sample", None
+    mode = None
+    rest = []
+    for token in v.split(","):
+        t = token.strip()
+        if t == "sample" or t == "all":
+            mode = t
+        else:
+            rest.append(t)
+    if not rest:
+        return (mode if mode else "sample"), None
+    return (mode if mode else "sample"), parse_drop_expr(",".join(rest))
 
 
 def image_mode_bytes(head: bytes):
@@ -6355,6 +6494,9 @@ def eval_filter_atom(attrs: dict, a) -> bool:
         return attrs.get("depth") == a[1]
     if t == "dir":
         return attrs.get("dir") == a[1]
+    if t == "small":
+        # small 独立条件词：读取 _fill_small_mark 按面积口径预填的 small_hit（True=小图）
+        return bool(attrs.get("small_hit"))
     if t == "mark":
         m = a[1]
         if m == "cover":
@@ -6373,6 +6515,9 @@ def eval_filter_atom(attrs: dict, a) -> bool:
         if m == "anom":
             # 汇总标签：任一异常标记命中即算
             return bool(attrs.get("anom"))
+        if m == "inferred":
+            # 推断性标记：旋转跨页 / 缩略图 / 封面补位等
+            return bool(attrs.get("inferred"))
         return m in (attrs.get("mark") or set())
     if t == "name":
         # 按文件名关键词子串匹配（不区分大小写），只匹配纯文件名（zname/path 均归一为文件名）
@@ -6393,28 +6538,38 @@ def eval_filter_atom(attrs: dict, a) -> bool:
     return False
 
 
-def _fill_small_mark(attrs_list: list[dict]) -> None:
-    """按全集中位数回填异常小图标记（宽和高均 < 中位数×0.5，恒用 0.5 常态口径）。"""
+def _fill_small_mark(attrs_list: list[dict], ratio: float | None) -> None:
+    """按全集中位面积回填小图标记与 small_hit 字段（宽×高 < 中位面积×比例）。
+
+    面积口径：与 --drop-small / --drop small 判定（drop_small_hit / drop_small_images /
+    --inspect 预览）统一同一比例；ratio 为 None 时不标，保证"标了即会丢"：
+    有 [小图] 标记的图必被丢弃。small 独立条件词经 eval_filter_atom 读 small_hit 求值，
+    因此 _parse_atom 产出 ('small',...) 原子后，此处预填 small_hit 即完成口径统一。"""
+    if ratio is None:
+        return
     dims = [(a["w"], a["h"]) for a in attrs_list if a.get("w") and a.get("h")]
     if not dims:
         return
-    med_w = statistics.median(d[0] for d in dims)
-    med_h = statistics.median(d[1] for d in dims)
+    med_area = _median_area(dims)
     for a in attrs_list:
-        if a.get("w") and a.get("h") and a["w"] < med_w * DEFAULT_DROP_SMALL_RATIO and a["h"] < med_h * DEFAULT_DROP_SMALL_RATIO:
+        if a.get("w") and a.get("h") and a["w"] * a["h"] < med_area * ratio:
             a["mark"].add("small")
+            a["small_hit"] = True
 
 
 def _fill_overscale_mark(attrs_list: list[dict]) -> None:
-    """按全集中位数回填超大页/疑似旋转跨页标记与异常汇总。
+    """按全集中位数回填超大页/旋转跨页标记与异常汇总。
 
     overscale      = 宽或高 ≥ 中位×LIST_OVERSCALE_RATIO（默认 1.3）
     rotated_double = overscale 且 宽<高 且 (宽/高 − 中位宽高比) ≥ LIST_RATIO_DELTA（默认 0.08）
                      —— 纵向存储的旋转跨页，宽高比明显变方
-    封面页尺寸异常不豁免，照标异常并叠加 [封面] 标签；a['anom'] 汇总任一异常标记。"""
+    rotated_double / thumbnail 属推断性标记，同时置 a['inferred']=True
+    （[推断] 独立标记）；封面页尺寸异常不豁免，照标异常并叠加 [封面] 标签；
+    a['anom'] 汇总任一异常标记。"""
     dims = [(a["w"], a["h"]) for a in attrs_list if a.get("w") and a.get("h")]
     for a in attrs_list:
         a["anom"] = False
+        a.setdefault("inferred", False)
     if not dims:
         return
     med_w = statistics.median(d[0] for d in dims)
@@ -6429,6 +6584,7 @@ def _fill_overscale_mark(attrs_list: list[dict]) -> None:
             a["mark"].add("overscale")
             if w < h and med_ratio and (w / h - med_ratio) >= LIST_RATIO_DELTA:
                 a["mark"].add("rotated_double")
+                a["inferred"] = True
         # 封面补位（cover_extra）仅"不在 spine 的多余图"，非尺寸异常，不计入 anom；
         # 尺寸异常的封面（overscale 等）走 mark 判定，自然计入。
         if ("overscale" in a["mark"] or "rotated_double" in a["mark"]
@@ -6442,7 +6598,7 @@ def build_image_attrs(path: Path, double_ratio: float | None) -> dict:
     attrs = {"path": path, "zname": None, "ext": path.suffix.lower().lstrip("."),
              "w": None, "h": None, "mode": None, "depth": None, "size": None,
              "dir": None, "mark": set(), "extra": False, "toc": "", "dropped": None,
-             "frames": 0}
+             "frames": 0, "inferred": False}
     if attrs["ext"] == "jpeg":
         attrs["ext"] = "jpg"
     try:
@@ -6463,6 +6619,7 @@ def build_image_attrs(path: Path, double_ratio: float | None) -> dict:
             attrs["mark"].add("double")
         if w < 200 or h < 200:
             attrs["mark"].add("thumbnail")
+            attrs["inferred"] = True
     mode = image_mode_bytes(head)
     if mode:
         attrs["mode"], attrs["depth"] = mode
@@ -6498,6 +6655,7 @@ def build_cbz_image_attrs(zf, name: str, double_ratio: float | None) -> dict:
             attrs["mark"].add("double")
         if w < 200 or h < 200:
             attrs["mark"].add("thumbnail")
+            attrs["inferred"] = True
     mode = image_mode_bytes(head)
     if mode:
         attrs["mode"], attrs["depth"] = mode
@@ -6743,12 +6901,10 @@ def _fmt_size(n: int | None) -> str:
 
 
 def _mode_str(mode: str | None, depth: int | None) -> str:
-    """模式/色深列显示：RGB 24bit / 灰度 8bit / ?"""
+    """模式/色深列显示（英文规范名 + bit 深，跨语言统一）：index/gray/rgb/graya/rgba。"""
     if not mode:
         return "?"
-    mname = {"gray": t("mode.gray"), "rgb": t("mode.rgb"), "index": t("mode.index"),
-             "graya": t("mode.graya"), "rgba": t("mode.rgba")}
-    return f"{mname.get(mode, mode)} {depth if depth else '?'}bit"
+    return f"{mode} {depth if depth else '?'}bit"
 
 
 def _dir_str(d: str | None) -> str:
@@ -6774,8 +6930,8 @@ def _strip_ansi(s: str) -> str:
 
 
 def _mark_color(key: str) -> int | None:
-    """标记颜色映射：黄=可疑（多余/小图/缩略图/筛选/超大页），红=舍弃，绿=追加，青=中性（封面/跨页/动图）。"""
-    if key in ("extra", "small", "thumbnail", "filter", "overscale", "rotated_double"):
+    """标记颜色映射：黄=可疑（多余/异常/小图/缩略图/筛选/超大页/推断），红=舍弃，绿=追加，青=中性（封面/跨页/动图）。"""
+    if key in ("extra", "anom", "small", "thumbnail", "filter", "overscale", "rotated_double", "inferred"):
         return 33
     if key == "drop":
         return 31
@@ -6790,12 +6946,18 @@ def _mark_strs(attrs: dict, is_cbz: bool, drop_expr, drop_small: float | None) -
     """标记列文本列表（CBZ 模式排除处置标记）。
 
     性质与处置两维独立拼接，全部为独立标记：
-      性质：[多余] 不在 spine 的图（含封面补位）/ [封面] / [小图] / [跨页] / [动图] / [缩略图] / [筛选]（命中过滤表达式）
+      汇总：[异常] 首位恒显（overscale/rotated_double/small/thumbnail/animated/extra 任一）
+      性质：[多余] 不在 spine 的图（含封面补位）/ [封面] / [小图] / [跨页] / [动图] /
+            [缩略图] / [超大页] / [旋转跨页] / [筛选]（命中过滤表达式）
+      推断：[推断] 独立标记（旋转跨页 / 缩略图 / 封面补位等推断性识别，替代原"疑似"前缀）
       处置（仅非 CBZ）：[追加] 保留进 CBZ / [舍弃] 将被丢弃
     有目录的图在目录列展示，此处不重复标 [目录]。TTY 下按标记类型上色。
     """
     keys: list[str] = []
     mark = attrs["mark"]
+    # [异常] 汇总标记恒显于首位
+    if attrs.get("anom"):
+        keys.append("anom")
     # 性质标记
     if attrs.get("extra") or attrs.get("cover_extra"):
         keys.append("extra")          # 封面补位也是不在 spine 的图 → 标多余
@@ -6816,6 +6978,9 @@ def _mark_strs(attrs: dict, is_cbz: bool, drop_expr, drop_small: float | None) -
     d = _dropped_desc(drop_expr, attrs) if drop_expr is not None else None
     if d and "extra" not in d:
         keys.append("filter")
+    # [推断] 独立标记：旋转跨页 / 缩略图 / 封面补位等推断性识别
+    if attrs.get("inferred"):
+        keys.append("inferred")
     # 处置标记（仅非 CBZ；CBZ 为已转换产物无转换态）
     if not is_cbz:
         disp = attrs.get("disposition")
@@ -6922,7 +7087,9 @@ def _render_table(rows: list[dict], has_toc: bool) -> None:
 def _list_ebook(p: Path, args, double_ratio, list_expr) -> None:
     """EPUB/MOBI 单文件清单：复用转换链路（spine→封面→目录对齐→去重）+ 目录标注。"""
     emit(t("list.file_line", name=p.name))
-    drop_expr = args.drop_extra  # 解析后的条件组或 None
+    drop_expr = args.drop  # 统一丢弃表达式（条件组或 None）
+    # 小图比例：清单表达式内 small 条件优先，其次 --drop 表达式
+    small_ratio = extract_small_ratio(list_expr) or extract_small_ratio(drop_expr)
     tempdir = None  # 解包异常时保持 None，避免 finally 里 rmtree 引用未定义变量抛 NameError
     try:
         if p.suffix.lower() == ".epub":
@@ -7006,6 +7173,7 @@ def _list_ebook(p: Path, args, double_ratio, list_expr) -> None:
             a["extra"] = nk in extra_marks
             if cover_extra and nk == norm_path(images[0]):
                 a["cover_extra"] = True
+                a["inferred"] = True
             elif ((cover_guide_path is not None and nk == norm_path(cover_guide_path))
                   or (nk in spine_set and any(k in img.name.lower() for k in COVER_KEYWORDS))):
                 a["cover"] = True
@@ -7014,16 +7182,15 @@ def _list_ebook(p: Path, args, double_ratio, list_expr) -> None:
             a["drop_small_hit"] = False
             a["toc"] = toc_label_for(nk, ncx_map, nav_map, multi_src)
             attrs_list.append(a)
-        _fill_small_mark(attrs_list)
+        _fill_small_mark(attrs_list, small_ratio)
         _fill_overscale_mark(attrs_list)
-        # drop-small 命中判定（中位数口径，标记 [舍弃·小图] 但保留在清单）
-        if args.drop_small is not None:
+        # drop-small 命中判定（面积口径，与 [小图] 标记 / 转换丢弃 / inspect 预览统一）
+        if small_ratio is not None:
             dims = [(a["w"], a["h"]) for a in attrs_list if a.get("w") and a.get("h")]
             if len(dims) >= 2:
-                mw = statistics.median(d[0] for d in dims)
-                mh = statistics.median(d[1] for d in dims)
+                med_area = _median_area(dims)
                 for a in attrs_list:
-                    if a.get("w") and a.get("h") and a["w"] < mw * args.drop_small and a["h"] < mh * args.drop_small:
+                    if a.get("w") and a.get("h") and a["w"] * a["h"] < med_area * small_ratio:
                         a["drop_small_hit"] = True
         # 处置状态固化（append/drop，供 filter/drop/append 筛选原子与标记复用）
         for a in attrs_list:
@@ -7054,7 +7221,7 @@ def _list_ebook(p: Path, args, double_ratio, list_expr) -> None:
         for i, a in enumerate(attrs_list, 1):
             if not _list_filter_pass(a, list_expr):
                 continue
-            marks = _mark_strs(a, False, drop_expr, args.drop_small)
+            marks = _mark_strs(a, False, drop_expr, small_ratio)
             rows.append({
                 "no": i, "name": a["path"].name, "res": f"{a['w']}x{a['h']}" if a.get("w") and a.get("h") else "?",
                 "size": _fmt_size(a["size"]), "mode": _mode_str(a["mode"], a["depth"]),
@@ -7064,7 +7231,7 @@ def _list_ebook(p: Path, args, double_ratio, list_expr) -> None:
             _render_table(rows, has_toc)
         else:
             emit(t("list.no_match"), level="info")
-        _render_stats(attrs_list, has_toc, extra_dropped, args.drop_small)
+        _render_stats(attrs_list, has_toc, extra_dropped, small_ratio)
         # 构建 JSON 文件级记录（--list-images --json / --json-out 输出使用）
         return _build_list_record(str(p), attrs_list, has_toc)
     finally:
@@ -7126,7 +7293,9 @@ def _cbz_opf_cover_zname(zf) -> str | None:
 def _list_cbz(p: Path, args, double_ratio, list_expr) -> None:
     """CBZ 单文件清单：zipfile 直读不落盘；无目录列、无转换态标记。"""
     emit(t("list.file_line", name=p.name))
-    drop_expr = args.drop_extra
+    drop_expr = args.drop  # 统一丢弃表达式（条件组或 None）
+    # 小图比例：清单表达式内 small 条件优先，其次 --drop 表达式
+    small_ratio = extract_small_ratio(list_expr) or extract_small_ratio(drop_expr)
     try:
         with zipfile.ZipFile(str(p)) as zf:
             names = [n for n in zf.namelist()
@@ -7144,21 +7313,20 @@ def _list_cbz(p: Path, args, double_ratio, list_expr) -> None:
                 elif any(k in Path(n).name.lower() for k in COVER_KEYWORDS):
                     a["cover"] = True
                 attrs_list.append(a)
-            _fill_small_mark(attrs_list)
+            _fill_small_mark(attrs_list, small_ratio)
             _fill_overscale_mark(attrs_list)
-            if args.drop_small is not None:
+            if small_ratio is not None:
                 dims = [(a["w"], a["h"]) for a in attrs_list if a.get("w") and a.get("h")]
                 if len(dims) >= 2:
-                    mw = statistics.median(d[0] for d in dims)
-                    mh = statistics.median(d[1] for d in dims)
+                    med_area = _median_area(dims)
                     for a in attrs_list:
-                        if a.get("w") and a.get("h") and a["w"] < mw * args.drop_small and a["h"] < mh * args.drop_small:
+                        if a.get("w") and a.get("h") and a["w"] * a["h"] < med_area * small_ratio:
                             a["drop_small_hit"] = True
             rows = []
             for i, a in enumerate(attrs_list, 1):
                 if not _list_filter_pass(a, list_expr):
                     continue
-                marks = _mark_strs(a, True, drop_expr, args.drop_small)
+                marks = _mark_strs(a, True, drop_expr, small_ratio)
                 rows.append({
                     "no": i, "name": Path(a["zname"]).name,
                     "res": f"{a['w']}x{a['h']}" if a.get("w") and a.get("h") else "?",
@@ -7169,7 +7337,7 @@ def _list_cbz(p: Path, args, double_ratio, list_expr) -> None:
                 _render_table(rows, False)
             else:
                 emit(t("list.no_match"), level="info")
-            _render_stats(attrs_list, False, False, args.drop_small)
+            _render_stats(attrs_list, False, False, small_ratio)
             # 构建 JSON 文件级记录（--list-images --json / --json-out 输出使用）
             return _build_list_record(str(p), attrs_list, False)
     except zipfile.BadZipFile as e:
@@ -7249,9 +7417,19 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="EXTS",
         help=t("help.ext_priority"),
     )
-    # 输入：通用丢弃过滤器（nargs='?' 可选值）；输出：转换时按条件丢弃图片
-    # 取值：无值 → 丢弃全部多余图片；带值 → 格式/分辨率/大小/方向/模式/位深/标记过滤，
-    #       extra 关键字丢弃多余图，逗号=OR、'+'=AND；off/no/0/false → 关闭
+    # 输入：统一丢弃过滤器（--drop，nargs='?' 可选值）；输出：转换时按条件丢弃图片
+    # 取值：无值 → 丢弃全部多余图片；带值 → extra/small[=比例]/格式/条件词过滤
+    #       （逗号=OR、'+'=AND）；off/no/0/false → 关闭。三链路（转换/inspect/清单）同源。
+    parser.add_argument(
+        "--drop",
+        nargs="?",
+        const="extra",
+        default=None,
+        metavar="EXPR",
+        type=parse_drop_expr,
+        help=t("help.drop"),
+    )
+    # 隐藏兼容别名：旧 --drop-extra 并入 --drop（无值/extra 语义不变，带值即过滤表达式）
     parser.add_argument(
         "--drop-extra",
         nargs="?",
@@ -7259,7 +7437,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         metavar="FILTER",
         type=parse_drop_expr,
-        help=t("help.drop_extra"),
+        help=argparse.SUPPRESS,
     )
     # 输入：目标 cbz 已存在时是否强制重生成；输出：覆盖旧 cbz 还是跳过
     parser.add_argument(
@@ -7353,15 +7531,15 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="LEVEL",
         help=t("help.compress"),
     )
-    # 输入：检查模式 sample|all；输出：sample 随机抽查 1 个文件，all 全量检查（均不生成 cbz）
-    # 取值：不传 → sample（抽查 1 个）；all → 全量检查
+    # 输入：检查模式 [MODE][,FILTER]；输出：sample 随机抽查 1 个文件，all 全量检查（均不生成 cbz）
+    # 取值：不传 → sample（抽查 1 个）；MODE=sample|all；后缀 ,FILTER → 命中条件的图片输出数量+清单
     parser.add_argument(
         "--inspect",
         nargs="?",
         const="sample",
         default=None,
-        metavar="MODE",
-        choices=["sample", "all"],
+        metavar="[MODE][,FILTER]",
+        type=parse_inspect_arg,
         help=t("help.inspect"),
     )
     # 隐藏兼容别名：旧 --inspect-all（全量检查）保留，等价 --inspect all
@@ -7387,8 +7565,7 @@ def build_parser() -> argparse.ArgumentParser:
         type=_parse_double_page_arg,
         help=t("help.double_page"),
     )
-    # 输入：丢弃小图（nargs='?'，可选值）；输出：转换时剔除尺寸明显偏小的图片（宽和高均 < 中位数×比例）
-    # 取值：不传/auto → 开启（比例 0.5）；0~1 数值 → 开启并调比例；off/no/0/false → 关闭
+    # 隐藏兼容别名：旧 --drop-small 并入 --drop（映射为 --drop small[=比例]；无值/auto → 0.5）
     parser.add_argument(
         "--drop-small",
         nargs="?",
@@ -7396,7 +7573,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         metavar="VALUE",
         type=_parse_drop_small_arg,
-        help=t("help.drop_small"),
+        help=argparse.SUPPRESS,
     )
     # 输入：列出图片清单（nargs='?' 可选值）；输出：清单+全量统计，不生成 CBZ
     # 取值：无值 → 全量列出；带值 → FILTER 表达式（逗号=OR、'+'=AND，支持格式/分辨率/大小/
@@ -7488,7 +7665,7 @@ def _main() -> None:
     #     报 target required 退出；此兜底为防御性覆盖 target 被解析为 None/空串的边缘场景，
     #     主要防护仍靠四语 help 提示（带值请用 --选项=值 或路径前置）。
     _nargs_opt_defaults = {
-        "drop_extra": None, "min_size": 0, "progress": "off",
+        "drop": None, "drop_extra": None, "min_size": 0, "progress": "off",
         "inspect": None, "double_page": "auto", "drop_small": None,
         "list_images": None, "rename": None, "log": None, "json_out": None,
     }
@@ -7500,7 +7677,16 @@ def _main() -> None:
 
     # 旧 --inspect-all 隐藏别名归一化：等价 --inspect all
     if args.inspect_all:
-        args.inspect = "all"
+        args.inspect = parse_inspect_arg("all")
+
+    # --drop / --drop-extra / --drop-small 合并为统一丢弃表达式（组间 OR）
+    drop_groups = args.drop or []
+    if args.drop_extra is not None:
+        drop_groups = drop_groups + args.drop_extra
+    if args.drop_small is not None:
+        # --drop-small 映射为 small 条件（无值/auto → 默认比例）
+        drop_groups = drop_groups + [[("small", args.drop_small)]]
+    args.drop = drop_groups or None
 
     global _debug_mode, _quiet_mode, _log_path, _short_summary, _compress_level, _json_stdout, _json_out_path, _color_enabled
     _debug_mode = args.debug
@@ -7550,7 +7736,7 @@ def _main() -> None:
         repack_mode(target, args)
         return
 
-    ebook_files = collect_ebook_files(target, include_cbz=args.inspect or args.unpack or args.list_images or bool(args.setinfo) or bool(args.rename), top_only=args.top_only)
+    ebook_files = collect_ebook_files(target, include_cbz=args.inspect is not None or args.unpack or args.list_images or bool(args.setinfo) or bool(args.rename), top_only=args.top_only)
     if not ebook_files:
         emit(t("run.no_ebooks", path=args.target), level="error")
         sys.exit(0)
@@ -7569,7 +7755,7 @@ def _main() -> None:
     # 同名去重：同目录同主文件名（仅扩展名不同）只保留一份
     ebook_files, dedupe_skipped = dedupe_ebook_files(ebook_files, args.ext_priority)
 
-    if precheck_skipped and not args.dry_run and not args.inspect and not args.unpack:
+    if precheck_skipped and not args.dry_run and args.inspect is None and not args.unpack:
         emit(t("run.precheck_header", count=len(precheck_skipped)), level="summary")
         if not _short_summary:
             for mf, reason in precheck_skipped:
@@ -7582,7 +7768,7 @@ def _main() -> None:
         unpack_mode(ebook_files, args)
         mode_used = True
 
-    if args.inspect:
+    if args.inspect is not None:
         inspect_mode(ebook_files, precheck_skipped, args)
         mode_used = True
 
@@ -7733,11 +7919,11 @@ def _main() -> None:
             timed_out, converted = run_with_timeout(
                 ebook_to_cbz, args.timeout,
                 mf, delete_original=args.delete, prefer=args.prefer,
-                drop_extra=args.drop_extra, overwrite=args.overwrite,
+                drop_expr=args.drop, overwrite=args.overwrite,
                 output_dir=output_dir, compress=_compress_level,
                 flatten=args.flatten, input_root=input_root,
                 comicinfo=not args.no_comicinfo, setinfo_args=args.setinfo,
-                double_page=args.double_page, drop_small=args.drop_small,
+                double_page=args.double_page,
                 rename_template=args.rename,
             )
             file_elapsed = time.perf_counter() - file_start
