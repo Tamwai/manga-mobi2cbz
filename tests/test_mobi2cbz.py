@@ -9,7 +9,10 @@
 import importlib.util
 import inspect
 import sys
+import tempfile
+import types
 import unittest
+import zipfile
 from argparse import ArgumentTypeError
 from pathlib import Path
 
@@ -28,9 +31,12 @@ def _load_module():
 mod = _load_module()
 parse_atom = mod._parse_atom
 parse_drop_expr = mod.parse_drop_expr
+parse_inspect_arg = mod.parse_inspect_arg
+extract_small_ratio = mod.extract_small_ratio
 eval_atom = mod.eval_filter_atom
 fill_small = mod._fill_small_mark
 fill_overscale = mod._fill_overscale_mark
+DEFAULT_DROP_SMALL_RATIO = mod.DEFAULT_DROP_SMALL_RATIO
 
 
 def mkattrs(**kw):
@@ -192,10 +198,19 @@ class TestMarkFilling(unittest.TestCase):
         return mkattrs(w=w, h=h, dir=None, **kw)
 
     def test_small(self):
+        # 面积口径：宽×高 < 中位面积×ratio 判小图（ratio=None 不标）
         lst = [self._mkimg(960, 1500), self._mkimg(1000, 1500), self._mkimg(100, 150)]
-        fill_small(lst)
+        fill_small(lst, 0.5)
         self.assertIn("small", lst[2]["mark"])
         self.assertNotIn("small", lst[0]["mark"])
+        # 边长不小但面积小（600x800 宽>中位宽×0.5）→ 面积口径命中
+        lst2 = [self._mkimg(960, 1500), self._mkimg(1000, 1500), self._mkimg(600, 800)]
+        fill_small(lst2, 0.5)
+        self.assertIn("small", lst2[2]["mark"])
+        # ratio=None 不标
+        lst3 = [self._mkimg(960, 1500), self._mkimg(1000, 1500), self._mkimg(100, 150)]
+        fill_small(lst3, None)
+        self.assertNotIn("small", lst3[2]["mark"])
 
     def test_overscale_and_rotated(self):
         # 正常页中位 (960,1500) ratio≈0.64；2000x3000 超大；1486x1920 ratio≈0.77 旋转跨页
@@ -219,18 +234,86 @@ class TestMarkFilling(unittest.TestCase):
         self.assertTrue(lst[3]["anom"])
 
 
+class TestInspectArg(unittest.TestCase):
+    """v3.3.0：--inspect [MODE][,FILTER] 解析 → (mode, filter)。"""
+
+    def test_defaults(self):
+        self.assertEqual(parse_inspect_arg(None), ("sample", None))
+        self.assertEqual(parse_inspect_arg(""), ("sample", None))
+        self.assertEqual(parse_inspect_arg("sample"), ("sample", None))
+        self.assertEqual(parse_inspect_arg("all"), ("all", None))
+
+    def test_with_filter(self):
+        self.assertEqual(parse_inspect_arg("all,small=0.6"),
+                         ("all", [[("small", 0.6)]]))
+        self.assertEqual(parse_inspect_arg("small=0.6"),
+                         ("sample", [[("small", 0.6)]]))
+        self.assertEqual(parse_inspect_arg("sample,封面,超大页"),
+                         ("sample", [[("mark", "cover")], [("mark", "overscale")]]))
+
+    def test_off(self):
+        self.assertEqual(parse_inspect_arg("off"), ("sample", None))
+
+    def test_invalid_token(self):
+        with self.assertRaises(ArgumentTypeError):
+            parse_inspect_arg("all,不存在的词")
+
+
+class TestExtractSmallRatio(unittest.TestCase):
+    """v3.3.0：从丢弃/过滤表达式提取 small 比例（三链路统一口径）。"""
+
+    def test_none(self):
+        self.assertIsNone(extract_small_ratio(None))
+        self.assertIsNone(extract_small_ratio([[("mark", "cover")]]))
+
+    def test_implicit_ratio_uses_default(self):
+        self.assertEqual(extract_small_ratio([[("small", None)]]),
+                         DEFAULT_DROP_SMALL_RATIO)
+
+    def test_explicit_ratio(self):
+        self.assertEqual(extract_small_ratio([[("small", 0.6)]]), 0.6)
+        # 混合组：多组时取首个 small 比例
+        self.assertEqual(extract_small_ratio(
+            [[("small", 0.3)], [("mark", "cover")]]), 0.3)
+
+
+class TestSmallParamAlias(unittest.TestCase):
+    """v3.3.0：small 独立带参条件词，多语言别名可带比例。"""
+
+    def _check(self, alias, expect):
+        got = parse_atom(alias)
+        self.assertIsNotNone(got, f"alias 未解析: {alias!r}")
+        self.assertEqual(got, expect, f"alias={alias!r}")
+
+    def test_small_implicit(self):
+        for a in ("small", "异常小图", "異常小圖", "異常小画像", "極小画像", "[small]"):
+            self._check(a, ("small", None))
+
+    def test_small_with_ratio(self):
+        self._check("small=0.6", ("small", 0.6))
+        self._check("異常小圖=0.5", ("small", 0.5))
+        self._check("異常小画像=0.7", ("small", 0.7))
+        self._check("極小画像=0.8", ("small", 0.8))
+        self._check("small=auto", ("small", None))
+
+    def test_small_invalid(self):
+        for v in ("small=2", "small=0", "small=abc", "small=-0.1"):
+            with self.assertRaises(ArgumentTypeError, msg=f"{v!r} 应报错"):
+                parse_atom(v)
+
+
 class TestSourceGuard(unittest.TestCase):
     """源码护栏：转换链路必须与 list 侧一样回填 small/overscale 标记，防回归。"""
 
     def test_conversion_chain_calls_fill_marks(self):
         src = inspect.getsource(mod.ebook_to_cbz)
-        self.assertIn("_fill_small_mark(attrs_list)", src)
+        self.assertIn("_fill_small_mark(attrs_list, drop_small)", src)
         self.assertIn("_fill_overscale_mark(attrs_list)", src)
 
     def test_list_chains_call_fill_marks(self):
         for fn in (mod._list_ebook, mod._list_cbz):
             src = inspect.getsource(fn)
-            self.assertIn("_fill_small_mark(attrs_list)", src)
+            self.assertIn("_fill_small_mark(attrs_list, small_ratio)", src)
             self.assertIn("_fill_overscale_mark(attrs_list)", src)
 
     def test_eval_atom_has_cover_extra_fix(self):
@@ -238,6 +321,92 @@ class TestSourceGuard(unittest.TestCase):
         src = inspect.getsource(mod.eval_filter_atom)
         self.assertIn("attrs.get(\"cover\") or attrs.get(\"cover_extra\")", src)
         self.assertIn("attrs.get(\"extra\") or attrs.get(\"cover_extra\")", src)
+
+    def test_list_chains_use_unified_drop(self):
+        # v3.3.0：list/inspect/转换三链路统一 --drop 表达式（list 侧 drop_expr=args.drop + small_ratio）
+        for fn in (mod._list_ebook, mod._list_cbz):
+            src = inspect.getsource(fn)
+            self.assertIn("drop_expr = args.drop", src)
+            self.assertIn("extract_small_ratio(list_expr) or extract_small_ratio(drop_expr)", src)
+
+    def test_inspect_ebook_has_filter_hits(self):
+        # v3.3.0：--inspect [MODE][,FILTER] 命中清单字段与 emit 护栏
+        src = inspect.getsource(mod.inspect_ebook)
+        self.assertIn("\"filter_hits\"", src)
+        self.assertIn("filter_expr", src)
+        self.assertIn("t(\"inspect.filter_hits\"", src)
+
+
+
+class TestZipSafety(unittest.TestCase):
+    """_safe_zip_extract 驱动器相对路径（C:foo）与 .. 跳转逃逸防护（v3.1.0 P0 修复护栏）。"""
+
+    def test_drive_relative_and_dotdot_blocked(self):
+        import io
+        from zipfile import ZipFile, ZipInfo
+        buf = io.BytesIO()
+        with ZipFile(buf, "w") as zf:
+            zf.writestr(ZipInfo("C:evil.txt"), b"x")  # 驱动器相对路径
+            zf.writestr("../evil.txt", b"x")          # .. 跳转
+            zf.writestr("ok.txt", b"y")               # 合法条目
+        buf.seek(0)
+        with tempfile.TemporaryDirectory() as td:
+            out = Path(td)
+            with ZipFile(buf) as zf:
+                mod._safe_zip_extract(zf, out)
+            self.assertTrue((out / "ok.txt").exists(), "合法条目应解出")
+            self.assertFalse((out / "evil.txt").exists(), "C:foo 条目不得写出")
+            self.assertFalse((out.parent / "evil.txt").exists(), ".. 跳转不得逃逸")
+
+
+class TestRepack(unittest.TestCase):
+    """--repack 输出名还原 + 已有 ComicInfo 原样带回 + 已存在跳过。"""
+
+    @staticmethod
+    def _args(**kw):
+        base = dict(no_comicinfo=False, setinfo=None, output_dir=None, overwrite=False)
+        base.update(kw)
+        return types.SimpleNamespace(**base)
+
+    def test_repack_restores_name_with_comicinfo(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            src = base / "vol_cbz"
+            src.mkdir()
+            (src / "p1.jpg").write_bytes(b"fake-jpg")
+            (src / "ComicInfo.xml").write_text(
+                "<ComicInfo><Title>Vol 1</Title></ComicInfo>", encoding="utf-8")
+            self.assertTrue(mod.repack_one(src, self._args()))
+            out = base / "vol.cbz"
+            self.assertTrue(out.exists(), "应还原为 vol.cbz")
+            with zipfile.ZipFile(out) as zf:
+                names = zf.namelist()
+                self.assertIn("p1.jpg", names)
+                self.assertIn("ComicInfo.xml", names)
+                self.assertIn("Vol 1", zf.read("ComicInfo.xml").decode("utf-8"),
+                              "已有 ComicInfo 应原样带回")
+
+    def test_repack_skips_existing_without_overwrite(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            src = base / "vol_cbz"
+            src.mkdir()
+            (src / "p1.jpg").write_bytes(b"fake-jpg")
+            existing = base / "vol.cbz"
+            existing.write_bytes(b"OLD")
+            self.assertTrue(mod.repack_one(src, self._args()))
+            self.assertEqual(existing.read_bytes(), b"OLD", "已存在且无 overwrite 应跳过")
+
+
+class TestWindowsPathName(unittest.TestCase):
+    """name 原子对 WindowsPath 文件名不崩溃（v3.1.0 修复护栏）。"""
+
+    def test_name_atom_with_windows_path(self):
+        from pathlib import PureWindowsPath
+        a = mkattrs(path=PureWindowsPath(r"D:\manga\Cover001.jpeg"))
+        self.assertTrue(eval_atom(a, ("name", "cover")), "WindowsPath 应正常匹配纯文件名")
+        self.assertFalse(eval_atom(a, ("name", "zzz")))
+        self.assertFalse(eval_atom(a, ("name", "manga")), "目录路径不应计入 name= 匹配")
 
 
 if __name__ == "__main__":
