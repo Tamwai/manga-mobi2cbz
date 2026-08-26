@@ -137,6 +137,13 @@ manga-mobi2cbz — 将 mobi/azw/azw3/epub 电子书漫画文件批量转换为 c
 要求: Python 3.10+
 
 更新日志:
+    v3.4.0 (2026-08-26)
+        - 新增：退出码语义——0=全部成功（含全部跳过、无失败），
+          1=存在转换失败文件（转换失败/DRM/校验失败等），
+          2=参数用法错误（argparse 内置）
+        - 变更：--inspect --json 精简输出新增 formats 汇总字段
+          （各图片格式数量分布），供脚本化消费
+        - 维护：回归测试增至 56 项（新增退出码语义 / inspect formats / 版本号护栏）
     v3.3.0 (2026-08-25)
         - 新增：--drop [EXPR] 统一丢弃入口——无值 = 丢弃目录外多余图
           （同旧 --drop-extra 无值语义）；格式词 / 条件词 /
@@ -680,7 +687,7 @@ manga-mobi2cbz — 将 mobi/azw/azw3/epub 电子书漫画文件批量转换为 c
           EOCD + testzip 完整性校验、失败清理半成品
 """
 
-__version__ = "3.3.0"
+__version__ = "3.4.0"
 
 SCRIPT_NAME = "manga-mobi2cbz"
 
@@ -4707,6 +4714,15 @@ def parse_nav_toc(base_dir: Path) -> tuple[int, list[str]]:
 
 
     # 输入：电子书文件路径、最小字节数过滤与 prefer；输出：状态字符串 ok/invalid/noimg/drm/fail（供汇总计数）
+def _inspect_img_summary(fmt_counter: dict) -> dict:
+    """inspect 图片级汇总（JSON 输出用）：格式分布。
+
+    与人类可读输出的 fmt_stats 同源同口径，供 --json 在精简行携带，
+    避免 JSON 丢失人类可见的格式分布信息。
+    """
+    return {"formats": dict(fmt_counter) if fmt_counter else None}
+
+
 def inspect_ebook(p: Path, min_bytes: int, prefer: str = "mobi8", setinfo_args: list | None = None, drop_small: float | None = None, filter_expr: list | None = None, double_ratio: float | None = None) -> tuple:
     """检查单个电子书内部信息（--inspect 模式核心）。
 
@@ -4745,6 +4761,7 @@ def inspect_ebook(p: Path, min_bytes: int, prefer: str = "mobi8", setinfo_args: 
         "spine": None,
         "toc": None,
         "filter_hits": None,
+        "formats": None,
     }
 
     # CBZ 分支：纯 zipfile 读取，不解压
@@ -4838,6 +4855,7 @@ def inspect_ebook(p: Path, min_bytes: int, prefer: str = "mobi8", setinfo_args: 
                     emit(t("inspect.adv_jpeg"))
                 else:
                     emit(t("inspect.adv_mixed"))
+                info.update(_inspect_img_summary(fmt_counter))
 
                 # --inspect FILTER：命中条件的图片输出数量+清单（CBZ zip 内直读，不落盘）
                 if filter_expr:
@@ -5143,6 +5161,7 @@ def inspect_ebook(p: Path, min_bytes: int, prefer: str = "mobi8", setinfo_args: 
             emit(t("inspect.adv_jpeg"))
         else:
             emit(t("inspect.adv_mixed"))
+        info.update(_inspect_img_summary(fmt_counter))
 
         # ComicInfo.xml 预览块（inspect 不写文件，仅展示即将生成的元数据）
         opf_meta = read_opf_metadata(opf_path) if opf_path else {}
@@ -5918,7 +5937,7 @@ def _emit_inspect_json(records: list, total_elapsed: float) -> None:
     精简字段：source/status/series/number/volume/series_source/number_source/volume_source/page_count/drm；
     全量字段在精简基础上追加 spine/toc。status 值域：ok/drm/invalid/noimg/timeout/fail。
     """
-    base_fields = ("source", "status", "series", "number", "volume", "series_source", "number_source", "volume_source", "page_count", "drm", "filter_hits")
+    base_fields = ("source", "status", "series", "number", "volume", "series_source", "number_source", "volume_source", "page_count", "drm", "filter_hits", "formats")
     summary = {
         "total": len(records),
         "ok": sum(1 for r in records if r.get("status") == "ok"),
@@ -8011,6 +8030,9 @@ def _main() -> None:
     emit_json(json_files, success=success, skipped=len(skipped_files),
               failed=len(failed_files), interrupted=interrupted,
               total_elapsed=total_elapsed)
+
+    # 退出码语义：0=全部成功（含全部跳过，无失败）；1=存在转换失败文件（失败/DRM/校验失败）
+    sys.exit(1 if failed_files else 0)
 
 
 if __name__ == "__main__":
