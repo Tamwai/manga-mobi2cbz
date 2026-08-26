@@ -8,6 +8,7 @@
 """
 import importlib.util
 import inspect
+import subprocess
 import sys
 import tempfile
 import types
@@ -47,6 +48,51 @@ def mkattrs(**kw):
          "filter_hit": False, "disposition": None, "anom": False}
     d.update(kw)
     return d
+
+
+def _make_mini_epub(d: Path, broken: bool = False) -> Path:
+    """构造自包含最小 epub（1 张 1x1 PNG，无外部依赖）；broken=True 截断为损坏样本。
+
+    broken 样本保留 PK 魔数头部、截断正文：可通过 precheck（只查魔数），
+    但解包必然失败，从而计入转换失败（failed_files），用于退出码 1 场景。
+    """
+    png = bytes.fromhex(
+        "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489"
+        "0000000d4944415478da63fcffff3f030005fe02fea73d5d900000000049454e44ae426082")
+    opf = (
+        '<?xml version="1.0"?>\n'
+        '<package xmlns="http://www.idpf.org/2007/opf" version="2.0" unique-identifier="uid">\n'
+        ' <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">\n'
+        '  <dc:title>Mini Test</dc:title>\n'
+        '  <dc:language>zh</dc:language>\n'
+        ' </metadata>\n'
+        ' <manifest>\n'
+        '  <item id="p1" href="p1.xhtml" media-type="application/xhtml+xml"/>\n'
+        '  <item id="img" href="img.png" media-type="image/png"/>\n'
+        ' </manifest>\n'
+        ' <spine><itemref idref="p1"/></spine>\n'
+        '</package>')
+    xh = ('<?xml version="1.0" encoding="utf-8"?>\n'
+          '<html xmlns="http://www.w3.org/1999/xhtml"><head><title>t</title></head>'
+          '<body><p>hi</p><img src="img.png"/></body></html>')
+    ep = d / ("broken.epub" if broken else "mini.epub")
+    with zipfile.ZipFile(ep, "w") as z:
+        z.writestr("mimetype", "application/epub+zip")
+        z.writestr("content.opf", opf)
+        z.writestr("p1.xhtml", xh)
+        z.writestr("img.png", png)
+    if broken:
+        head = ep.read_bytes()[:256]
+        ep.write_bytes(head)
+    return ep
+
+
+def _run_cli(*args) -> subprocess.CompletedProcess:
+    """子进程运行主脚本，返回 CompletedProcess（UTF-8 解码防中文崩溃）。"""
+    return subprocess.run(
+        [sys.executable, str(MAIN), *args],
+        capture_output=True, encoding="utf-8", errors="replace",
+    )
 
 
 class TestMultiLangAlias(unittest.TestCase):
@@ -407,6 +453,70 @@ class TestWindowsPathName(unittest.TestCase):
         self.assertTrue(eval_atom(a, ("name", "cover")), "WindowsPath 应正常匹配纯文件名")
         self.assertFalse(eval_atom(a, ("name", "zzz")))
         self.assertFalse(eval_atom(a, ("name", "manga")), "目录路径不应计入 name= 匹配")
+
+
+class TestExitCodeSemantics(unittest.TestCase):
+    """v3.4.0 退出码语义：0=全部成功、1=有失败文件、2=参数用法错误。"""
+
+    def test_bad_flag_exit_2(self):
+        self.assertEqual(_run_cli("--no-such-flag").returncode, 2, "参数用法错误应退出 2")
+
+    def test_missing_path_exit_1(self):
+        self.assertEqual(_run_cli(str(MAIN.parent / "no_such_dir_xyz")).returncode, 1)
+
+    def test_broken_convert_exit_1(self):
+        with tempfile.TemporaryDirectory() as td:
+            d = Path(td)
+            ep = _make_mini_epub(d, broken=True)
+            r = _run_cli("--output-dir", str(d / "out"), str(ep))
+            self.assertEqual(r.returncode, 1, "转换失败应退出 1")
+
+    def test_success_convert_exit_0(self):
+        with tempfile.TemporaryDirectory() as td:
+            d = Path(td)
+            ep = _make_mini_epub(d, broken=False)
+            r = _run_cli("--output-dir", str(d / "out"), str(ep))
+            self.assertEqual(r.returncode, 0, "全部成功应退出 0")
+
+
+class TestInspectJsonFormats(unittest.TestCase):
+    """v3.4.0 --inspect --json formats 汇总字段（源码护栏 + 子进程实测）。"""
+
+    def test_summary_helper_keeps_only_formats(self):
+        helper = mod._inspect_img_summary
+        self.assertEqual(list(inspect.signature(helper).parameters), ["fmt_counter"])
+        self.assertEqual(set(helper({"jpeg": 42}).keys()), {"formats"})
+        self.assertEqual(helper({"jpeg": 42})["formats"], {"jpeg": 42})
+        self.assertIsNone(helper({})["formats"], "空计数时 formats 应为 null")
+
+    def test_base_fields_include_formats(self):
+        src = inspect.getsource(mod._emit_inspect_json)
+        self.assertIn('"filter_hits", "formats")', src, "精简行 base_fields 应含 formats")
+
+    def test_summary_wired_to_both_branches(self):
+        src = inspect.getsource(mod)
+        self.assertGreaterEqual(
+            src.count("_inspect_img_summary("), 3,
+            "helper 定义 + CBZ 分支 + EPUB 分支均应出现 _inspect_img_summary 调用")
+
+    def test_inspect_json_stdout_has_formats(self):
+        with tempfile.TemporaryDirectory() as td:
+            d = Path(td)
+            ep = _make_mini_epub(d, broken=False)
+            r = _run_cli("--inspect", "all", "--json", str(ep))
+            self.assertEqual(r.returncode, 0)
+            self.assertIn('"formats"', r.stdout, "inspect --json 精简行应带 formats")
+
+
+class TestVersionGuard(unittest.TestCase):
+    """v3.4.0 版本号同步护栏：__version__ / docstring 更新日志。"""
+
+    def test_version_is_3_4_0(self):
+        self.assertEqual(mod.__version__, "3.4.0")
+
+    def test_docstring_changelog_has_3_4_0(self):
+        self.assertIn("v3.4.0", mod.__doc__)
+        self.assertIn("退出码", mod.__doc__)
 
 
 if __name__ == "__main__":
