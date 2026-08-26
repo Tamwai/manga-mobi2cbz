@@ -290,6 +290,20 @@ A: Yes. Since v2.4.0 the accepted input extensions are `.mobi` / `.azw` / `.azw3
 
 ## Changelog
 
+### [3.4.0] - 2026-08-26
+
+#### New features
+
+- **Exit code semantics** — `0` = all succeeded (including all-skipped with no failures); `1` = at least one file failed conversion (conversion failure / DRM / validation failure); `2` = command-line usage error (built-in argparse), for scriptable success/failure detection
+  
+  #### Changes
+  
+- `--inspect --json` compact stdout now includes a `formats` summary field (per-format image count distribution)
+  
+  #### Maintenance
+  
+- Regression tests increased to 56 cases (new: exit-code semantics / inspect formats / version guard)
+
 ### [3.3.0] - 2026-08-25
 
 #### New features
