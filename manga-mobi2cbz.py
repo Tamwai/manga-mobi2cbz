@@ -53,10 +53,10 @@ manga-mobi2cbz — 将 mobi/azw/azw3/epub 电子书漫画文件批量转换为 c
     # 检查全部电子书内部信息（--inspect all 等价旧 --inspect-all）
     python manga-mobi2cbz.py "D:\\ComicsLibrary" --inspect all
 
-    # 覆盖/新增 ComicInfo 字段（可多次；VALUE 支持 %series/%number/%title/%writer/%publisher/%date/%language/%%description/%filename/%leftN/%rightN/%%subN_M）
+    # 覆盖/新增 ComicInfo 字段（可多次；VALUE 支持 %series/%number/%title/%writer/%publisher/%date/%language/%description/%filename/%leftN/%rightN/%subN_M）
     python manga-mobi2cbz.py "D:\\ComicsLibrary\\Vol.01.mobi" --setinfo "Series=Sample Series" --setinfo "Number=%number" --setinfo "Summary=hello, world"
 
-    # 解包查看：只解压不转换，输出到源文件所在目录的同名子目录
+    # 解包查看：只解压不转换，输出到源文件所在目录的「源名_扩展名」子目录
     python manga-mobi2cbz.py "D:\\ComicsLibrary\\Vol.01.mobi" --unpack
 
     # 重新打包：把已解包的 CBZ 解包目录（目录名以 .cbz 结尾）打包回 CBZ
@@ -111,18 +111,19 @@ manga-mobi2cbz — 将 mobi/azw/azw3/epub 电子书漫画文件批量转换为 c
     --setinfo FIELD=VALUE 设置 ComicInfo 字段（可多次，后出现覆盖先出现；
                      优先级最高，覆盖自动推断/元数据来源）。VALUE 支持
                      固定值或占位符：%series/%number/%title/%writer/%publisher/
-                     %date/%language/%%description/%filename/%leftN/%rightN/
-                     %%subN_M（%leftN=文件名前 N 字符，
-                     %rightN=后 N 字符，%%subN_M=第 N 字符起 M 个，1-based；
+                     %date/%language/%description/%filename/%leftN/%rightN/
+                     %subN_M（%leftN=文件名前 N 字符，
+                     %rightN=后 N 字符，%subN_M=第 N 字符起 M 个，1-based；
                      占位符对应值缺失时该字段不写入）。智能拆分：
                      仅当逗号后紧跟"字段名="时才拆分，否则逗号视为值的
                      一部分（如 Summary=hello, world 不拆分）。Manga 默认
                      不写入，需显式 --setinfo Manga=Unknown|No|Yes|YesAndRightToLeft
     --unpack        解包查看：只解压不转换，输出到各源文件所在目录的
-                     同名子目录（已存在自动加序号避让）；目录名统一为
-                     源名_扩展名（如 vol.cbz → vol_cbz/），与源文件不撞名，
-                     _cbz 结尾的解包目录可直接被 --repack 重新打包；
-                     mobi 走 extract 保留完整结构，cbz 走 extractall
+                     「源名_扩展名」子目录（如 vol.cbz → vol_cbz/、
+                     vol.mobi → vol_mobi/），与源文件不撞名，已存在时
+                     再以 (N) 序号避让；_cbz 结尾的解包目录可直接被
+                     --repack 重新打包；mobi 走 extract 保留完整结构，
+                     cbz 走 extractall
     --repack       重新打包：把已解包的 CBZ 解包目录（目录名以 _cbz
                      结尾）重新打包回 CBZ，输出名还原为源文件
                      （vol_cbz → vol.cbz）；可配合 --setinfo 修改元数据，
@@ -137,6 +138,26 @@ manga-mobi2cbz — 将 mobi/azw/azw3/epub 电子书漫画文件批量转换为 c
 要求: Python 3.10+
 
 更新日志:
+    v3.5.0 (2026-08-28)
+        - 新增：--drop / --inspect 过滤器支持 - 前缀排除（负向条件，
+          与逗号 OR / 加号 AND 由同一表达式引擎解析）
+        - 变更：退出码语义细化——目标路径不存在退出 2；
+          --repack 无可用解包目录 / 无 _cbz 目录退出 2 且计入失败 1；
+          --unpack 解包失败退出 1；--inspect 异常退出 1；
+          转换中 Ctrl+C 退出 130（128+SIGINT）
+        - 新增：--repack 模式忽略 --rename 时给出提示
+        - 修复：--drop-small 无效值错误文案矛盾（同时提示 off/no/0）
+          改为"支持 auto 或数值(0~1)"
+        - 修复：--setinfo 帮助与文件头示例中占位符 %% 误写为单 %
+        - 修复：--unpack 目录撞名避让说明措辞（默认 源名_扩展名，
+          撞名时以 (N) 序号避让）
+        - 修复：--inspect 帮助补充 FILTER 语法说明（与 --drop 相同：
+          逗号=OR、加号=AND、- 前缀排除）
+        - 修复：四语 help.setinfo / help.rename 帮助文本中占位符
+          %% 误写统一为单 %
+        - 新增：--repack plan 每行标注推断输出文件名
+          （解包目录名 → 输出.cbz），来源一目了然
+        - 维护：回归测试退出码预期更新（目标不存在 1→2）
     v3.4.0 (2026-08-26)
         - 新增：退出码语义——0=全部成功（含全部跳过、无失败），
           1=存在转换失败文件（转换失败/DRM/校验失败等），
@@ -193,8 +214,8 @@ manga-mobi2cbz — 将 mobi/azw/azw3/epub 电子书漫画文件批量转换为 c
           --setinfo 叠加覆盖，--no-comicinfo 关闭；输出名还原为源文件
           （vol_cbz → vol.cbz），已存在默认跳过，--overwrite 覆盖）
         - 变更：--unpack 解包目录名统一为 源名_扩展名（vol.cbz →
-          vol_cbz/，vol.mobi → vol_mobi/），与源文件不撞名，不再出现
-          序号避让；解包/重新打包均先输出处理清单再执行
+          vol_cbz/，vol.mobi → vol_mobi/），与源文件不撞名，已存在时
+          再以 (N) 序号避让；解包/重新打包均先输出处理清单再执行
         - 修复：_safe_zip_extract 补驱动器相对路径（C:foo）逃逸防护
         - 修复：cover/extra 筛选词未覆盖封面补位图（cover_extra），
           封面筛选此前命中 0；封面补位不再计入异常明细
@@ -277,7 +298,7 @@ manga-mobi2cbz — 将 mobi/azw/azw3/epub 电子书漫画文件批量转换为 c
           默认模板（系列名+自动标记前缀，前缀按类型自动选：整卷[Vol.x]/单话
           [Ch.x]/卷+章[Vol.x][Ch.x]/无类型[x]，连话話005-006 标 [Ch.5-6]）；
           占位符 %series/%number/%volume/%title/%writer/%publisher/%date/
-          %language/%%description/%filename/%leftN/%rightN/%%subN_M 及
+          %language/%description/%filename/%leftN/%rightN/%subN_M 及
           %03number 补零；来源优先级：文件名推断 > 文件自带元数据
           (OPF/ComicInfo.xml) 兜底，setinfo 不参与；输入为已有 .cbz 时进入
           独立重命名模式（只改名不转换，可与其他模式叠加）；建议配合
@@ -687,7 +708,7 @@ manga-mobi2cbz — 将 mobi/azw/azw3/epub 电子书漫画文件批量转换为 c
           EOCD + testzip 完整性校验、失败清理半成品
 """
 
-__version__ = "3.4.0"
+__version__ = "3.5.0"
 
 SCRIPT_NAME = "manga-mobi2cbz"
 
@@ -755,20 +776,20 @@ LANGUAGES = {
         "warn.disk_space": "磁盘空间不足：{label} {path} 剩余 {free_mb} MB < 估算需要 {need_mb} MB",
         "help.short_summary": "精简汇总：成功/跳过文件只显示数量不列出路径，失败文件始终全路径列出",
         "help.compress": "zip 压缩级别 0-9：0=不压缩（默认，图片本身已压缩），1-9=deflate 压缩（PNG 源有收益，级别越高越小但越慢）",
-        "help.inspect": "检查模式：sample 随机抽查 1 个（默认），all 全量检查；可附过滤器 [MODE][,FILTER]（如 all,small=0.6）输出命中条件图的数量+文件名清单；只解包读取内部信息（元数据/结构/图片/分辨率/DRM），不生成 CBZ，结束自动清理临时目录；带值请用 --选项=值 写法，或把目标路径放在本选项之前",
+        "help.inspect": "检查模式：sample 随机抽查 1 个（默认），all 全量检查；可附过滤器 [MODE][,FILTER]（如 all,small=0.6）输出命中条件图的数量+文件名清单，FILTER 语法与 --drop 相同（逗号=OR、加号=AND、- 前缀排除）；只解包读取内部信息（元数据/结构/图片/分辨率/DRM），不生成 CBZ，结束自动清理临时目录；带值请用 --选项=值 写法，或把目标路径放在本选项之前",
         "help.inspect_all": "检查全部电子书（等价 --inspect all，兼容旧命令）",
         "help.no_comicinfo": "不生成 ComicInfo.xml（默认生成：向 CBZ 根目录写入漫画元数据）",
         "help.double_page": "双页检测：不传/auto 开启（阈值 2.0）；数值调阈值；off/no/0 关闭（开启时写入逐页 DoublePage 标记，不写 Manga 声明；如需 Manga 请用 --setinfo Manga=）；带值请用 --选项=值 写法，或把目标路径放在本选项之前",
         "error.double_page_invalid": "无效的 --double-page 值 '{value}'：支持 auto/数值/off/no/0",
         "help.drop_small": "丢弃小图（隐藏别名，已并入 --drop small）：转换时剔除尺寸明显偏小的图片（面积 宽×高 < 面积中位数×比例 判为小图；不传/auto=0.5，可传 0~1 数值调比例，off/no/0 关闭）；丢弃后 PageCount 按实际剩余图数重算；带值请用 --选项=值 写法，或把目标路径放在本选项之前",
-        "error.drop_small_invalid": "无效的 --drop-small 值 '{value}'：支持 auto/数值(0~1)/off/no/0",
+        "error.drop_small_invalid": "无效的 --drop-small 值 '{value}'：支持 auto 或数值(0~1)",
         "convert.drop_small": "  [清理] 丢弃小图 {count} 张{names}",
         "run.drop_small_total": "丢弃小图合计: {count} 张",
         "inspect.drop_small_preview": "  [提示] 图片中 {count} 张为小图（开启 --drop small 时将被丢弃）",
         "inspect.filter_hits": "  [命中] {count} 张图片命中过滤条件（--inspect 过滤器）",
         "inspect.filter_no_hit": "  [无命中] 没有图片命中过滤条件",
-        "help.setinfo": "设置 ComicInfo 字段（可多次，格式 FIELD=VALUE；VALUE 支持 %%series/%%number/%%title/%%writer/%%publisher/%%date/%%language/%%description/%%filename/%%leftN/%%rightN/%%subN_M（%%subN_M=第 N 字符起 M 个，1-based）；逗号后紧跟字段名=才拆分，值内含 Key= 结构请用多次 --setinfo 传入；Manga 取值限 Unknown/No/Yes/YesAndRightToLeft，默认不写；--setinfo 开启时输入中的已有 .cbz 会就地修改其 ComicInfo.xml）",
-"help.rename": "重命名输出 CBZ 文件名（可选模板，默认关闭）。--rename 无值=默认模板（系列名+自动标记前缀）；标记前缀按类型自动选：整卷[Vol.x]/单话[Ch.x]/卷+章[Vol.x][Ch.x]/无类型[x]，连话（話005-006）标 [Ch.5-6]；占位符 %%series/%%number/%%volume/%%title/%%writer/%%publisher/%%date/%%language/%%description/%%filename/%%leftN/%%rightN/%%subN_M 及 %%03number 补零；来源优先级：文件名推断 > 文件自带元数据(OPF/ComicInfo.xml) 兜底，setinfo 不参与；%%description 不建议用于文件名（内容可能过长），确需使用可配合 %%subN_M 截取片段；建议配合 --dry-run 先预览；带值请用 --选项=值 写法，或把目标路径放在本选项之前",
+        "help.setinfo": "设置 ComicInfo 字段（可多次，格式 FIELD=VALUE；VALUE 支持 %series/%number/%title/%writer/%publisher/%date/%language/%description/%filename/%leftN/%rightN/%subN_M（%subN_M=第 N 字符起 M 个，1-based）；逗号后紧跟字段名=才拆分，值内含 Key= 结构请用多次 --setinfo 传入；Manga 取值限 Unknown/No/Yes/YesAndRightToLeft，默认不写；--setinfo 开启时输入中的已有 .cbz 会就地修改其 ComicInfo.xml）",
+"help.rename": "重命名输出 CBZ 文件名（可选模板，默认关闭）。--rename 无值=默认模板（系列名+自动标记前缀）；标记前缀按类型自动选：整卷[Vol.x]/单话[Ch.x]/卷+章[Vol.x][Ch.x]/无类型[x]，连话（話005-006）标 [Ch.5-6]；占位符 %series/%number/%volume/%title/%writer/%publisher/%date/%language/%description/%filename/%leftN/%rightN/%subN_M 及 %03number 补零；来源优先级：文件名推断 > 文件自带元数据(OPF/ComicInfo.xml) 兜底，setinfo 不参与；%description 不建议用于文件名（内容可能过长），确需使用可配合 %subN_M 截取片段；建议配合 --dry-run 先预览；带值请用 --选项=值 写法，或把目标路径放在本选项之前",
         "comicinfo.generating": "生成 ComicInfo.xml",
         "comicinfo.created": "已写入 ComicInfo.xml",
         "comicinfo.disabled": "ComicInfo.xml 已禁用（--no-comicinfo）",
@@ -793,6 +814,7 @@ LANGUAGES = {
         "repack.fail": "[失败] {dir} 重新打包失败: {err}",
         "repack.done_summary": "重新打包完成：成功 {ok} 个，失败 {fail} 个",
         "repack.plan": "将重新打包 {count} 个解包目录：",
+    "repack.rename_ignored": "提示：--repack 模式不适用 --rename，已忽略（输出文件名由解包目录名推断）",
         "unpack.plan": "将解包 {count} 个文件：",
         "unpack.done_summary": "解包完成：成功 {ok} 个，失败 {fail} 个",
         "error.repack_need_dir": "repack 模式仅接受目录（_cbz 结尾的解包目录，或含 *_cbz 解包目录的父目录）: {path}",
@@ -1079,20 +1101,20 @@ LANGUAGES = {
         "warn.disk_space": "磁碟空間不足：{label} {path} 剩餘 {free_mb} MB < 估算需要 {need_mb} MB",
         "help.short_summary": "精簡彙總：成功/跳過檔案只顯示數量不列出路徑，失敗檔案始終全路徑列出",
         "help.compress": "zip 壓縮級別 0-9：0=不壓縮（預設，圖片本身已壓縮），1-9=deflate 壓縮（PNG 來源有收益，級別越高越小但越慢）",
-        "help.inspect": "檢查模式：sample 隨機抽查 1 個（預設），all 全量檢查；可附過濾器 [MODE][,FILTER]（如 all,small=0.6）輸出命中條件圖的數量+檔名清單；只解包讀取內部資訊（中繼資料/結構/圖片/解析度/DRM），不生成 CBZ，結束自動清理臨時目錄；帶值請用 --選項=值 寫法，或將目標路徑放在本選項之前",
+        "help.inspect": "檢查模式：sample 隨機抽查 1 個（預設），all 全量檢查；可附過濾器 [MODE][,FILTER]（如 all,small=0.6）輸出命中條件圖的數量+檔名清單，FILTER 語法與 --drop 相同（逗號=OR、加號=AND、- 前綴排除）；只解包讀取內部資訊（中繼資料/結構/圖片/解析度/DRM），不生成 CBZ，結束自動清理臨時目錄；帶值請用 --選項=值 寫法，或將目標路徑放在本選項之前",
         "help.inspect_all": "檢查全部電子書（等價 --inspect all，相容舊命令）",
         "help.no_comicinfo": "不生成 ComicInfo.xml（預設生成：向 CBZ 根目錄寫入漫畫元資料）",
         "help.double_page": "雙頁偵測：不傳/auto 開啟（閾值 2.0）；數值調閾值；off/no/0 關閉（開啟時寫入逐頁 DoublePage 標記，不寫 Manga 宣告；如需 Manga 請用 --setinfo Manga=）；帶值請用 --選項=值 寫法，或將目標路徑放在本選項之前",
         "error.double_page_invalid": "無效的 --double-page 值 '{value}'：支援 auto/數值/off/no/0",
         "help.drop_small": "丟棄小圖（隱藏別名，已併入 --drop small）：轉換時剔除尺寸明顯偏小的圖片（面積 寬×高 < 面積中位數×比例 判為小圖；不傳/auto=0.5，可傳 0~1 數值調比例，off/no/0 關閉）；丟棄後 PageCount 按實際剩餘圖數重算；帶值請用 --選項=值 寫法，或將目標路徑放在本選項之前",
-        "error.drop_small_invalid": "無效的 --drop-small 值 '{value}'：支援 auto/數值(0~1)/off/no/0",
+        "error.drop_small_invalid": "無效的 --drop-small 值 '{value}'：支援 auto 或數值(0~1)",
         "convert.drop_small": "  [清理] 丟棄小圖 {count} 張{names}",
         "run.drop_small_total": "丟棄小圖合計: {count} 張",
         "inspect.drop_small_preview": "  [提示] 圖片中 {count} 張為小圖（開啟 --drop small 時將被丟棄）",
         "inspect.filter_hits": "  [命中] {count} 張圖片命中過濾條件（--inspect 過濾器）",
         "inspect.filter_no_hit": "  [無命中] 沒有圖片命中過濾條件",
-        "help.setinfo": "設定 ComicInfo 欄位（可多次，格式 FIELD=VALUE；VALUE 支援 %%series/%%number/%%title/%%writer/%%publisher/%%date/%%language/%%description/%%filename/%%leftN/%%rightN/%%subN_M（%%subN_M=第 N 字元起 M 個，1-based）；逗號後緊跟欄位名=才拆分，值內含 Key= 結構請用多次 --setinfo 傳入；Manga 取值限 Unknown/No/Yes/YesAndRightToLeft，預設不寫；--setinfo 開啟時輸入中的既有 .cbz 會就地修改其 ComicInfo.xml）",
-"help.rename": "重新命名輸出 CBZ 檔名（可選範本，預設關閉）。--rename 無值=預設範本（系列名+自動標記前綴）；標記前綴依類型自動選：整卷[Vol.x]/單話[Ch.x]/卷+章[Vol.x][Ch.x]/無類型[x]，連話（話005-006）標 [Ch.5-6]；佔位符 %%series/%%number/%%volume/%%title/%%writer/%%publisher/%%date/%%language/%%description/%%filename/%%leftN/%%rightN/%%subN_M 及 %%03number 補零；來源優先序：檔名推斷 > 檔案中繼資料(OPF/ComicInfo.xml) 兜底，setinfo 不參與；%%description 不建議用於檔案名稱（內容可能過長），確需使用可搭配 %%subN_M 截取片段；建議搭配 --dry-run 先預覽；帶值請用 --選項=值 寫法，或將目標路徑放在本選項之前",
+        "help.setinfo": "設定 ComicInfo 欄位（可多次，格式 FIELD=VALUE；VALUE 支援 %series/%number/%title/%writer/%publisher/%date/%language/%description/%filename/%leftN/%rightN/%subN_M（%subN_M=第 N 字元起 M 個，1-based）；逗號後緊跟欄位名=才拆分，值內含 Key= 結構請用多次 --setinfo 傳入；Manga 取值限 Unknown/No/Yes/YesAndRightToLeft，預設不寫；--setinfo 開啟時輸入中的既有 .cbz 會就地修改其 ComicInfo.xml）",
+"help.rename": "重新命名輸出 CBZ 檔名（可選範本，預設關閉）。--rename 無值=預設範本（系列名+自動標記前綴）；標記前綴依類型自動選：整卷[Vol.x]/單話[Ch.x]/卷+章[Vol.x][Ch.x]/無類型[x]，連話（話005-006）標 [Ch.5-6]；佔位符 %series/%number/%volume/%title/%writer/%publisher/%date/%language/%description/%filename/%leftN/%rightN/%subN_M 及 %03number 補零；來源優先序：檔名推斷 > 檔案中繼資料(OPF/ComicInfo.xml) 兜底，setinfo 不參與；%description 不建議用於檔案名稱（內容可能過長），確需使用可搭配 %subN_M 截取片段；建議搭配 --dry-run 先預覽；帶值請用 --選項=值 寫法，或將目標路徑放在本選項之前",
         "comicinfo.generating": "生成 ComicInfo.xml",
         "comicinfo.created": "已寫入 ComicInfo.xml",
         "comicinfo.disabled": "ComicInfo.xml 已停用（--no-comicinfo）",
@@ -1117,6 +1139,7 @@ LANGUAGES = {
         "repack.fail": "[失敗] {dir} 重新打包失敗: {err}",
         "repack.done_summary": "重新打包完成：成功 {ok} 個，失敗 {fail} 個",
         "repack.plan": "將重新打包 {count} 個解包目錄：",
+    "repack.rename_ignored": "提示：--repack 模式不適用 --rename，已忽略（輸出檔名由解包目錄名推斷）",
         "unpack.plan": "將解包 {count} 個檔案：",
         "unpack.done_summary": "解包完成：成功 {ok} 個，失敗 {fail} 個",
         "error.repack_need_dir": "repack 模式僅接受目錄（_cbz 結尾的解包目錄，或含 *_cbz 解包目錄的父目錄）: {path}",
@@ -1403,20 +1426,20 @@ LANGUAGES = {
         "warn.disk_space": "Disk space low: {label} {path} free {free_mb} MB < estimated {need_mb} MB needed",
         "help.short_summary": "Compact summary: list counts instead of paths for succeeded/skipped files; failed files always show full paths",
         "help.compress": "zip compression level 0-9: 0=none (default, images already compressed), 1-9=deflate (helps for PNG sources, higher is smaller but slower)",
-        "help.inspect": "Inspect mode: sample randomly inspects 1 ebook (default), all inspects every file; optional filter [MODE][,FILTER] (e.g. all,small=0.6) prints the count + filename list of matched images; unpack only to read internal info (metadata/structure/images/resolution/DRM) without generating CBZ, then auto-clean temp dirs; when passing a value use --option=value, or place the target path before this option",
+        "help.inspect": "Inspect mode: sample randomly inspects 1 ebook (default), all inspects every file; optional filter [MODE][,FILTER] (e.g. all,small=0.6) prints the count + filename list of matched images; FILTER syntax is the same as --drop (comma=OR, plus=AND, - prefix excludes); unpack only to read internal info (metadata/structure/images/resolution/DRM) without generating CBZ, then auto-clean temp dirs; when passing a value use --option=value, or place the target path before this option",
         "help.inspect_all": "Inspect all ebooks (equivalent to --inspect all; kept for old-command compatibility)",
         "help.no_comicinfo": "Do not generate ComicInfo.xml (default: write comic metadata into CBZ root)",
         "help.double_page": "Double-page detection: no value/auto enable (ratio 2.0); a number sets ratio; off/no/0 disable (when enabled, writes per-page DoublePage marks but no Manga element; use --setinfo Manga= for Manga); when passing a value use --option=value, or place the target path before this option",
         "error.double_page_invalid": "Invalid --double-page value '{value}': use auto, a number, or off/no/0",
         "help.drop_small": "Drop small images (hidden alias, merged into --drop small): exclude images clearly smaller than others during conversion (an image is small if its area width x height is below median area x ratio; no value/auto = 0.5, a 0~1 number sets ratio, off/no/0 disables). PageCount is recalculated after dropping; when passing a value use --option=value, or place the target path before this option",
-        "error.drop_small_invalid": "Invalid --drop-small value '{value}': use auto, a number (0~1), or off/no/0",
+        "error.drop_small_invalid": "Invalid --drop-small value '{value}': use auto or a number (0~1)",
         "convert.drop_small": "  [Clean] Dropped {count} small image(s){names}",
         "run.drop_small_total": "Total small images dropped: {count}",
         "inspect.drop_small_preview": "  [Note] {count} small image(s) found (will be dropped when --drop small is enabled)",
         "inspect.filter_hits": "  [Hits] {count} image(s) matched the filter (--inspect filter)",
         "inspect.filter_no_hit": "  [No hits] no image matched the filter",
-        "help.setinfo": "Set ComicInfo field (repeatable, FIELD=VALUE; VALUE supports %%series/%%number/%%title/%%writer/%%publisher/%%date/%%language/%%description/%%filename/%%leftN/%%rightN/%%subN_M (%%subN_M = M chars from the Nth char, 1-based); split on comma only when followed by FIELD=; use multiple --setinfo for a value containing Key=; Manga accepts Unknown/No/Yes/YesAndRightToLeft, not written by default; when enabled, existing .cbz inputs have their ComicInfo.xml modified in place)",
-"help.rename": "Rename output CBZ filename (optional template, off by default). --rename (no value) uses default template (series + auto mark prefix); mark prefix by type: [Vol.x] volume-only / [Ch.x] chapter-only / [Vol.x][Ch.x] volume+chapter / [x] untyped; consecutive episodes (話005-006) -> [Ch.5-6]; placeholders %%series/%%number/%%volume/%%title/%%writer/%%publisher/%%date/%%language/%%description/%%filename/%%leftN/%%rightN/%%subN_M and zero-pad %%03number; source priority: filename inference > file metadata (OPF/ComicInfo.xml), setinfo excluded; %%description is not recommended for filenames (content may be very long); if needed, slice it with %%subN_M; combine with --dry-run to preview; when passing a value use --option=value, or place the target path before this option",
+        "help.setinfo": "Set ComicInfo field (repeatable, FIELD=VALUE; VALUE supports %series/%number/%title/%writer/%publisher/%date/%language/%description/%filename/%leftN/%rightN/%subN_M (%subN_M = M chars from the Nth char, 1-based); split on comma only when followed by FIELD=; use multiple --setinfo for a value containing Key=; Manga accepts Unknown/No/Yes/YesAndRightToLeft, not written by default; when enabled, existing .cbz inputs have their ComicInfo.xml modified in place)",
+"help.rename": "Rename output CBZ filename (optional template, off by default). --rename (no value) uses default template (series + auto mark prefix); mark prefix by type: [Vol.x] volume-only / [Ch.x] chapter-only / [Vol.x][Ch.x] volume+chapter / [x] untyped; consecutive episodes (話005-006) -> [Ch.5-6]; placeholders %series/%number/%volume/%title/%writer/%publisher/%date/%language/%description/%filename/%leftN/%rightN/%subN_M and zero-pad %03number; source priority: filename inference > file metadata (OPF/ComicInfo.xml), setinfo excluded; %description is not recommended for filenames (content may be very long); if needed, slice it with %subN_M; combine with --dry-run to preview; when passing a value use --option=value, or place the target path before this option",
         "comicinfo.generating": "Generating ComicInfo.xml",
         "comicinfo.created": "ComicInfo.xml written",
         "comicinfo.disabled": "ComicInfo.xml disabled (--no-comicinfo)",
@@ -1441,6 +1464,7 @@ LANGUAGES = {
         "repack.fail": "[Failed] repack failed for {dir}: {err}",
         "repack.done_summary": "Repack finished: {ok} succeeded, {fail} failed",
         "repack.plan": "Will repack {count} unpack directory(ies):",
+    "repack.rename_ignored": "Note: --rename does not apply to --repack mode and was ignored (output filename is inferred from the unpack directory name)",
         "unpack.plan": "Will unpack {count} file(s):",
         "unpack.done_summary": "Unpack finished: {ok} succeeded, {fail} failed",
         "error.repack_need_dir": "repack mode accepts only directories (an _cbz unpack dir, or a parent dir containing *_cbz unpack dirs): {path}",
@@ -1727,20 +1751,20 @@ LANGUAGES = {
         "warn.disk_space": 'ディスク容量不足：{label} {path} 残り {free_mb} MB < 必要見込み {need_mb} MB',
         "help.short_summary": '簡潔サマリー：成功/スキップのファイルはパスを列挙せず数のみ表示、失敗ファイルは常にフルパス表示',
         "help.compress": 'zip 圧縮レベル 0-9：0=無圧縮（デフォルト、画像は既に圧縮済み）、1-9=deflate 圧縮（PNG 元で効果あり、レベルが高いほど小さく遅い）',
-        "help.inspect": '検査モード：sample はランダムに 1 冊を抽出（デフォルト）、all は全件検査；フィルタ [MODE][,FILTER] 付き（例: all,small=0.6）で条件一致画像の件数+ファイル名一覧を出力；解凍して内部情報（メタデータ/構造/画像/解像度/DRM）を読み取るだけで CBZ は生成せず、終了後に一時ディレクトリを自動削除；値を渡す場合は --オプション=値 の形式にするか、対象パスをこのオプションの前に置いてください',
+        "help.inspect": '検査モード：sample はランダムに 1 冊を抽出（デフォルト）、all は全件検査；フィルタ [MODE][,FILTER] 付き（例: all,small=0.6）で条件一致画像の件数+ファイル名一覧を出力、FILTER の構文は --drop と同一（カンマ=OR、プラス=AND、- 接頭辞で除外）；解凍して内部情報（メタデータ/構造/画像/解像度/DRM）を読み取るだけで CBZ は生成せず、終了後に一時ディレクトリを自動削除；値を渡す場合は --オプション=値 の形式にするか、対象パスをこのオプションの前に置いてください',
         "help.inspect_all": '全電子書籍を検査（--inspect all と等価、旧コマンド互換用）',
         "help.no_comicinfo": "ComicInfo.xml を生成しない（既定: CBZ ルートに漫画メタデータを書き込む）",
         "help.double_page": "見開き検出：値なし/auto で有効（閾値 2.0）；数値で閾値調整；off/no/0 で無効（有効時はページ毎の DoublePage を書き込むが Manga 要素は書かない；Manga が必要なら --setinfo Manga= を使用）；値を渡す場合は --オプション=値 の形式にするか、対象パスをこのオプションの前に置いてください",
         "error.double_page_invalid": "無効な --double-page 値 '{value}'：auto/数値/off/no/0 のいずれか",
         "help.drop_small": "小画像を破棄（隠しエイリアス、--drop small に統合）：明らかに小さい画像を変換時に除外（面積 幅×高さ が 面積中央値×比率 未満で小画像と判定；値なし/auto=0.5、0〜1 の数値で比率調整、off/no/0 で無効）。破棄後は PageCount を実画像数で再計算；値を渡す場合は --オプション=値 の形式にするか、対象パスをこのオプションの前に置いてください",
-        "error.drop_small_invalid": "無効な --drop-small 値 '{value}'：auto/数値(0〜1)/off/no/0 のいずれか",
+        "error.drop_small_invalid": "無効な --drop-small 値 '{value}'：auto または数値(0〜1) のいずれか",
         "convert.drop_small": "  [クリーン] 小画像を {count} 枚破棄{names}",
         "run.drop_small_total": "破棄した小画像の合計: {count} 枚",
         "inspect.drop_small_preview": "  [注意] 小画像が {count} 枚（--drop small 有効時は破棄されます）",
         "inspect.filter_hits": "  [ヒット] {count} 枚の画像がフィルタ条件に一致（--inspect フィルタ）",
         "inspect.filter_no_hit": "  [該当なし] フィルタ条件に一致する画像はありません",
-        "help.setinfo": "ComicInfo フィールドを設定（複数可、形式 FIELD=VALUE；VALUE は %%series/%%number/%%title/%%writer/%%publisher/%%date/%%language/%%description/%%filename/%%leftN/%%rightN/%%subN_M をサポート（%%subN_M=N 文字目から M 文字、1-based）；カンマ直後にフィールド名= がある場合のみ分割、値に Key= 構造が含まれる場合は --setinfo を複数回指定；Manga は Unknown/No/Yes/YesAndRightToLeft のみ有効、デフォルトでは書かない；--setinfo 有効時、入力中の既存 .cbz は ComicInfo.xml を直接変更）",
-"help.rename": "出力 CBZ のファイル名をリネーム（テンプレート任意、デフォルト無効）。--rename 値なし=デフォルトテンプレート（シリーズ名+自動マーク接頭辞）；マーク接頭辞は種類別に自動選択：単巻[Vol.x]/単話[Ch.x]/巻+話[Vol.x][Ch.x]/型なし[x]、連話（話005-006）は [Ch.5-6]；プレースホルダ %%series/%%number/%%volume/%%title/%%writer/%%publisher/%%date/%%language/%%description/%%filename/%%leftN/%%rightN/%%subN_M と %%03number ゼロ埋め；優先順位：ファイル名推測 > ファイルメタデータ(OPF/ComicInfo.xml)、setinfo は不参加；%%description はファイル名への使用は推奨しません（内容が非常に長くなる可能性があります）。使用する場合は %%subN_M で切り出してください；--dry-run でプレビュー推奨；値を渡す場合は --オプション=値 の形式にするか、対象パスをこのオプションの前に置いてください",
+        "help.setinfo": "ComicInfo フィールドを設定（複数可、形式 FIELD=VALUE；VALUE は %series/%number/%title/%writer/%publisher/%date/%language/%description/%filename/%leftN/%rightN/%subN_M をサポート（%subN_M=N 文字目から M 文字、1-based）；カンマ直後にフィールド名= がある場合のみ分割、値に Key= 構造が含まれる場合は --setinfo を複数回指定；Manga は Unknown/No/Yes/YesAndRightToLeft のみ有効、デフォルトでは書かない；--setinfo 有効時、入力中の既存 .cbz は ComicInfo.xml を直接変更）",
+"help.rename": "出力 CBZ のファイル名をリネーム（テンプレート任意、デフォルト無効）。--rename 値なし=デフォルトテンプレート（シリーズ名+自動マーク接頭辞）；マーク接頭辞は種類別に自動選択：単巻[Vol.x]/単話[Ch.x]/巻+話[Vol.x][Ch.x]/型なし[x]、連話（話005-006）は [Ch.5-6]；プレースホルダ %series/%number/%volume/%title/%writer/%publisher/%date/%language/%description/%filename/%leftN/%rightN/%subN_M と %03number ゼロ埋め；優先順位：ファイル名推測 > ファイルメタデータ(OPF/ComicInfo.xml)、setinfo は不参加；%description はファイル名への使用は推奨しません（内容が非常に長くなる可能性があります）。使用する場合は %subN_M で切り出してください；--dry-run でプレビュー推奨；値を渡す場合は --オプション=値 の形式にするか、対象パスをこのオプションの前に置いてください",
         "comicinfo.generating": "ComicInfo.xml を生成中",
         "comicinfo.created": "ComicInfo.xml を書き込みました",
         "comicinfo.disabled": "ComicInfo.xml は無効です（--no-comicinfo）",
@@ -1765,6 +1789,7 @@ LANGUAGES = {
         "repack.fail": '[失敗] {dir} の再パックに失敗: {err}',
         "repack.done_summary": '再パック完了：成功 {ok} 件、失敗 {fail} 件',
         "repack.plan": '再パックする解凍ディレクトリ {count} 件：',
+        "repack.rename_ignored": 'ヒント：--repack モードでは --rename は適用されず無視しました（出力ファイル名は解凍ディレクトリ名から推測）',
         "unpack.plan": '解凍するファイル {count} 件：',
         "unpack.done_summary": '解凍完了：成功 {ok} 件、失敗 {fail} 件',
         "error.repack_need_dir": 'repack モードはディレクトリのみ受け付けます（_cbz で終わる解凍ディレクトリ、または *_cbz 解凍ディレクトリを含む親ディレクトリ）: {path}',
@@ -3865,7 +3890,7 @@ def _resolve_setinfo_value(raw: str, series, number, volume, title, stem,
                            writer=None, publisher=None, date=None,
                            language=None, description=None) -> str | None:
     """解析 --setinfo 值中的占位符：%series/%number/%volume/%title/%writer/%publisher/
-    %date/%language/%%description/%filename/%leftN/%rightN/%%subN_M。
+    %date/%language/%description/%filename/%leftN/%rightN/%subN_M。
 
     两种语义：
     - 整段恰好是单个已知占位符：对应值缺失时返回 None（该字段不写入），保持原语义；
@@ -3947,7 +3972,7 @@ def _render_name_template(raw: str, series, number, volume, title, stem,
                           writer=None, publisher=None, date=None,
                           language=None, description=None) -> str:
     """渲染 --rename 模板占位符：%series/%number/%volume/%title/%writer/%publisher/
-    %date/%language/%%description/%filename/%leftN/%rightN/%%subN_M；
+    %date/%language/%description/%filename/%leftN/%rightN/%subN_M；
     支持 %0<N>number 补零（如 %03number -> '005'）；缺失值渲染为空串，未知占位符原样保留。"""
     if not raw:
         return raw
@@ -5312,7 +5337,7 @@ def _meta_from_comicinfo_root(root) -> dict:
     publisher/language/summary/date 等）。
 
     供 --setinfo 修改/预览已有 CBZ 时解析 %series/%number/%volume/%writer/%publisher/
-    %language/%%description/%date 占位符；无对应字段时省略（与转换链路语义一致，不生成空值）。
+    %language/%description/%date 占位符；无对应字段时省略（与转换链路语义一致，不生成空值）。
     """
     meta: dict = {}
     for tag, key in (("Title", "title"), ("Series", "series"), ("Number", "number"),
@@ -5654,7 +5679,7 @@ def _is_unpack_cbz_dir(name: str) -> bool:
 
 
 def unpack_ebook(p: Path, out_root: Path) -> Path:
-    """解包电子书到 out_root 下的同名子目录（已存在自动加序号避让）。
+    """解包电子书到 out_root 下的同名子目录（默认 源名_扩展名，撞名时再以 (N) 序号避让）。
 
     目录名为 `源名_扩展名`（如 vol.cbz → vol_cbz/，vol.mobi → vol_mobi/），
     统一来源标签且与源文件不撞名；--repack 按 _cbz 结尾识别 cbz 解包目录。
@@ -5686,7 +5711,7 @@ def unpack_ebook(p: Path, out_root: Path) -> Path:
 
 
 def unpack_mode(ebook_files: list[Path], args) -> None:
-    """--unpack 模式入口：只解包不转换，输出到各源文件所在目录的同名子目录。
+    """--unpack 模式入口：只解包不转换，输出到各源文件所在目录的「源名_扩展名」子目录。
 
     执行前先列出待解包文件清单，逐个解包后输出完成汇总。
     """
@@ -5707,6 +5732,7 @@ def unpack_mode(ebook_files: list[Path], args) -> None:
             emit(t("inspect.unpack_fail", err=e), level="error")
             fail_n += 1
     emit(t("unpack.done_summary", ok=ok_n, fail=fail_n), level="summary")
+    sys.exit(1 if fail_n else 0)
 
 
 def repack_one(src_dir: Path, args) -> bool:
@@ -5832,14 +5858,17 @@ def repack_mode(target: Path, args) -> None:
         dirs.sort(key=lambda p: str(p).lower())
     else:
         emit(t("error.repack_need_dir", path=target), level="error")
-        sys.exit(0)
+        sys.exit(2)
     if not dirs:
         emit(t("repack.none_found", path=target), level="error")
-        sys.exit(0)
+        sys.exit(2)
     # 处理清单：先列出将重新打包的解包目录
+    if args.rename:
+        emit(t("repack.rename_ignored"), level="warning")
     emit(t("repack.plan", count=len(dirs)), level="summary")
     for i, d in enumerate(dirs, 1):
-        emit(f"  {i}. {d}", level="summary")
+        recon_stem, num_suffix, _ext = _unpack_dir_parts(d.name)
+        emit(f"  {i}. {d}  →  {recon_stem + num_suffix + '.cbz'}", level="summary")
     ok_n = fail_n = 0
     for d in dirs:
         if repack_one(d, args):
@@ -5847,6 +5876,7 @@ def repack_mode(target: Path, args) -> None:
         else:
             fail_n += 1
     emit(t("repack.done_summary", ok=ok_n, fail=fail_n), level="summary")
+    sys.exit(1 if fail_n else 0)
 
 
 def inspect_mode(ebook_files: list[Path], precheck_skipped: list, args) -> None:
@@ -5910,6 +5940,7 @@ def inspect_mode(ebook_files: list[Path], precheck_skipped: list, args) -> None:
                 pbar.update(1)
     except KeyboardInterrupt:
         emit(t("inspect_mode.ctrl_c"), level="summary")
+        sys.exit(130)
     finally:
         if pbar is not None:
             pbar.close()
@@ -5929,6 +5960,9 @@ def inspect_mode(ebook_files: list[Path], precheck_skipped: list, args) -> None:
     # #60：inspect 模式 JSON 输出（--json 精简版 stdout / --json-out 落盘全量）
     if _json_stdout or _json_out_path:
         _emit_inspect_json(inspect_records, total_elapsed)
+
+    # 退出码语义：inspect 检出异常（fail/invalid/timeout/drm）时退出 1，noimg 视为正常状态
+    sys.exit(1 if (fail or invalid or timeout_n or drm_n) else 0)
 
 
 def _emit_inspect_json(records: list, total_elapsed: float) -> None:
@@ -6255,6 +6289,16 @@ def _parse_atom(atom: str):
     al = atom.strip().strip("[]").lower()
     if not al:
         return None
+    # '-' 前缀 = 取反（排除满足该条件的图片，如 -gif / -webp）：
+    # 递归解析内层原子并包装为 ("neg", 内层原子)；'-' 单独或 '--' 开头视为非法
+    if al.startswith("-"):
+        inner = al[1:]
+        if not inner or inner.startswith("-"):
+            raise argparse.ArgumentTypeError(t("error.filter_token", token=atom, expr=atom))
+        core = _parse_atom(inner)
+        if core is None:
+            raise argparse.ArgumentTypeError(t("error.filter_token", token=atom, expr=atom))
+        return ("neg", core)
     # small 独立条件词：无参=默认比例（None→0.5），可带比例 0<r<=1；多语言别名通用
     sm = re.fullmatch(r"(small|異常小圖|异常小图|異常小画像|極小画像)(?:=(.+))?", al)
     if sm:
@@ -6501,6 +6545,9 @@ def eval_filter_atoms(attrs: dict, atoms) -> bool:
 
 
 def eval_filter_atom(attrs: dict, a) -> bool:
+    # ("neg", 内层原子)：取反语义（ATOM_ALIASES 中无 neg 键冲突）
+    if a[0] == "neg":
+        return not eval_filter_atom(attrs, a[1])
     t = a[0]
     if t == "extra":
         # 与 _mark_strs 的 [多余] 展示一致：封面补位图也计入
@@ -6690,6 +6737,8 @@ def build_cbz_image_attrs(zf, name: str, double_ratio: float | None) -> dict:
 # ============================================================
 def _atom_text(a) -> str:
     """原子条件 → 人类可读词（用于舍弃明细描述）。"""
+    if a[0] == "neg":
+        return "-" + _atom_text(a[1])
     t0 = a[0]
     if t0 == "extra":
         return "extra"
@@ -7616,7 +7665,7 @@ def build_parser() -> argparse.ArgumentParser:
     # 输入：是否重命名输出文件名（nargs='?' 可选模板，默认关闭）；输出：CBZ 文件名按模板+自动标记前缀生成
     # 取值：不传 → 关闭（保持原名）；--rename 无值 → 默认模板（系列名+自动标记前缀）；--rename=TEMPLATE → 自定义模板
     #       标记前缀按类型自动选：整卷[Vol.x]/单话[Ch.x]/卷+章[Vol.x][Ch.x]/无类型[x]；连话（話005-006）标 [Ch.5-6]
-    #       占位符：%series/%number/%volume/%title/%writer/%publisher/%date/%language/%%description/%filename/%leftN/%rightN/%%subN_M、%0<N>number 补零
+    #       占位符：%series/%number/%volume/%title/%writer/%publisher/%date/%language/%description/%filename/%leftN/%rightN/%subN_M、%0<N>number 补零
     #       来源优先级：文件名推断 > 文件自带元数据(OPF/ComicInfo.xml) 兜底；setinfo 解耦不参与
     parser.add_argument(
         "--rename",
@@ -7648,7 +7697,7 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="FILE",
         help=t("help.json_out"),
     )
-    # 输入：是否解包查看；输出：只解压不转换，输出到源文件所在目录的同名子目录
+    # 输入：是否解包查看；输出：只解压不转换，输出到源文件所在目录的「源名_扩展名」子目录
     parser.add_argument(
         "--unpack",
         action="store_true",
@@ -7733,7 +7782,7 @@ def _main() -> None:
     # 通配符模式（含 * 或 ?）不做字面存在性检查，交给 collect_ebook_files 做 glob 展开
     if not target.exists() and not any(c in args.target for c in "*?"):
         emit(t("run.path_not_found", path=args.target), level="error")
-        sys.exit(1)
+        sys.exit(2)
 
     output_dir = Path(args.output_dir) if args.output_dir else None
 
@@ -8031,8 +8080,9 @@ def _main() -> None:
               failed=len(failed_files), interrupted=interrupted,
               total_elapsed=total_elapsed)
 
-    # 退出码语义：0=全部成功（含全部跳过，无失败）；1=存在转换失败文件（失败/DRM/校验失败）
-    sys.exit(1 if failed_files else 0)
+    # 退出码语义：0=全部成功（含全部跳过，无失败）；1=存在转换失败文件（失败/DRM/校验失败）；
+    # 130=转换过程中收到 Ctrl+C 中断（即使已转换部分也以中断码退出，与包装层一致）
+    sys.exit(130 if interrupted else (1 if failed_files else 0))
 
 
 if __name__ == "__main__":
