@@ -296,7 +296,7 @@ A: Yes. Since v2.4.0 the accepted input extensions are `.mobi` / `.azw` / `.azw3
 
 - **`-` prefix exclusion** — `--drop` / `--inspect` filters now support negative conditions (e.g. `all,small=0.6,-gif`), parsed by the same expression engine as comma OR / plus AND
 - **`--repack` ignores `--rename` with a hint** — in repack mode the output name is inferred from the unpack directory name; when `--rename` is ignored a hint is printed
-- **`--repack` plan annotates the inferred output name** — each line of the processing list shows `unpack dir → output.cbz`, making the inference source obvious
+- **`--repack` processing list annotates the inferred output name** — each line of the pre-execution processing list shows `unpack dir → output.cbz`, making the inference source obvious (this is the internal list display of `--repack` mode, not a separate parameter)
   
   #### Changes
   
