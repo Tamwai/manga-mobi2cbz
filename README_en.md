@@ -290,6 +290,30 @@ A: Yes. Since v2.4.0 the accepted input extensions are `.mobi` / `.azw` / `.azw3
 
 ## Changelog
 
+### [3.5.0] - 2026-08-28
+
+#### New features
+
+- **`-` prefix exclusion** — `--drop` / `--inspect` filters now support negative conditions (e.g. `all,small=0.6,-gif`), parsed by the same expression engine as comma OR / plus AND
+- **`--repack` ignores `--rename` with a hint** — in repack mode the output name is inferred from the unpack directory name; when `--rename` is ignored a hint is printed
+- **`--repack` plan annotates the inferred output name** — each line of the processing list shows `unpack dir → output.cbz`, making the inference source obvious
+  
+  #### Changes
+  
+- **Refined exit-code semantics** — target path does not exist → exit `2`; `--repack` with no usable unpack directory / no `_cbz` directory → exit `2` and counted as 1 failure; `--unpack` extraction failure → exit `1`; `--inspect` exception → exit `1`; Ctrl+C during conversion → exit `130` (128+SIGINT)
+  
+  #### Fixes
+  
+- `--drop-small` invalid-value message was self-contradictory (also suggesting off/no/0); now "use auto or a number (0~1)"
+- `--setinfo` help and the file-header example used a double `%%` placeholder; corrected to single `%`
+- `--unpack` collision-avoidance wording (default 源名_扩展名, falls back to `(N)` suffix when the name is taken)
+- `--inspect` help now documents FILTER syntax (same as `--drop`: comma=OR, plus=AND, `-` prefix excludes)
+- `help.setinfo` / `help.rename` help texts in all four languages had a double `%%` placeholder typo → unified to single `%`
+  
+  #### Maintenance
+  
+- Regression-test exit-code expectation updated (missing target `1` → `2`)
+
 ### [3.4.0] - 2026-08-26
 
 #### New features
