@@ -183,6 +183,20 @@ class TestParseDropExpr(unittest.TestCase):
             with self.assertRaises(ArgumentTypeError, msg=f"{v!r} 应报错"):
                 parse_drop_expr(v)
 
+    def test_neg_prefix(self):
+        # v3.5.0：'-' 前缀 = 排除（负向条件），递归解析内层原子
+        self.assertEqual(parse_atom("-gif"), ("neg", ("ext", "gif")))
+        self.assertEqual(parse_atom("-webp"), ("neg", ("ext", "webp")))
+        self.assertEqual(parse_atom("-small"), ("neg", ("small", None)))
+        self.assertEqual(parse_atom("-封面"), ("neg", ("mark", "cover")))
+        self.assertEqual(parse_drop_expr("-gif,small=0.6"),
+                         [[("neg", ("ext", "gif"))], [("small", 0.6)]])
+        self.assertEqual(parse_inspect_arg("all,-gif"), ("all", [[("neg", ("ext", "gif"))]]))
+        # '-' 单独或 '--' 开头视为非法
+        for bad in ("-", "--gif"):
+            with self.assertRaises(ArgumentTypeError, msg=f"{bad!r} 应报错"):
+                parse_atom(bad)
+
 
 class TestEvalAtom(unittest.TestCase):
     """原子判定，重点：cover_extra 修复、name、处置、anom。"""
@@ -235,6 +249,14 @@ class TestEvalAtom(unittest.TestCase):
         self.assertTrue(eval_atom(mkattrs(size=5000), ("size", ">", 1024)))
         self.assertTrue(eval_atom(mkattrs(size=500), ("size", "<", 1024)))
         self.assertFalse(eval_atom(mkattrs(size=None), ("size", ">", 1)))
+
+    def test_neg_eval(self):
+        # v3.5.0：neg 原子取反——命中内层条件的返回 False，未命中的返回 True
+        gif = mkattrs(ext="gif")
+        self.assertFalse(eval_atom(gif, ("neg", ("ext", "gif"))), "-gif 应排除 gif")
+        self.assertTrue(eval_atom(mkattrs(ext="jpg"), ("neg", ("ext", "gif"))), "-gif 应放行 jpg")
+        self.assertFalse(eval_atom(mkattrs(cover=True), ("neg", ("mark", "cover"))), "-封面 应排除封面")
+        self.assertTrue(eval_atom(mkattrs(), ("neg", ("mark", "cover"))), "-封面 应放行非封面")
 
 
 class TestMarkFilling(unittest.TestCase):
@@ -456,13 +478,13 @@ class TestWindowsPathName(unittest.TestCase):
 
 
 class TestExitCodeSemantics(unittest.TestCase):
-    """v3.4.0 退出码语义：0=全部成功、1=有失败文件、2=参数用法错误。"""
+    """v3.5.0 退出码语义：0=全部成功、1=有失败文件、2=参数用法/目标不存在。"""
 
     def test_bad_flag_exit_2(self):
         self.assertEqual(_run_cli("--no-such-flag").returncode, 2, "参数用法错误应退出 2")
 
-    def test_missing_path_exit_1(self):
-        self.assertEqual(_run_cli(str(MAIN.parent / "no_such_dir_xyz")).returncode, 1)
+    def test_missing_path_exit_2(self):
+        self.assertEqual(_run_cli(str(MAIN.parent / "no_such_dir_xyz")).returncode, 2, "目标路径不存在应退出 2")
 
     def test_broken_convert_exit_1(self):
         with tempfile.TemporaryDirectory() as td:
@@ -477,6 +499,37 @@ class TestExitCodeSemantics(unittest.TestCase):
             ep = _make_mini_epub(d, broken=False)
             r = _run_cli("--output-dir", str(d / "out"), str(ep))
             self.assertEqual(r.returncode, 0, "全部成功应退出 0")
+
+    def test_repack_no_dir_exit_2(self):
+        """v3.5.0：--repack 无可用解包目录 / 无 _cbz 目录 → 退出 2 且计入失败。"""
+        with tempfile.TemporaryDirectory() as td:
+            d = Path(td)
+            (d / "empty").mkdir()
+            r = _run_cli("--repack", str(d / "empty"))
+            self.assertEqual(r.returncode, 2, "repack 无 _cbz 解包目录应退出 2")
+            r2 = _run_cli("--repack", str(d))
+            self.assertEqual(r2.returncode, 2, "repack 空目录应退出 2")
+
+    def test_unpack_broken_exit_1(self):
+        """v3.5.0：--unpack 解包失败 → 退出 1。"""
+        with tempfile.TemporaryDirectory() as td:
+            d = Path(td)
+            ep = _make_mini_epub(d, broken=True)
+            r = _run_cli("--unpack", str(ep))
+            self.assertEqual(r.returncode, 1, "unpack 失败应退出 1")
+
+    def test_inspect_broken_exit_1(self):
+        """v3.5.0：--inspect 异常/损坏 → 退出 1。目标路径须置于 --inspect 之前（带值选项）。"""
+        with tempfile.TemporaryDirectory() as td:
+            d = Path(td)
+            ep = _make_mini_epub(d, broken=True)
+            r = _run_cli(str(ep), "--inspect")
+            self.assertEqual(r.returncode, 1, "inspect 损坏样本应退出 1")
+
+    def test_ctrl_c_exit_130_guard(self):
+        """v3.5.0 源码护栏：转换链路 Ctrl+C 分支应 sys.exit(130)（128+SIGINT）。"""
+        src = inspect.getsource(mod)
+        self.assertIn("sys.exit(130", src, "转换链路应含 Ctrl+C 退出 130 分支")
 
 
 class TestInspectJsonFormats(unittest.TestCase):
@@ -509,13 +562,13 @@ class TestInspectJsonFormats(unittest.TestCase):
 
 
 class TestVersionGuard(unittest.TestCase):
-    """v3.4.0 版本号同步护栏：__version__ / docstring 更新日志。"""
+    """v3.5.0 版本号同步护栏：__version__ / docstring 更新日志。"""
 
-    def test_version_is_3_4_0(self):
-        self.assertEqual(mod.__version__, "3.4.0")
+    def test_version_is_3_5_0(self):
+        self.assertEqual(mod.__version__, "3.5.0")
 
-    def test_docstring_changelog_has_3_4_0(self):
-        self.assertIn("v3.4.0", mod.__doc__)
+    def test_docstring_changelog_has_3_5_0(self):
+        self.assertIn("v3.5.0", mod.__doc__)
         self.assertIn("退出码", mod.__doc__)
 
 
