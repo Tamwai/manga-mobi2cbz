@@ -155,7 +155,7 @@ manga-mobi2cbz — 将 mobi/azw/azw3/epub 电子书漫画文件批量转换为 c
           逗号=OR、加号=AND、- 前缀排除）
         - 修复：四语 help.setinfo / help.rename 帮助文本中占位符
           %% 误写统一为单 %
-        - 新增：--repack plan 每行标注推断输出文件名
+        - 新增：--repack 处理清单（plan）每行标注推断输出文件名
           （解包目录名 → 输出.cbz），来源一目了然
         - 维护：回归测试退出码预期更新（目标不存在 1→2）
     v3.4.0 (2026-08-26)
