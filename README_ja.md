@@ -287,6 +287,20 @@ A: 対応しています。v2.4.0 以降、入力は `.mobi` / `.azw` / `.azw3` 
 
 ## 更新履歴
 
+### [3.5.1] - 2026-08-31
+
+#### 修正
+
+- **P0：4言語の `help.setinfo` / `help.rename` でプレースホルダを `%%` に復元** — ヘルプのプレースホルダが単一 `%` に誤変更され、argparse が help を `%` フォーマット文字列として展開し TypeError を発生。`%%` に復元（モジュール docstring は単一 `%` のまま）
+- **P1：3モードは exit コードを return で返すように** — `--unpack` / `--inspect` / `--list-images` は直接 `sys.exit` せず、exit コードを return し、`_main` が `sys.exit(max(mode_codes))` で統一。モードを連結して実行しても中断されない
+- **P2：`--repack` の例とコメントを `_cbz` 終端に修正** — 例とコードコメントの「ディレクトリ名が .cbz で終わる」を `_cbz` 終端に修正し、docstring の例 `Vol_cbz --repack` も同期
+- ファイル先頭の用法行 `[--inspect sample|all]` → `[--inspect [sample|all][,FILTER]]`
+- 4言語の `help.output_dir` に「`--unpack` モードではこの引数は無視されます」を追記
+  
+  #### 変更
+  
+- **メインループの汎用例外フォールバック** — `_convert_one` ネスト関数を抽出して `except Exception` を追加。想定外の例外はファイル失敗として計上し、裸の終了を回避。4言語に `run.unexpected_error` メッセージキーを追加
+
 ### [3.5.0] - 2026-08-28
 
 #### 新機能
