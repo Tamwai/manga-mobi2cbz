@@ -290,6 +290,20 @@ A: Yes. Since v2.4.0 the accepted input extensions are `.mobi` / `.azw` / `.azw3
 
 ## Changelog
 
+### [3.5.1] - 2026-08-31
+
+#### Fixes
+
+- **P0: `%%` placeholders restored in help texts across all four languages** — `help.setinfo` / `help.rename` help texts had been changed to single `%`, causing argparse to expand help as a `%` format string and raise TypeError; restored to `%%` (module docstring keeps single `%`)
+- **P1: three modes now return their exit code** — `--unpack` / `--inspect` / `--list-images` no longer call `sys.exit` directly; they return the exit code instead, and `_main` runs a single `sys.exit(max(mode_codes))`, so chained modes are no longer interrupted
+- **P2: `--repack` examples/comments end with `_cbz`** — the "directory name ends with .cbz" wording in examples and code comments changed to `_cbz`; the docstring example `Vol_cbz --repack` updated accordingly
+- File-header usage line `[--inspect sample|all]` → `[--inspect [sample|all][,FILTER]]`
+- `help.output_dir` in all four languages now notes "ignored in `--unpack` mode"
+  
+  #### Changes
+  
+- **Generic exception fallback in the main loop** — the `_convert_one` nested function is extracted with an added `except Exception`, so unexpected errors are counted as failed files instead of aborting; a new `run.unexpected_error` message key is added in all four languages
+
 ### [3.5.0] - 2026-08-28
 
 #### New features
