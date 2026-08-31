@@ -5,7 +5,7 @@
 manga-mobi2cbz — 将 mobi/azw/azw3/epub 电子书漫画文件批量转换为 cbz 格式（OPF spine 排序 + 封面兜底增强版）
 
 用法:
-    python manga-mobi2cbz.py <目录或文件路径> [--language auto|zh-CN|zh-TW|ja|en] [--delete] [--prefer mobi7|mobi8|auto] [--ext-priority EXTS] [--drop-extra] [--drop-small] [--overwrite] [--timeout SECONDS] [--output-dir DIR] [--flatten] [--dry-run] [--rename[=TEMPLATE]] [--no-color] [--progress auto|on|off] [--quiet] [--short-summary] [--compress LEVEL] [--inspect sample|all] [--no-comicinfo] [--double-page auto|NUM|off] [--setinfo FIELD=VALUE] [--unpack] [--json] [--json-out FILE|auto] [--debug] [--log FILE]
+    python manga-mobi2cbz.py <目录或文件路径> [--language auto|zh-CN|zh-TW|ja|en] [--delete] [--prefer mobi7|mobi8|auto] [--ext-priority EXTS] [--drop-extra] [--drop-small] [--overwrite] [--timeout SECONDS] [--output-dir DIR] [--flatten] [--dry-run] [--rename[=TEMPLATE]] [--no-color] [--progress auto|on|off] [--quiet] [--short-summary] [--compress LEVEL] [--inspect [sample|all][,FILTER]] [--no-comicinfo] [--double-page auto|NUM|off] [--setinfo FIELD=VALUE] [--unpack] [--json] [--json-out FILE|auto] [--debug] [--log FILE]
 
 示例:
     # 转换整个文件夹（递归搜索所有 .mobi/.azw/.azw3/.epub）
@@ -59,8 +59,8 @@ manga-mobi2cbz — 将 mobi/azw/azw3/epub 电子书漫画文件批量转换为 c
     # 解包查看：只解压不转换，输出到源文件所在目录的「源名_扩展名」子目录
     python manga-mobi2cbz.py "D:\\ComicsLibrary\\Vol.01.mobi" --unpack
 
-    # 重新打包：把已解包的 CBZ 解包目录（目录名以 .cbz 结尾）打包回 CBZ
-    python manga-mobi2cbz.py "D:\\ComicsLibrary\\Vol.cbz" --repack
+    # 重新打包：把已解包的 CBZ 解包目录（目录名以 _cbz 结尾）打包回 CBZ
+    python manga-mobi2cbz.py "D:\\ComicsLibrary\\Vol_cbz" --repack
 
 参数:
     --language LANG  输出语言：auto 按系统语言自动选择（zh 前缀→中文，
@@ -138,6 +138,21 @@ manga-mobi2cbz — 将 mobi/azw/azw3/epub 电子书漫画文件批量转换为 c
 要求: Python 3.10+
 
 更新日志:
+    v3.5.1 (2026-08-31)
+        - 修复：P0 四语 help.setinfo / help.rename 占位符恢复为 %%
+          （argparse 会把 help 当 % 格式串展开触发 TypeError，
+          模块 docstring 保持单 %）
+        - 修复：P1 --unpack / --inspect / --list-images 退出码改用
+          return 返回（不再直接 sys.exit），_main 统一
+          sys.exit(max(mode_codes))，模式串联执行不被中断
+        - 修复：P2 --repack 示例与注释「目录名以 .cbz 结尾」改为
+          _cbz 结尾，docstring 示例 Vol_cbz --repack 同步修正
+        - 修复：文件头用法行 [--inspect sample|all] 改为
+          [--inspect [sample|all][,FILTER]]
+        - 修复：四语 help.output_dir 追加「--unpack 模式忽略此参数」
+        - 变更：主循环通用异常兜底——提取 _convert_one 嵌套函数并补
+          except Exception，未预期异常计入失败文件而非裸退；
+          四语新增 run.unexpected_error 文案键
     v3.5.0 (2026-08-28)
         - 新增：--drop / --inspect 过滤器支持 - 前缀排除（负向条件，
           与逗号 OR / 加号 AND 由同一表达式引擎解析）
@@ -708,7 +723,7 @@ manga-mobi2cbz — 将 mobi/azw/azw3/epub 电子书漫画文件批量转换为 c
           EOCD + testzip 完整性校验、失败清理半成品
 """
 
-__version__ = "3.5.0"
+__version__ = "3.5.1"
 
 SCRIPT_NAME = "manga-mobi2cbz"
 
@@ -763,7 +778,7 @@ LANGUAGES = {
         "help.overwrite": "目标 cbz 已存在时强制重新生成（默认跳过）",
         "help.timeout": "单文件转换超时秒数，超时自动跳过并计入失败（默认 600，0 表示不限制；超时后底层解包线程可能后台残留）",
         "help.min_size": "过滤小于指定字节的电子书；不带数字默认1000字节，0关闭大小过滤，不传则关闭；带值请用 --选项=值 写法，或把目标路径放在本选项之前",
-        "help.output_dir": "CBZ 输出到指定目录（自动创建），默认保留相对输入的子目录结构（如 Sample Series/001.mobi → DIR/Sample Series/001.cbz），加 --flatten 可平铺到目录根下",
+        "help.output_dir": "CBZ 输出到指定目录（自动创建），默认保留相对输入的子目录结构（如 Sample Series/001.mobi → DIR/Sample Series/001.cbz），加 --flatten 可平铺到目录根下；--unpack 模式忽略此参数",
         "help.top_only": "仅处理 target 目录顶层的电子书文件，不递归子目录",
     "help.flatten": "仅与 --output-dir 联用：所有 CBZ 平铺到输出目录根下，同名文件未指定 --overwrite 时跳过（SKIP），指定时覆盖首选名；单独使用将报错退出",
         "help.dry_run": "试运行：只扫描文件并打印转换流程，不实际解压打包、不创建输出目录",
@@ -788,8 +803,8 @@ LANGUAGES = {
         "inspect.drop_small_preview": "  [提示] 图片中 {count} 张为小图（开启 --drop small 时将被丢弃）",
         "inspect.filter_hits": "  [命中] {count} 张图片命中过滤条件（--inspect 过滤器）",
         "inspect.filter_no_hit": "  [无命中] 没有图片命中过滤条件",
-        "help.setinfo": "设置 ComicInfo 字段（可多次，格式 FIELD=VALUE；VALUE 支持 %series/%number/%title/%writer/%publisher/%date/%language/%description/%filename/%leftN/%rightN/%subN_M（%subN_M=第 N 字符起 M 个，1-based）；逗号后紧跟字段名=才拆分，值内含 Key= 结构请用多次 --setinfo 传入；Manga 取值限 Unknown/No/Yes/YesAndRightToLeft，默认不写；--setinfo 开启时输入中的已有 .cbz 会就地修改其 ComicInfo.xml）",
-"help.rename": "重命名输出 CBZ 文件名（可选模板，默认关闭）。--rename 无值=默认模板（系列名+自动标记前缀）；标记前缀按类型自动选：整卷[Vol.x]/单话[Ch.x]/卷+章[Vol.x][Ch.x]/无类型[x]，连话（話005-006）标 [Ch.5-6]；占位符 %series/%number/%volume/%title/%writer/%publisher/%date/%language/%description/%filename/%leftN/%rightN/%subN_M 及 %03number 补零；来源优先级：文件名推断 > 文件自带元数据(OPF/ComicInfo.xml) 兜底，setinfo 不参与；%description 不建议用于文件名（内容可能过长），确需使用可配合 %subN_M 截取片段；建议配合 --dry-run 先预览；带值请用 --选项=值 写法，或把目标路径放在本选项之前",
+        "help.setinfo": "设置 ComicInfo 字段（可多次，格式 FIELD=VALUE；VALUE 支持 %%series/%%number/%%title/%%writer/%%publisher/%%date/%%language/%%description/%%filename/%%leftN/%%rightN/%%subN_M（%%subN_M=第 N 字符起 M 个，1-based）；逗号后紧跟字段名=才拆分，值内含 Key= 结构请用多次 --setinfo 传入；Manga 取值限 Unknown/No/Yes/YesAndRightToLeft，默认不写；--setinfo 开启时输入中的已有 .cbz 会就地修改其 ComicInfo.xml）",
+"help.rename": "重命名输出 CBZ 文件名（可选模板，默认关闭）。--rename 无值=默认模板（系列名+自动标记前缀）；标记前缀按类型自动选：整卷[Vol.x]/单话[Ch.x]/卷+章[Vol.x][Ch.x]/无类型[x]，连话（話005-006）标 [Ch.5-6]；占位符 %%series/%%number/%%volume/%%title/%%writer/%%publisher/%%date/%%language/%%description/%%filename/%%leftN/%%rightN/%%subN_M 及 %%03number 补零；来源优先级：文件名推断 > 文件自带元数据(OPF/ComicInfo.xml) 兜底，setinfo 不参与；%%description 不建议用于文件名（内容可能过长），确需使用可配合 %%subN_M 截取片段；建议配合 --dry-run 先预览；带值请用 --选项=值 写法，或把目标路径放在本选项之前",
         "comicinfo.generating": "生成 ComicInfo.xml",
         "comicinfo.created": "已写入 ComicInfo.xml",
         "comicinfo.disabled": "ComicInfo.xml 已禁用（--no-comicinfo）",
@@ -967,6 +982,7 @@ LANGUAGES = {
         "run.elapsed": "  [耗时] {name}: {seconds} 秒",
         "rename.preview": "  [重命名] {old} -> {new}",
         "run.ctrl_c": "\n检测到 Ctrl+C，中断转换，输出当前进度汇总：",
+    "run.unexpected_error": "  [错误] {name} 发生未预期异常: {err}（已按失败文件计入）",
         "run.done": "\n转换完成: {success}/{total} 成功",
         "run.interrupted_note": "（任务被中断，以上为已处理部分的汇总，剩余文件未处理）",
         "run.stats": "转换统计: 成功 {success} 个, 跳过 {skip} 个, 失败 {fail} 个",
@@ -1088,7 +1104,7 @@ LANGUAGES = {
         "help.overwrite": "目標 cbz 已存在時強制重新生成（預設跳過）",
         "help.timeout": "單檔轉換逾時秒數，逾時自動跳過並計入失敗（預設 600，0 表示不限制；逾時後底層解包執行緒可能於背景殘留）",
         "help.min_size": "過濾小於指定位元組的電子書；不帶數字預設1000位元組，0關閉大小過濾，不傳則關閉；帶值請用 --選項=值 寫法，或將目標路徑放在本選項之前",
-        "help.output_dir": "CBZ 輸出到指定目錄（自動建立），預設保留相對輸入的子目錄結構（如 Sample Series/001.mobi → DIR/Sample Series/001.cbz），加 --flatten 可平鋪到目錄根下",
+        "help.output_dir": "CBZ 輸出到指定目錄（自動建立），預設保留相對輸入的子目錄結構（如 Sample Series/001.mobi → DIR/Sample Series/001.cbz），加 --flatten 可平鋪到目錄根下；--unpack 模式會忽略此參數",
         "help.top_only": "僅處理 target 目錄頂層的電子書檔案，不遞迴子目錄",
     "help.flatten": "僅與 --output-dir 聯用：所有 CBZ 平鋪到輸出目錄根下，同名檔案未指定 --overwrite 時跳過（SKIP），指定時覆蓋首選名；單獨使用將報錯退出",
         "help.dry_run": "試運行：只掃描檔案並列印轉換流程，不實際解壓打包、不建立輸出目錄",
@@ -1113,8 +1129,8 @@ LANGUAGES = {
         "inspect.drop_small_preview": "  [提示] 圖片中 {count} 張為小圖（開啟 --drop small 時將被丟棄）",
         "inspect.filter_hits": "  [命中] {count} 張圖片命中過濾條件（--inspect 過濾器）",
         "inspect.filter_no_hit": "  [無命中] 沒有圖片命中過濾條件",
-        "help.setinfo": "設定 ComicInfo 欄位（可多次，格式 FIELD=VALUE；VALUE 支援 %series/%number/%title/%writer/%publisher/%date/%language/%description/%filename/%leftN/%rightN/%subN_M（%subN_M=第 N 字元起 M 個，1-based）；逗號後緊跟欄位名=才拆分，值內含 Key= 結構請用多次 --setinfo 傳入；Manga 取值限 Unknown/No/Yes/YesAndRightToLeft，預設不寫；--setinfo 開啟時輸入中的既有 .cbz 會就地修改其 ComicInfo.xml）",
-"help.rename": "重新命名輸出 CBZ 檔名（可選範本，預設關閉）。--rename 無值=預設範本（系列名+自動標記前綴）；標記前綴依類型自動選：整卷[Vol.x]/單話[Ch.x]/卷+章[Vol.x][Ch.x]/無類型[x]，連話（話005-006）標 [Ch.5-6]；佔位符 %series/%number/%volume/%title/%writer/%publisher/%date/%language/%description/%filename/%leftN/%rightN/%subN_M 及 %03number 補零；來源優先序：檔名推斷 > 檔案中繼資料(OPF/ComicInfo.xml) 兜底，setinfo 不參與；%description 不建議用於檔案名稱（內容可能過長），確需使用可搭配 %subN_M 截取片段；建議搭配 --dry-run 先預覽；帶值請用 --選項=值 寫法，或將目標路徑放在本選項之前",
+        "help.setinfo": "設定 ComicInfo 欄位（可多次，格式 FIELD=VALUE；VALUE 支援 %%series/%%number/%%title/%%writer/%%publisher/%%date/%%language/%%description/%%filename/%%leftN/%%rightN/%%subN_M（%%subN_M=第 N 字元起 M 個，1-based）；逗號後緊跟欄位名=才拆分，值內含 Key= 結構請用多次 --setinfo 傳入；Manga 取值限 Unknown/No/Yes/YesAndRightToLeft，預設不寫；--setinfo 開啟時輸入中的既有 .cbz 會就地修改其 ComicInfo.xml）",
+"help.rename": "重新命名輸出 CBZ 檔名（可選範本，預設關閉）。--rename 無值=預設範本（系列名+自動標記前綴）；標記前綴依類型自動選：整卷[Vol.x]/單話[Ch.x]/卷+章[Vol.x][Ch.x]/無類型[x]，連話（話005-006）標 [Ch.5-6]；佔位符 %%series/%%number/%%volume/%%title/%%writer/%%publisher/%%date/%%language/%%description/%%filename/%%leftN/%%rightN/%%subN_M 及 %%03number 補零；來源優先序：檔名推斷 > 檔案中繼資料(OPF/ComicInfo.xml) 兜底，setinfo 不參與；%%description 不建議用於檔案名稱（內容可能過長），確需使用可搭配 %%subN_M 截取片段；建議搭配 --dry-run 先預覽；帶值請用 --選項=值 寫法，或將目標路徑放在本選項之前",
         "comicinfo.generating": "生成 ComicInfo.xml",
         "comicinfo.created": "已寫入 ComicInfo.xml",
         "comicinfo.disabled": "ComicInfo.xml 已停用（--no-comicinfo）",
@@ -1348,6 +1364,7 @@ LANGUAGES = {
         "run.elapsed": "  [耗時] {name}: {seconds} 秒",
         "rename.preview": "  [重新命名] {old} -> {new}",
         "run.ctrl_c": "\n偵測到 Ctrl+C，中斷轉換，輸出目前進度彙總：",
+    "run.unexpected_error": "  [錯誤] {name} 發生未預期異常: {err}（已按失敗檔案計入）",
         "run.done": "\n轉換完成: {success}/{total} 成功",
         "run.interrupted_note": "（任務被中斷，以上為已處理部分的彙總，剩餘檔案未處理）",
         "run.stats": "轉換統計: 成功 {success} 個, 跳過 {skip} 個, 失敗 {fail} 個",
@@ -1413,7 +1430,7 @@ LANGUAGES = {
         "help.overwrite": "Force regenerate when the target cbz already exists (default: skip)",
         "help.timeout": "Per-file conversion timeout in seconds; on timeout the file is skipped and counted as failed (default 600, 0 = no limit; on timeout the underlying unpack thread may linger in the background)",
         "help.min_size": "Filter out ebooks smaller than the given bytes; without a number defaults to 1000 bytes, 0 disables size filtering, omitted disables it; when passing a value use --option=value, or place the target path before this option",
-        "help.output_dir": "Output CBZ to the given directory (auto-created); by default keeps the relative subdirectory structure of the input (e.g. Sample Series/001.mobi -> DIR/Sample Series/001.cbz), add --flatten to flatten into the root",
+        "help.output_dir": "Output CBZ to the given directory (auto-created); by default keeps the relative subdirectory structure of the input (e.g. Sample Series/001.mobi -> DIR/Sample Series/001.cbz), add --flatten to flatten into the root; ignored in --unpack mode",
         "help.top_only": "Only process ebook files directly in the target directory (do not recurse into subdirectories)",
     "help.flatten": "Only with --output-dir: flatten all CBZ into the root of the output directory; same-name files are skipped (SKIP) unless --overwrite is given, which overwrites the preferred name; using it alone exits with an error",
         "help.dry_run": "Dry run: only scan files and print the conversion flow, without extracting, packing or creating output directories",
@@ -1438,8 +1455,8 @@ LANGUAGES = {
         "inspect.drop_small_preview": "  [Note] {count} small image(s) found (will be dropped when --drop small is enabled)",
         "inspect.filter_hits": "  [Hits] {count} image(s) matched the filter (--inspect filter)",
         "inspect.filter_no_hit": "  [No hits] no image matched the filter",
-        "help.setinfo": "Set ComicInfo field (repeatable, FIELD=VALUE; VALUE supports %series/%number/%title/%writer/%publisher/%date/%language/%description/%filename/%leftN/%rightN/%subN_M (%subN_M = M chars from the Nth char, 1-based); split on comma only when followed by FIELD=; use multiple --setinfo for a value containing Key=; Manga accepts Unknown/No/Yes/YesAndRightToLeft, not written by default; when enabled, existing .cbz inputs have their ComicInfo.xml modified in place)",
-"help.rename": "Rename output CBZ filename (optional template, off by default). --rename (no value) uses default template (series + auto mark prefix); mark prefix by type: [Vol.x] volume-only / [Ch.x] chapter-only / [Vol.x][Ch.x] volume+chapter / [x] untyped; consecutive episodes (話005-006) -> [Ch.5-6]; placeholders %series/%number/%volume/%title/%writer/%publisher/%date/%language/%description/%filename/%leftN/%rightN/%subN_M and zero-pad %03number; source priority: filename inference > file metadata (OPF/ComicInfo.xml), setinfo excluded; %description is not recommended for filenames (content may be very long); if needed, slice it with %subN_M; combine with --dry-run to preview; when passing a value use --option=value, or place the target path before this option",
+        "help.setinfo": "Set ComicInfo field (repeatable, FIELD=VALUE; VALUE supports %%series/%%number/%%title/%%writer/%%publisher/%%date/%%language/%%description/%%filename/%%leftN/%%rightN/%%subN_M (%%subN_M = M chars from the Nth char, 1-based); split on comma only when followed by FIELD=; use multiple --setinfo for a value containing Key=; Manga accepts Unknown/No/Yes/YesAndRightToLeft, not written by default; when enabled, existing .cbz inputs have their ComicInfo.xml modified in place)",
+"help.rename": "Rename output CBZ filename (optional template, off by default). --rename (no value) uses default template (series + auto mark prefix); mark prefix by type: [Vol.x] volume-only / [Ch.x] chapter-only / [Vol.x][Ch.x] volume+chapter / [x] untyped; consecutive episodes (話005-006) -> [Ch.5-6]; placeholders %%series/%%number/%%volume/%%title/%%writer/%%publisher/%%date/%%language/%%description/%%filename/%%leftN/%%rightN/%%subN_M and zero-pad %%03number; source priority: filename inference > file metadata (OPF/ComicInfo.xml), setinfo excluded; %%description is not recommended for filenames (content may be very long); if needed, slice it with %%subN_M; combine with --dry-run to preview; when passing a value use --option=value, or place the target path before this option",
         "comicinfo.generating": "Generating ComicInfo.xml",
         "comicinfo.created": "ComicInfo.xml written",
         "comicinfo.disabled": "ComicInfo.xml disabled (--no-comicinfo)",
@@ -1673,6 +1690,7 @@ LANGUAGES = {
         "run.elapsed": "  [Elapsed] {name}: {seconds} s",
         "rename.preview": "  [Rename] {old} -> {new}",
         "run.ctrl_c": "\nCtrl+C detected, conversion interrupted; showing current progress summary:",
+    "run.unexpected_error": "  [Error] {name} hit an unexpected exception: {err} (counted as failed)",
         "run.done": "\nConversion complete: {success}/{total} succeeded",
         "run.interrupted_note": "(Task interrupted; summary above covers processed files only, the rest were not handled)",
         "run.stats": "Statistics: {success} succeeded, {skip} skipped, {fail} failed",
@@ -1738,7 +1756,7 @@ LANGUAGES = {
         "help.overwrite": '対象 cbz が既に存在する場合に強制的に再生成（デフォルトはスキップ）',
         "help.timeout": 'ファイルごとの変換タイムアウト秒数。タイムアウトで自動スキップし失敗に計上（デフォルト 600、0 は制限なし。タイムアウト後、基盤の解凍スレッドがバックグラウンドに残る可能性あり）',
         "help.min_size": '指定バイト数未満の電子書籍を除外；数字なしでデフォルト 1000 バイト、0 でサイズフィルタ無効、未指定で無効；値を渡す場合は --オプション=値 の形式にするか、対象パスをこのオプションの前に置いてください',
-        "help.output_dir": "CBZ を指定ディレクトリに出力（自動作成）、デフォルトでは入力の相対サブディレクトリ構造を保持（例: Sample Series/001.mobi → DIR/Sample Series/001.cbz）、--flatten でルートにフラット化",
+        "help.output_dir": "CBZ を指定ディレクトリに出力（自動作成）、デフォルトでは入力の相対サブディレクトリ構造を保持（例: Sample Series/001.mobi → DIR/Sample Series/001.cbz）、--flatten でルートにフラット化；--unpack モードでは無視",
         "help.top_only": "target ディレクトリ直下の電子書籍のみ処理（サブディレクトリへ再帰しない）",
     "help.flatten": "--output-dir との併用時のみ：全 CBZ を出力ディレクトリのルートにフラット化、同名ファイルは --overwrite 指定時のみ上書き、未指定時はスキップ（SKIP）；単独使用はエラー終了",
         "help.dry_run": '試運転：ファイルをスキャンして変換フローを表示するだけで、解凍・パッキング・出力ディレクトリ作成は行わない',
@@ -1763,8 +1781,8 @@ LANGUAGES = {
         "inspect.drop_small_preview": "  [注意] 小画像が {count} 枚（--drop small 有効時は破棄されます）",
         "inspect.filter_hits": "  [ヒット] {count} 枚の画像がフィルタ条件に一致（--inspect フィルタ）",
         "inspect.filter_no_hit": "  [該当なし] フィルタ条件に一致する画像はありません",
-        "help.setinfo": "ComicInfo フィールドを設定（複数可、形式 FIELD=VALUE；VALUE は %series/%number/%title/%writer/%publisher/%date/%language/%description/%filename/%leftN/%rightN/%subN_M をサポート（%subN_M=N 文字目から M 文字、1-based）；カンマ直後にフィールド名= がある場合のみ分割、値に Key= 構造が含まれる場合は --setinfo を複数回指定；Manga は Unknown/No/Yes/YesAndRightToLeft のみ有効、デフォルトでは書かない；--setinfo 有効時、入力中の既存 .cbz は ComicInfo.xml を直接変更）",
-"help.rename": "出力 CBZ のファイル名をリネーム（テンプレート任意、デフォルト無効）。--rename 値なし=デフォルトテンプレート（シリーズ名+自動マーク接頭辞）；マーク接頭辞は種類別に自動選択：単巻[Vol.x]/単話[Ch.x]/巻+話[Vol.x][Ch.x]/型なし[x]、連話（話005-006）は [Ch.5-6]；プレースホルダ %series/%number/%volume/%title/%writer/%publisher/%date/%language/%description/%filename/%leftN/%rightN/%subN_M と %03number ゼロ埋め；優先順位：ファイル名推測 > ファイルメタデータ(OPF/ComicInfo.xml)、setinfo は不参加；%description はファイル名への使用は推奨しません（内容が非常に長くなる可能性があります）。使用する場合は %subN_M で切り出してください；--dry-run でプレビュー推奨；値を渡す場合は --オプション=値 の形式にするか、対象パスをこのオプションの前に置いてください",
+        "help.setinfo": "ComicInfo フィールドを設定（複数可、形式 FIELD=VALUE；VALUE は %%series/%%number/%%title/%%writer/%%publisher/%%date/%%language/%%description/%%filename/%%leftN/%%rightN/%%subN_M をサポート（%%subN_M=N 文字目から M 文字、1-based）；カンマ直後にフィールド名= がある場合のみ分割、値に Key= 構造が含まれる場合は --setinfo を複数回指定；Manga は Unknown/No/Yes/YesAndRightToLeft のみ有効、デフォルトでは書かない；--setinfo 有効時、入力中の既存 .cbz は ComicInfo.xml を直接変更）",
+"help.rename": "出力 CBZ のファイル名をリネーム（テンプレート任意、デフォルト無効）。--rename 値なし=デフォルトテンプレート（シリーズ名+自動マーク接頭辞）；マーク接頭辞は種類別に自動選択：単巻[Vol.x]/単話[Ch.x]/巻+話[Vol.x][Ch.x]/型なし[x]、連話（話005-006）は [Ch.5-6]；プレースホルダ %%series/%%number/%%volume/%%title/%%writer/%%publisher/%%date/%%language/%%description/%%filename/%%leftN/%%rightN/%%subN_M と %%03number ゼロ埋め；優先順位：ファイル名推測 > ファイルメタデータ(OPF/ComicInfo.xml)、setinfo は不参加；%%description はファイル名への使用は推奨しません（内容が非常に長くなる可能性があります）。使用する場合は %%subN_M で切り出してください；--dry-run でプレビュー推奨；値を渡す場合は --オプション=値 の形式にするか、対象パスをこのオプションの前に置いてください",
         "comicinfo.generating": "ComicInfo.xml を生成中",
         "comicinfo.created": "ComicInfo.xml を書き込みました",
         "comicinfo.disabled": "ComicInfo.xml は無効です（--no-comicinfo）",
@@ -1998,6 +2016,7 @@ LANGUAGES = {
         "run.elapsed": '  [経過時間] {name}: {seconds} 秒',
         "rename.preview": '  [リネーム] {old} -> {new}',
         "run.ctrl_c": '\nCtrl+C を検出、変換を中断し現在の進捗サマリーを表示：',
+    "run.unexpected_error": '  [エラー] {name} で予期しない例外: {err}（失敗として計上）',
         "run.done": '\n変換完了: {success}/{total} 成功',
         "run.interrupted_note": '（タスクは中断されました。上記は処理済み部分のサマリーで、残りは未処理です）',
         "run.stats": '変換統計: 成功 {success} 件, スキップ {skip} 件, 失敗 {fail} 件',
@@ -5710,14 +5729,14 @@ def unpack_ebook(p: Path, out_root: Path) -> Path:
     return out_dir
 
 
-def unpack_mode(ebook_files: list[Path], args) -> None:
+def unpack_mode(ebook_files: list[Path], args) -> int:
     """--unpack 模式入口：只解包不转换，输出到各源文件所在目录的「源名_扩展名」子目录。
 
     执行前先列出待解包文件清单，逐个解包后输出完成汇总。
     """
     if not ebook_files:
         emit(t("inspect_mode.none"), level="error")
-        sys.exit(0)
+        return 0
     # 处理清单：先列出将解包的文件
     emit(t("unpack.plan", count=len(ebook_files)), level="summary")
     for i, mf in enumerate(ebook_files, 1):
@@ -5732,7 +5751,7 @@ def unpack_mode(ebook_files: list[Path], args) -> None:
             emit(t("inspect.unpack_fail", err=e), level="error")
             fail_n += 1
     emit(t("unpack.done_summary", ok=ok_n, fail=fail_n), level="summary")
-    sys.exit(1 if fail_n else 0)
+    return 1 if fail_n else 0
 
 
 def repack_one(src_dir: Path, args) -> bool:
@@ -5879,7 +5898,7 @@ def repack_mode(target: Path, args) -> None:
     sys.exit(1 if fail_n else 0)
 
 
-def inspect_mode(ebook_files: list[Path], precheck_skipped: list, args) -> None:
+def inspect_mode(ebook_files: list[Path], precheck_skipped: list, args) -> int:
     """--inspect 模式入口：随机抽查或全量检查电子书内部信息，不生成 CBZ"""
     if precheck_skipped:
         emit(t("inspect_mode.precheck_header", count=len(precheck_skipped)), level="summary")
@@ -5888,7 +5907,7 @@ def inspect_mode(ebook_files: list[Path], precheck_skipped: list, args) -> None:
 
     if not ebook_files:
         emit(t("inspect_mode.none"), level="error")
-        sys.exit(0)
+        return 0
 
     if args.inspect[0] == "all":
         targets = ebook_files
@@ -5940,7 +5959,7 @@ def inspect_mode(ebook_files: list[Path], precheck_skipped: list, args) -> None:
                 pbar.update(1)
     except KeyboardInterrupt:
         emit(t("inspect_mode.ctrl_c"), level="summary")
-        sys.exit(130)
+        return 130
     finally:
         if pbar is not None:
             pbar.close()
@@ -5962,7 +5981,7 @@ def inspect_mode(ebook_files: list[Path], precheck_skipped: list, args) -> None:
         _emit_inspect_json(inspect_records, total_elapsed)
 
     # 退出码语义：inspect 检出异常（fail/invalid/timeout/drm）时退出 1，noimg 视为正常状态
-    sys.exit(1 if (fail or invalid or timeout_n or drm_n) else 0)
+    return 1 if (fail or invalid or timeout_n or drm_n) else 0
 
 
 def _emit_inspect_json(records: list, total_elapsed: float) -> None:
@@ -7416,7 +7435,7 @@ def _list_cbz(p: Path, args, double_ratio, list_expr) -> None:
         return None
 
 
-def list_images_mode(ebook_files: list[Path], args) -> None:
+def list_images_mode(ebook_files: list[Path], args) -> int:
     """--list-images 主入口：遍历文件输出清单 + 统计。
 
     表达式统一在此解析一次（None=全列），避免无值 const='all' 被
@@ -7445,6 +7464,7 @@ def list_images_mode(ebook_files: list[Path], args) -> None:
     # --list-images 的 JSON 输出（--json stdout 精简 / --json-out 落盘全量）
     if _json_stdout or _json_out_path:
         _emit_list_json(records, time.perf_counter() - total_start)
+    return 0
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -7703,7 +7723,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help=t("help.unpack"),
     )
-    # 输入：重新打包；输出：将已解包的 CBZ 目录（目录名以 .cbz 结尾）打包回 CBZ
+    # 输入：重新打包；输出：将已解包的 CBZ 目录（目录名以 _cbz 结尾）打包回 CBZ
     parser.add_argument(
         "--repack",
         action="store_true",
@@ -7798,7 +7818,7 @@ def _main() -> None:
     # target 为文件时不计算相对路径，直接输出 DIR/stem.cbz
     input_root = target if target.is_dir() else None
 
-    # --repack 模式：target 是 .cbz 解包目录或含 *.cbz 解包目录的父目录，
+    # --repack 模式：target 是 _cbz 解包目录或含 *_cbz 解包目录的父目录，
     # 不走电子书收集流程，直接打包回 CBZ 后返回
     if args.repack:
         repack_mode(target, args)
@@ -7832,21 +7852,23 @@ def _main() -> None:
     # 只读/解包模式串联执行（互不排斥）：unpack → inspect → list-images 依次跑完；
     # 任一模式被指定即在此处理后 return，不再进入下方 CBZ 修改/转换流程
     mode_used = False
+    mode_codes: list[int] = []
     if args.unpack:
-        unpack_mode(ebook_files, args)
+        mode_codes.append(unpack_mode(ebook_files, args))
         mode_used = True
 
     if args.inspect is not None:
-        inspect_mode(ebook_files, precheck_skipped, args)
+        mode_codes.append(inspect_mode(ebook_files, precheck_skipped, args))
         mode_used = True
 
     # --list-images 模式：列出书内图片清单+统计（EPUB/MOBI 走解包，CBZ 走 zipfile 直读）
     if args.list_images:
-        list_images_mode(ebook_files, args)
+        mode_codes.append(list_images_mode(ebook_files, args))
         mode_used = True
 
     if mode_used:
-        return
+        # 只读/解包模式串联：各模式返回退出码（0=OK / 1=有失败 / 130=中断），取最大值统一退出
+        sys.exit(max(mode_codes))
 
     # #36 CBZ 修改模式：--setinfo 且输入为已有 CBZ 时，直接修改其 ComicInfo.xml；
     # --rename 独立模式：输入为已有 CBZ 时仅重命名文件名（二者可叠加，P0-2 修复：先改元数据再改名）
@@ -7976,70 +7998,96 @@ def _main() -> None:
     interrupted = False
     drop_total = 0
     pbar = create_progress_if_needed(args, ebook_files, t("progress.desc.convert"))
+
+    def _convert_one(mf, pbar, output_dir, input_root):
+        """转换单个文件并累计统计/JSON 记录；正常情况不抛异常（状态经 ConvStatus 返回）。"""
+        nonlocal success, drop_total
+        file_start = time.perf_counter()
+        disk_warn = check_disk_space(output_dir or mf.parent, Path(tempfile.gettempdir()), estimate_expanded_size(mf))
+        if disk_warn:
+            emit(disk_warn, level="warning")
+        timed_out, converted = run_with_timeout(
+            ebook_to_cbz, args.timeout,
+            mf, delete_original=args.delete, prefer=args.prefer,
+            drop_expr=args.drop, overwrite=args.overwrite,
+            output_dir=output_dir, compress=_compress_level,
+            flatten=args.flatten, input_root=input_root,
+            comicinfo=not args.no_comicinfo, setinfo_args=args.setinfo,
+            double_page=args.double_page,
+            rename_template=args.rename,
+        )
+        file_elapsed = time.perf_counter() - file_start
+        json_status = "ok"
+        json_target = None
+        json_reason = None
+        conv_sources = None
+        if timed_out:
+            emit(t("run.timeout", name=mf.name, seconds=args.timeout), level="error")
+            emit(t("run.timeout_residue"), level="warning")
+            failed_files.append(mf)
+            failed_reasons["timeout"] += 1
+            json_status = "timeout"
+            json_reason = "timeout"
+        else:
+            result, status, reason, conv_sources = converted
+            if status == ConvStatus.OK:
+                success += 1
+                success_cbzs.append(result)
+                json_target = str(result)
+            elif status == ConvStatus.SKIP:
+                skipped_files.append(mf)
+                json_status = "skip"
+            elif status == ConvStatus.FAIL:
+                failed_files.append(mf)
+                failed_reasons[reason] += 1
+                json_status = "fail"
+                json_reason = reason
+        emit(t("run.elapsed", name=mf.name, seconds=f"{file_elapsed:.2f}"))
+        conv_sources = conv_sources or {}
+        drop_total += conv_sources.get("dropped_small") or 0
+        _renamed = conv_sources.get("renamed")
+        json_files.append({
+            "source": str(mf),
+            "status": json_status,
+            "target": json_target,
+            "reason": json_reason,
+            "elapsed_sec": round(file_elapsed, 3),
+            "renamed": {"old": _renamed["old_stem"] + ".cbz", "new": _renamed["new_stem"] + ".cbz"} if _renamed else None,
+            "series_source": conv_sources.get("series_source"),
+            "number_source": conv_sources.get("number_source"),
+            "volume_source": conv_sources.get("volume_source"),
+            "cover_source": conv_sources.get("cover_source"),
+            "dropped_small": conv_sources.get("dropped_small"),
+            "dropped_filter": conv_sources.get("dropped_filter"),
+        })
+        if pbar is not None:
+            pbar.update(1)
+
     try:
         for mf in ebook_files:
             if pbar is not None:
                 pbar.set_postfix_str(truncate_name(mf.name))
-            file_start = time.perf_counter()
-            disk_warn = check_disk_space(output_dir or mf.parent, Path(tempfile.gettempdir()), estimate_expanded_size(mf))
-            if disk_warn:
-                emit(disk_warn, level="warning")
-            timed_out, converted = run_with_timeout(
-                ebook_to_cbz, args.timeout,
-                mf, delete_original=args.delete, prefer=args.prefer,
-                drop_expr=args.drop, overwrite=args.overwrite,
-                output_dir=output_dir, compress=_compress_level,
-                flatten=args.flatten, input_root=input_root,
-                comicinfo=not args.no_comicinfo, setinfo_args=args.setinfo,
-                double_page=args.double_page,
-                rename_template=args.rename,
-            )
-            file_elapsed = time.perf_counter() - file_start
-            json_status = "ok"
-            json_target = None
-            json_reason = None
-            conv_sources = None
-            if timed_out:
-                emit(t("run.timeout", name=mf.name, seconds=args.timeout), level="error")
-                emit(t("run.timeout_residue"), level="warning")
+            try:
+                _convert_one(mf, pbar, output_dir, input_root)
+            except Exception as e:
+                # 兜底：ebook_to_cbz 内部应自行吞掉异常返回状态；万一仍抛出，按失败文件计入，避免整批崩溃
+                emit(t("run.unexpected_error", name=mf.name, err=e), level="error")
                 failed_files.append(mf)
-                failed_reasons["timeout"] += 1
-                json_status = "timeout"
-                json_reason = "timeout"
-            else:
-                result, status, reason, conv_sources = converted
-                if status == ConvStatus.OK:
-                    success += 1
-                    success_cbzs.append(result)
-                    json_target = str(result)
-                elif status == ConvStatus.SKIP:
-                    skipped_files.append(mf)
-                    json_status = "skip"
-                elif status == ConvStatus.FAIL:
-                    failed_files.append(mf)
-                    failed_reasons[reason] += 1
-                    json_status = "fail"
-                    json_reason = reason
-            emit(t("run.elapsed", name=mf.name, seconds=f"{file_elapsed:.2f}"))
-            conv_sources = conv_sources or {}
-            drop_total += conv_sources.get("dropped_small") or 0
-            _renamed = conv_sources.get("renamed")
-            json_files.append({
-                "source": str(mf),
-                "status": json_status,
-                "target": json_target,
-                "reason": json_reason,
-                "elapsed_sec": round(file_elapsed, 3),
-                "renamed": {"old": _renamed["old_stem"] + ".cbz", "new": _renamed["new_stem"] + ".cbz"} if _renamed else None,
-                "series_source": conv_sources.get("series_source"),
-                "number_source": conv_sources.get("number_source"),
-                "volume_source": conv_sources.get("volume_source"),
-                "cover_source": conv_sources.get("cover_source"),
-                "dropped_small": conv_sources.get("dropped_small"),
-                "dropped_filter": conv_sources.get("dropped_filter"),
-            })
-            if pbar is not None:
-                pbar.update(1)
+                failed_reasons["unexpected"] += 1
+                json_files.append({
+                    "source": str(mf),
+                    "status": "fail",
+                    "target": None,
+                    "reason": "unexpected",
+                    "elapsed_sec": 0.0,
+                    "renamed": None,
+                    "series_source": None,
+                    "number_source": None,
+                    "volume_source": None,
+                    "cover_source": None,
+                    "dropped_small": None,
+                    "dropped_filter": None,
+                })
     except KeyboardInterrupt:
         # Ctrl+C：中断主循环，但仍输出已完成部分的汇总（临时目录由 ebook_to_cbz 的 finally 清理）
         interrupted = True
