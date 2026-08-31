@@ -292,6 +292,20 @@ A: 支持。v2.4.0 起输入扩展名扩展为 `.mobi` / `.azw` / `.azw3` / `.ep
 
 ## 更新日志
 
+### [3.5.1] - 2026-08-31
+
+#### 修复
+
+- **P0：四语 `help.setinfo` / `help.rename` 占位符恢复 `%%`** — 帮助文本占位符误改为单 `%`，argparse 把 help 当 `%` 格式串展开触发 TypeError；已恢复为 `%%`（模块 docstring 保持单 `%`）
+- **P1：三模式退出码改用 return 返回** — `--unpack` / `--inspect` / `--list-images` 不再直接 `sys.exit`，改为 return 退出码，`_main` 统一 `sys.exit(max(mode_codes))`，模式串联执行不被中断
+- **P2：`--repack` 示例与注释 `_cbz` 结尾修正** — 示例与代码注释中「目录名以 .cbz 结尾」改为 `_cbz` 结尾，docstring 示例 `Vol_cbz --repack` 同步修正
+- 文件头用法行 `[--inspect sample|all]` → `[--inspect [sample|all][,FILTER]]`
+- 四语 `help.output_dir` 追加「`--unpack` 模式忽略此参数」说明
+  
+  #### 变更
+  
+- **主循环通用异常兜底** — 提取 `_convert_one` 嵌套函数并补 `except Exception`，未预期异常计入失败文件而非裸退；四语新增 `run.unexpected_error` 文案键
+
 ### [3.5.0] - 2026-08-28
 
 #### 新增
