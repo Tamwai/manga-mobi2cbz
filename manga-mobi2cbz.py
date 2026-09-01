@@ -138,6 +138,12 @@ manga-mobi2cbz — 将 mobi/azw/azw3/epub 电子书漫画文件批量转换为 c
 要求: Python 3.10+
 
 更新日志:
+    v3.5.2 (2026-09-01)
+        - 维护：_list_ebook 复用 ensure_cover_first，消除重复的封面
+          兜底扫描代码（文件名关键词封面补齐逻辑合并为单一实现）
+        - 维护：parse_inspect_arg 局部变量 t 改名 tok，消除对 i18n
+          翻译函数 t() 的遮蔽
+        - 维护：emit 日志改为持久句柄，消除每次写日志 open/close
     v3.5.1 (2026-08-31)
         - 修复：P0 四语 help.setinfo / help.rename 占位符恢复为 %%
           （argparse 会把 help 当 % 格式串展开触发 TypeError，
@@ -723,7 +729,7 @@ manga-mobi2cbz — 将 mobi/azw/azw3/epub 电子书漫画文件批量转换为 c
           EOCD + testzip 完整性校验、失败清理半成品
 """
 
-__version__ = "3.5.1"
+__version__ = "3.5.2"
 
 SCRIPT_NAME = "manga-mobi2cbz"
 
@@ -2311,6 +2317,7 @@ _debug_mode = False
 _quiet_mode = False
 _log_path = None
 _log_write_failed = False
+_log_handle = None
 _short_summary = False
 _compress_level = 0
 _json_stdout = False
@@ -2328,7 +2335,7 @@ def emit(msg: str, level: str = "info") -> None:
     日志写入失败（非法路径 / 磁盘满 / 文件独占等）时打印一次警告，
     避免用户误以为日志已正常保存。
     """
-    global _log_write_failed
+    global _log_write_failed, _log_handle
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     if msg.startswith("\n"):
         # 前导换行移到时间戳之前，避免出现孤立的空时间戳行
@@ -2345,8 +2352,10 @@ def emit(msg: str, level: str = "info") -> None:
             line = _c(36, line)
     if _log_path:
         try:
-            with open(_log_path, "a", encoding="utf-8") as f:
-                f.write(_strip_ansi(line) + "\n")
+            if _log_handle is None:
+                _log_handle = open(_log_path, "a", encoding="utf-8")
+            _log_handle.write(_strip_ansi(line) + "\n")
+            _log_handle.flush()
         except Exception as e:
             if not _log_write_failed:
                 _log_write_failed = True
@@ -6404,11 +6413,11 @@ def parse_inspect_arg(value: str | None):
     mode = None
     rest = []
     for token in v.split(","):
-        t = token.strip()
-        if t == "sample" or t == "all":
-            mode = t
+        tok = token.strip()
+        if tok == "sample" or tok == "all":
+            mode = tok
         else:
-            rest.append(t)
+            rest.append(tok)
     if not rest:
         return (mode if mode else "sample"), None
     return (mode if mode else "sample"), parse_drop_expr(",".join(rest))
@@ -7213,17 +7222,16 @@ def _list_ebook(p: Path, args, double_ratio, list_expr) -> None:
                 if cand.is_file() and cand.suffix.lower() in IMAGE_EXTENSIONS:
                     cover_guide_path = cand
         if images:
-            cover = cover_guide_path
-            if cover is None:
-                cover_cands = [cp for cp in base_dir.rglob("*")
-                               if cp.is_file() and cp.suffix.lower() in IMAGE_EXTENSIONS
-                               and any(k in cp.name.lower() for k in COVER_KEYWORDS)]
-                if cover_cands:
-                    cover_cands.sort(key=natural_key)
-                    cover = cover_cands[0]
-            if cover is not None and norm_path(cover) not in spine_set:
-                images.insert(0, cover)
-                cover_extra = True
+            if cover_guide_path is not None:
+                if norm_path(cover_guide_path) not in spine_set:
+                    images.insert(0, cover_guide_path)
+                    cover_extra = True
+            else:
+                # 文件名关键词封面兜底复用 ensure_cover_first（消除重复扫描逻辑）
+                before = len(images)
+                images = ensure_cover_first(images, base_dir)
+                if len(images) > before:
+                    cover_extra = True
         # 目录对齐：多余图（extra 条件决定追加或舍弃）
         collected = {norm_path(i) for i in images}
         extras = [ep for ep in base_dir.rglob("*")
