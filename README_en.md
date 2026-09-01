@@ -290,6 +290,14 @@ A: Yes. Since v2.4.0 the accepted input extensions are `.mobi` / `.azw` / `.azw3
 
 ## Changelog
 
+### [3.5.2] - 2026-09-01
+
+#### Maintenance
+
+- **`_list_ebook` reuses `ensure_cover_first`** — removes duplicated cover fallback scanning (the filename-keyword cover completion is now a single implementation)
+- **`parse_inspect_arg` local `t` renamed to `tok`** — no longer shadows the i18n translation function `t()`
+- **`emit` log now uses a persistent handle** — no longer opens/closes the log file on every write
+
 ### [3.5.1] - 2026-08-31
 
 #### Fixes
