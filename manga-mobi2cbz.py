@@ -138,6 +138,13 @@ manga-mobi2cbz — 将 mobi/azw/azw3/epub 电子书漫画文件批量转换为 c
 要求: Python 3.10+
 
 更新日志:
+    v3.5.4 (2026-09-04)
+        - 修复：--dry-run 在 --unpack / --repack 模式被忽略，真实
+          执行解包/打包落盘；现两模式入口优先判定 dry_run 短路，
+          只打印解包/打包计划不写盘（含 --json / --json-out 输出），
+          对齐 help 契约「不实际解压打包、不创建输出目录」
+        - 维护：解包目标目录命名逻辑抽为 _unpack_target_dir，真实
+          解包与 --dry-run 预览共用，保证试运行预览与实跑一致
     v3.5.3 (2026-09-02)
         - 修复：--list-images 非法过滤表达式分支裸 return 改
           return 1，避免 _main 取 max(mode_codes) 时空列表 TypeError
@@ -734,7 +741,7 @@ manga-mobi2cbz — 将 mobi/azw/azw3/epub 电子书漫画文件批量转换为 c
           EOCD + testzip 完整性校验、失败清理半成品
 """
 
-__version__ = "3.5.3"
+__version__ = "3.5.4"
 
 SCRIPT_NAME = "manga-mobi2cbz"
 
@@ -5711,6 +5718,20 @@ def _is_unpack_cbz_dir(name: str) -> bool:
     return _unpack_dir_parts(name)[2] == "cbz"
 
 
+def _unpack_target_dir(p: Path, out_root: Path) -> Path:
+    """计算解包目标目录（源名_扩展名，撞名时以 (N) 序号避让），只计算不创建。
+
+    供真实解包与 --dry-run 共用同一命名规则，保证试运行预览与实跑一致。
+    """
+    base = f"{p.stem}_{p.suffix.lstrip('.')}"
+    out_dir = out_root / base
+    n = 2
+    while out_dir.exists():
+        out_dir = out_root / f"{base} ({n})"
+        n += 1
+    return out_dir
+
+
 def unpack_ebook(p: Path, out_root: Path) -> Path:
     """解包电子书到 out_root 下的同名子目录（默认 源名_扩展名，撞名时再以 (N) 序号避让）。
 
@@ -5719,12 +5740,7 @@ def unpack_ebook(p: Path, out_root: Path) -> Path:
     mobi 走 mobi.extract 保留完整结构（mobi7/mobi8 等），cbz/epub 逐条目
     安全解压（含 zip-slip 路径穿越防护）。返回实际解包到的目录。
     """
-    base = f"{p.stem}_{p.suffix.lstrip('.')}"
-    out_dir = out_root / base
-    n = 2
-    while out_dir.exists():
-        out_dir = out_root / f"{base} ({n})"
-        n += 1
+    out_dir = _unpack_target_dir(p, out_root)
     out_dir.mkdir(parents=True, exist_ok=True)
     if p.suffix.lower() in (".cbz", ".epub"):
         with zipfile.ZipFile(str(p)) as zf:
@@ -5755,6 +5771,25 @@ def unpack_mode(ebook_files: list[Path], args) -> int:
     emit(t("unpack.plan", count=len(ebook_files)), level="summary")
     for i, mf in enumerate(ebook_files, 1):
         emit(f"  {i}. {mf}", level="summary")
+    if args.dry_run:
+        # 试运行：只打印每个文件将解包到的目标目录，不创建任何输出目录
+        emit(t("run.dryrun_banner"), level="summary")
+        json_files: list = []
+        for i, mf in enumerate(ebook_files, 1):
+            out_dir = _unpack_target_dir(mf, mf.parent)
+            emit(f"  {i}. {mf.name} -> {out_dir}", level="summary")
+            json_files.append({
+                "source": str(mf),
+                "status": "pending",
+                "target": str(out_dir),
+                "reason": None,
+                "elapsed_sec": None,
+                "dry_run": True,
+            })
+        emit(t("run.dryrun_end"), level="summary")
+        emit_json(json_files, success=0, skipped=0, failed=0,
+                  interrupted=False, total_elapsed=0.0)
+        return 0
     ok_n = fail_n = 0
     for mf in ebook_files:
         try:
@@ -5902,6 +5937,27 @@ def repack_mode(target: Path, args) -> None:
     for i, d in enumerate(dirs, 1):
         recon_stem, num_suffix, _ext = _unpack_dir_parts(d.name)
         emit(f"  {i}. {d}  →  {recon_stem + num_suffix + '.cbz'}", level="summary")
+    if args.dry_run:
+        # 试运行：只打印每个目录将打包成的 CBZ 路径，不写任何文件
+        emit(t("run.dryrun_banner"), level="summary")
+        json_files: list = []
+        for i, d in enumerate(dirs, 1):
+            recon_stem, num_suffix, _ext = _unpack_dir_parts(d.name)
+            out_name = recon_stem + num_suffix + ".cbz"
+            out_file = (Path(args.output_dir) / out_name) if args.output_dir else (d.parent / out_name)
+            emit(f"  {i}. {d}  →  {out_file}", level="summary")
+            json_files.append({
+                "source": str(d),
+                "status": "pending",
+                "target": str(out_file),
+                "reason": None,
+                "elapsed_sec": None,
+                "dry_run": True,
+            })
+        emit(t("run.dryrun_end"), level="summary")
+        emit_json(json_files, success=0, skipped=0, failed=0,
+                  interrupted=False, total_elapsed=0.0)
+        sys.exit(0)
     ok_n = fail_n = 0
     for d in dirs:
         if repack_one(d, args):
