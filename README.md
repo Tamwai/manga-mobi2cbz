@@ -1,4 +1,4 @@
-**Languages:** [中文](README.md) | [English](README_en.md) | [日本語](README_ja.md)
+Languages:** [中文](README.md) | [English](README_en.md) | [日本語](README_ja.md)
 
 # manga-mobi2cbz
 
@@ -291,6 +291,13 @@ A: 支持。v1.8.0 起输入扩展名扩展为 `.mobi` / `.azw` / `.azw3`，三�
 A: 支持。v2.4.0 起输入扩展名扩展为 `.mobi` / `.azw` / `.azw3` / `.epub`。EPUB 本质为 ZIP 容器，直接走 zipfile 安全解包并复用 OPF spine 提取链路；封面自动识别支持 EPUB2（`<meta name="cover">`）与 EPUB3（`properties="cover-image"`）两种约定；无 EXTH 头时元数据从 OPF `dc:` 字段读取；`--prefer` 对 EPUB 静默忽略。加密 EPUB（Adobe DRM 等）无法解析内容，会提示无图片/无有效元数据并跳过，请先去除 DRM 再转换。
 
 ## 更新日志
+
+### [3.5.3] - 2026-09-02
+
+#### 修复
+
+- **`--list-images` 非法过滤表达式退出码修复** — 非法表达式分支裸 `return` 改为 `return 1`，避免 `_main` 尝试 `max(mode_codes)` 时对空列表触发 TypeError
+- **`get_drm_flag` EXTH 偏移修正** — 读取 DRM 标志的 EXTH 项内偏移从 `+14` 修正为 `+12`（`0x0E` → `0x0C`）
 
 ### [3.5.2] - 2026-09-01
 
