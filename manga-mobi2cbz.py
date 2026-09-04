@@ -138,6 +138,11 @@ manga-mobi2cbz — 将 mobi/azw/azw3/epub 电子书漫画文件批量转换为 c
 要求: Python 3.10+
 
 更新日志:
+    v3.5.3 (2026-09-02)
+        - 修复：--list-images 非法过滤表达式分支裸 return 改
+          return 1，避免 _main 取 max(mode_codes) 时空列表 TypeError
+        - 修复：get_drm_flag 读取 DRM 标志的 EXTH 项内偏移 +14
+          改 +12（docstring 0x0E→0x0C），修正加密标志误读
     v3.5.2 (2026-09-01)
         - 维护：_list_ebook 复用 ensure_cover_first，消除重复的封面
           兜底扫描代码（文件名关键词封面补齐逻辑合并为单一实现）
@@ -729,7 +734,7 @@ manga-mobi2cbz — 将 mobi/azw/azw3/epub 电子书漫画文件批量转换为 c
           EOCD + testzip 完整性校验、失败清理半成品
 """
 
-__version__ = "3.5.2"
+__version__ = "3.5.3"
 
 SCRIPT_NAME = "manga-mobi2cbz"
 
@@ -4487,7 +4492,7 @@ def get_drm_flag(p: Path) -> bool:
     旧实现读 PalmDB 头偏移 12 的 2 字节，该位置落在 PalmDB name 字段
     内（偏移 0-31），文件名/书名含 '-'、'_' 等字符会误报为 DRM。正确判据：
     1. PalmDB attributes（偏移 32）的 copy-protection 位（0x0040）；
-    2. PalmDOC header 的 encryption type（偏移 78+8*nrec+0x0E，
+    2. PalmDOC header 的 encryption type（偏移 78+8*nrec+0x0C，
        0=无、1=旧格式、2=新格式），为权威判据。
     """
     if p.suffix.lower() == ".epub":
@@ -4503,7 +4508,7 @@ def get_drm_flag(p: Path) -> bool:
             nrec = struct.unpack(">H", head[76:78])[0]
             if nrec == 0:
                 return False
-            f.seek(78 + 8 * nrec + 14)
+            f.seek(78 + 8 * nrec + 12)
             return struct.unpack(">H", f.read(2))[0] != 0
     except Exception:
         return False
@@ -7456,7 +7461,7 @@ def list_images_mode(ebook_files: list[Path], args) -> int:
             list_expr = parse_drop_expr(args.list_images)
         except argparse.ArgumentTypeError as e:
             emit(str(e), level="error")
-            return
+            return 1
     double_ratio = args.double_page
     if not isinstance(double_ratio, (int, float)):
         double_ratio = _parse_double_page_arg(double_ratio) if double_ratio else None
