@@ -290,6 +290,16 @@ A: Yes. Since v2.4.0 the accepted input extensions are `.mobi` / `.azw` / `.azw3
 
 ## Changelog
 
+### [3.5.4] - 2026-09-04
+
+#### Fixes
+
+- **`--dry-run` now respected in `--unpack` / `--repack` modes** — both modes previously ignored `--dry-run` and performed real extraction/repacking to disk; both now short-circuit at the entry, printing the extraction/repack plan only without writing anything (including the `--json` / `--json-out` output), matching the help contract "no extraction, packing or output directories"
+  
+  #### Maintenance
+  
+- **Unpack target-directory naming extracted to `_unpack_target_dir`** — shared by real unpacking and the `--dry-run` preview so the preview matches real runs
+
 ### [3.5.3] - 2026-09-02
 
 #### Fixes
