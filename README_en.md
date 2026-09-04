@@ -290,6 +290,13 @@ A: Yes. Since v2.4.0 the accepted input extensions are `.mobi` / `.azw` / `.azw3
 
 ## Changelog
 
+### [3.5.3] - 2026-09-02
+
+#### Fixes
+
+- **`--list-images` exit code fix for invalid filter expressions** — the invalid-expression branch returned a bare `return`; changed to `return 1` so `_main` no longer calls `max(mode_codes)` on an empty list (TypeError)
+- **`get_drm_flag` EXTH offset correction** — the in-item offset used to read the DRM flag is corrected from `+14` to `+12` (`0x0E` → `0x0C`)
+
 ### [3.5.2] - 2026-09-01
 
 #### Maintenance
