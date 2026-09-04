@@ -562,13 +562,13 @@ class TestInspectJsonFormats(unittest.TestCase):
 
 
 class TestVersionGuard(unittest.TestCase):
-    """v3.5.3 版本号同步护栏：__version__ / docstring 更新日志。"""
+    """v3.5.4 版本号同步护栏：__version__ / docstring 更新日志。"""
 
-    def test_version_is_3_5_3(self):
-        self.assertEqual(mod.__version__, "3.5.3")
+    def test_version_is_3_5_4(self):
+        self.assertEqual(mod.__version__, "3.5.4")
 
-    def test_docstring_changelog_has_3_5_3(self):
-        self.assertIn("v3.5.3", mod.__doc__)
+    def test_docstring_changelog_has_3_5_4(self):
+        self.assertIn("v3.5.4", mod.__doc__)
         self.assertIn("退出码", mod.__doc__)
 
 
