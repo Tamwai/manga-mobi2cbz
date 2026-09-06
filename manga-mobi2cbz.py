@@ -138,6 +138,47 @@ manga-mobi2cbz — 将 mobi/azw/azw3/epub 电子书漫画文件批量转换为 c
 要求: Python 3.10+
 
 更新日志:
+    v3.6.0 (2026-09-05)
+        - 新增：--pages <PAGES> 指定页处理（可多次，值内逗号切分免引号）：
+          只处理指定页码的图片（页码从 1 起，第 1 页 = 卷内第 1 张图）；
+          支持单页 5｜闭区间 1-3｜开区间 7-*（*=最后 1 页），可逗号混用；
+          越界页码忽略并逐页提示，全部越界/空命中报错退出；与 --img-edit
+          组合仅选中页走管线、与 --drop 按 AND 共存、与 --unpack /
+          --repack 只解/打包选中页
+        - 新增：--img-edit [EDIT] 图像处理管线（可多次，值内 '+' 切分摊平）：
+          实现操作 rotate（auto=按 EXIF Orientation 烧录像素后删除
+          Orientation 字段并重编码；90/180/270=手动强制旋转，先归一 EXIF
+          方向再旋转）、flip（x=水平镜像 / y=垂直镜像 / both=两者）、
+          grayscale（灰度化，恒插在 flip 之后，输出 RGB 三通道等值）、
+          format=jpeg|png|webp（别名 jpg；目标格式，重编码后 cbz 内条目
+          后缀同步改；透明转 JPEG 默认补白，可 format=jpeg,black 或
+          #RRGGBB 改色；JPEG/WebP 走 quality 保存、PNG 无损）、
+          quality=1-100（重编码保存质量覆盖，默认 95，越界报错）与
+          trim（自动白边裁剪：按边缘统一背景色四向收缩，外扩安全边界
+          避免误切；无参=智能容差，可给 0~1 容差比）、scale=NNN% 或
+          scale=NNNw（百分比相对缩放保持页间比例，如 200%=放大 2 倍；
+          或按目标宽度像素统一拉齐，如 1200w；二选一）、strip（清光图片
+          全部 EXIF 元数据，管线恒为末位）；固定管线顺序 denoise→
+          whitebalance→rotate→flip→grayscale→format→quality→scale→
+          trim→strip 与书写顺序无关；同一操作重复给不同值报错、相同值
+          幂等忽略；三入口
+          全开：mobi→cbz 转换输出前 / --repack 打包前 / 目标为已有
+          .cbz 且不带 --repack 时的就地修正（CBZ 方向修正模式）；完整
+          联动 --dry-run / --json / --json-out / --log；基于 Pillow 实现
+        - 新增：--drop 支持重复 flag（action='append'），多次 = OR 并集，
+          复用 parse_drop_expr 表达式解析
+        - 新增：--unpack 支持 --output-dir（解包输出目录，默认仍为各源
+          文件所在目录），--dry-run 预览与实跑目标目录口径一致
+        - 新增：--list-images 对 EXIF Orientation≠1 的图片新增 [旋转N]
+          标记（N=2~8，正常 =1 不标），并入 [异常] 汇总统计；与
+          [旋转跨页]（宽高比推断）并存不冲突
+        - 新增：--list-images / --inspect 过滤新增条件词 方向（同义词
+          orient/orientation/direction，中文与日文=方向/方向异常/方向異
+          常）：无值=选出所有方向异常图（rotate=auto 将旋转），带值精确
+          匹配 EXIF Orientation（如 方向=6）；--list-images --json-out
+          图片记录新增 "orientation": N 字段
+        - 新增：--inspect 书级摘要新增「方向异常 N 张（rotate=auto 将
+          旋转）」输出行；info 新增 rotate_count 字段（--json-out 带出）
     v3.5.4 (2026-09-04)
         - 修复：--dry-run 在 --unpack / --repack 模式被忽略，真实
           执行解包/打包落盘；现两模式入口优先判定 dry_run 短路，
@@ -741,7 +782,7 @@ manga-mobi2cbz — 将 mobi/azw/azw3/epub 电子书漫画文件批量转换为 c
           EOCD + testzip 完整性校验、失败清理半成品
 """
 
-__version__ = "3.5.4"
+__version__ = "3.6.0"
 
 SCRIPT_NAME = "manga-mobi2cbz"
 
@@ -791,12 +832,39 @@ LANGUAGES = {
         "help.delete": "转换成功后删除原始电子书文件",
         "help.prefer": "双目录 mobi（mobi7/mobi8）时保留哪份：auto 默认优先 mobi8、空壳自动回退 mobi7；指定 mobi7/mobi8 时，指定目录为空也自动回退另一份",
         "help.ext_priority": "同目录同名（仅扩展名不同）时保留哪种格式：逗号分隔、顺序即优先级从高到低，仅接受 mobi/azw/azw3/epub，默认 azw3；优先级未覆盖时回退兜底顺序 azw3→epub→mobi→azw；与 --prefer（双目录选择）无关",
-        "help.drop_extra": "丢弃目录外多余图（隐藏别名，已并入 --drop extra）：无值=丢弃目录外多余图（默认追加）；off/no/0=关闭；带值请用 --选项=值 写法，或把目标路径放在本选项之前",
+        "help.img_edit": "图像处理管线（可多次，值内 '+' 切分摊平）：rotate[=auto|90|180|270]（无参=auto 按 EXIF Orientation 烧录像素并删除 Orientation 字段后重编码；90/180/270 手动旋转，先归一 EXIF 方向再转）；flip=x|y|both（x=水平镜像 / y=垂直镜像 / both=两者）；grayscale（灰度化，恒插在 flip 之后，输出 RGB 三通道等值）；format=jpeg|png|webp（别名 jpg；目标格式，重编码后 cbz 内条目后缀同步改；透明转 JPEG 默认补白，可 format=jpeg,black 或 #RRGGBB 改色；JPEG/WebP 走 quality 保存、PNG 无损）；quality=1-100（重编码保存质量覆盖，默认 95，越界报错）；scale=NNN%%（百分比相对缩放，保持页间比例，如 200%%=放大 2 倍；1~1000）或 scale=NNNw（统一目标宽度像素、高度按原始比例，如 1200w；1~100000，二选一）；trim[=容差]（自动白边裁剪：按边缘统一背景色四向收缩并外扩安全边界，无参=智能容差 0.05，可给 0~1）；strip（清光图片全部 EXIF/元数据，恒为管线末位）；固定顺序 denoise→whitebalance→rotate→flip→grayscale→format→quality→scale→trim→strip 与书写顺序无关；同一操作重复给不同值报错、相同值幂等忽略；三入口：mobi→cbz 转换 / --repack 打包前 / 对已有 .cbz 就地修正；联动 --dry-run/--json/--json-out/--log",
+        "help.pages": "指定页处理（可多次；值内逗号切分、无需引号）：只保留/处理选中页，其余页不输出或原样透传。语法：单页 5｜闭区间 1-3｜开区间 7-*（*=最后1页）｜逗号混合，如 --pages 1-3,5,7-*。页码从 1 起（第 1 页 = 卷内第 1 张图，按各链路有序图片列表编号）。适用链路：mobi→cbz 转换（CBZ 只含选中页）/ --repack 只打选中页 / --unpack 只解选中页 / --img-edit 就地修正只处理选中页；与 --drop 共存按 AND（先锁定页再丢）。越界页汇总提示『忽略第 N 页（越界）』；全部越界/空命中报错终止。亦可按筛选词选页：非数字段复用 --list-images/--drop 词库（name=文件名子串、name==完整文件名精确、name=\"文件名\"引号亦精确｜标签如 封面/双页/方向异常/small/超大页/动图｜方向/格式/尺寸），逗号=OR、'+'=AND，命中页并入选中集，如 --pages 1-3,name=cover 或 --pages 封面。",
+        "error.pages_invalid": "非法 --pages 表达式 '{expr}': {reason}",
+        "pages.enabled": "已启用 --pages（{expr}）",
+        "pages.selected": "已选中 {count}/{total} 页（--pages {expr}）",
+        "pages.skip_out_of_range": "忽略第 {n} 页（越界，全书共 {total} 页）",
+        "pages.empty": "--pages 未命中任何有效页（全部越界或空命中），已终止",
+        "pages.hit_line": "  {n}. {name}",
+        "repack.fail_pages": "  [!] {dir} 因 --pages 空命中未打包",
+    "error.img_edit_bad_rotate": "无效的 rotate 值 '{value}'：仅支持 {allowed}",
+    "error.img_edit_bad_flip": "无效的 flip 值 '{value}'：仅支持 {allowed}（必填，x/y/both）",
+    "error.img_edit_bad_quality": "无效的 quality 值 '{value}'：仅支持 {allowed}（必须是 1-100 的整数）",
+    "error.img_edit_bad_trim": "无效的 trim 值 '{value}'：仅支持 {allowed}（无参=auto 自动检测）",
+    "error.img_edit_bad_format": "无效的 format 值 '{value}'：仅支持 {allowed}（透明转 JPEG 默认补白，可加 ,black 或 ,#RRGGBB 改色）",
+    "error.img_edit_bad_scale": "无效的 scale 值 '{value}'：仅支持 {allowed}（NNN%=百分比缩放 1~1000，NNNw=目标宽度像素）",
+    "error.img_edit_no_value": "--img-edit 操作 {op} 不接受参数值",
+    "error.img_edit_unknown_op": "--img-edit 未知操作 '{op}'：首版仅支持 {supported}",
+    "error.img_edit_conflict": "--img-edit 同一操作 {op} 冲突：'{prev}' vs '{cur}'（重复请给相同值，不同值会歧义）",
+    "error.img_edit_missing_pillow": "--img-edit 需要 Pillow 但未安装，请先安装：pip install Pillow",
+    "img_edit.skip_warn": "无法处理图片 {name}，已保留原始字节：{err}",
+    "img_edit.header": "将为 {count} 个已有 CBZ 就地修正内部图片",
+    "img_edit.plan": "[计划] {name}：将就地修正 {count} 张图片",
+    "img_edit.modified": "已修正 {name}：{edited}/{total} 张图片重编码",
+    "img_edit.nochange": "{name}：全部图片无需处理（未改动）",
+    "img_edit.processed": "图像处理：{count} 张图片已重编码",
+    "img_edit.dryrun_end": "试运行：仅预览，未就地修正任何 CBZ",
+    "progress.desc.img_edit": "图像处理",
+    "help.drop_extra": "丢弃目录外多余图（隐藏别名，已并入 --drop extra）：无值=丢弃目录外多余图（默认追加）；off/no/0=关闭；带值请用 --选项=值 写法，或把目标路径放在本选项之前",
         "help.drop": "丢弃指定图片（统一丢弃入口）：无值/extra=丢弃目录外多余图（默认追加）；格式词丢弃对应格式（如 gif 丢 gif）；条件词过滤（small[=比例] 小图、超大页、疑似旋转跨页、异常、封面、宽高比等，支持中/日/英多语言别名）；off/no/0=关闭；多条件逗号=OR、加号=AND、- 前缀排除；过滤面与 --list-images 同源；带值请用 --选项=值 写法，或把目标路径放在本选项之前",
         "help.overwrite": "目标 cbz 已存在时强制重新生成（默认跳过）",
         "help.timeout": "单文件转换超时秒数，超时自动跳过并计入失败（默认 600，0 表示不限制；超时后底层解包线程可能后台残留）",
         "help.min_size": "过滤小于指定字节的电子书；不带数字默认1000字节，0关闭大小过滤，不传则关闭；带值请用 --选项=值 写法，或把目标路径放在本选项之前",
-        "help.output_dir": "CBZ 输出到指定目录（自动创建），默认保留相对输入的子目录结构（如 Sample Series/001.mobi → DIR/Sample Series/001.cbz），加 --flatten 可平铺到目录根下；--unpack 模式忽略此参数",
+        "help.output_dir": "CBZ 输出到指定目录（自动创建），默认保留相对输入的子目录结构（如 Sample Series/001.mobi → DIR/Sample Series/001.cbz），加 --flatten 可平铺到目录根下；--unpack 模式解包输出到该目录（未指定时默认输入文件所在目录）",
         "help.top_only": "仅处理 target 目录顶层的电子书文件，不递归子目录",
     "help.flatten": "仅与 --output-dir 联用：所有 CBZ 平铺到输出目录根下，同名文件未指定 --overwrite 时跳过（SKIP），指定时覆盖首选名；单独使用将报错退出",
         "help.dry_run": "试运行：只扫描文件并打印转换流程，不实际解压打包、不创建输出目录",
@@ -816,6 +884,7 @@ LANGUAGES = {
         "error.double_page_invalid": "无效的 --double-page 值 '{value}'：支持 auto/数值/off/no/0",
         "help.drop_small": "丢弃小图（隐藏别名，已并入 --drop small）：转换时剔除尺寸明显偏小的图片（面积 宽×高 < 面积中位数×比例 判为小图；不传/auto=0.5，可传 0~1 数值调比例，off/no/0 关闭）；丢弃后 PageCount 按实际剩余图数重算；带值请用 --选项=值 写法，或把目标路径放在本选项之前",
         "error.drop_small_invalid": "无效的 --drop-small 值 '{value}'：支持 auto 或数值(0~1)",
+        "error.orient_invalid": "方向筛选值 '{value}' 无效（仅支持 1~8）",
         "convert.drop_small": "  [清理] 丢弃小图 {count} 张{names}",
         "run.drop_small_total": "丢弃小图合计: {count} 张",
         "inspect.drop_small_preview": "  [提示] 图片中 {count} 张为小图（开启 --drop small 时将被丢弃）",
@@ -944,6 +1013,7 @@ LANGUAGES = {
         "inspect.opf_exists": "  OPF文件: 存在",
         "inspect.opf_missing": "  OPF文件: 不存在",
         "inspect.spine_count": "  Spine提取图片: {count} 张",
+        "inspect.rotated_count": "方向异常 {count} 张（rotate=auto 将旋转）",
         "inspect.ncx_count": "  目录(NCX): {count} 个条目 | 预览: {preview}",
         "inspect.ncx_missing": "  目录(NCX): 未找到或解析失败",
         "inspect.nav_count": "  目录(EPUB3 nav): {count} 个条目 | 预览: {preview}",
@@ -1054,6 +1124,7 @@ LANGUAGES = {
         "anom.small": "异常小图",
         "anom.overscale": "超大页",
         "anom.rotated_double": "旋转跨页",
+        "anom.orientation": "方向异常（Orientation={n}）",
         "anom.thumbnail": "缩略图",
         "convert.drop_filter": "按过滤表达式丢弃 {count} 张图片{names}",
         "dir.landscape": "横向",
@@ -1100,6 +1171,7 @@ LANGUAGES = {
         "mark.append": "[追加]",
         "mark.overscale": "[超大页]",
         "mark.rotated_double": "[旋转跨页]",
+        "mark.rotate": "[旋转{n}]",
         "mark.anom": "[异常]",
         "mark.inferred": "[推断]",
         "unpack.path_skip": "[警告] {name}: 跳过不安全解包路径 {entry}",
@@ -1117,7 +1189,34 @@ LANGUAGES = {
         "help.delete": "轉換成功後刪除原始電子書檔案",
         "help.prefer": "雙目錄 mobi（mobi7/mobi8）時保留哪份：auto 預設優先 mobi8、空殼自動回退 mobi7；指定 mobi7/mobi8 時，指定目錄為空也自動回退另一份",
         "help.ext_priority": "同目錄同名（僅副檔名不同）時保留哪種格式：逗號分隔、順序即優先級從高到低，僅接受 mobi/azw/azw3/epub，預設 azw3；優先級未覆蓋時回退兜底順序 azw3→epub→mobi→azw；與 --prefer（雙目錄選擇）無關",
-        "help.drop_extra": "丟棄目錄外多餘圖（隱藏別名，已併入 --drop extra）：無值=丟棄目錄外多餘圖（預設追加）；off/no/0=關閉；帶值請用 --選項=值 寫法，或將目標路徑放在本選項之前",
+        "help.img_edit": "圖像處理管線（可多次，值內 '+' 切分攤平）：rotate[=auto|90|180|270]（無參=auto 依 EXIF Orientation 燒錄像素並刪除 Orientation 欄位後重編碼；90/180/270 手動旋轉，先歸一 EXIF 方向再轉）；flip=x|y|both（x=水平鏡像 / y=垂直鏡像 / both=兩者）；grayscale（灰階化，恆插在 flip 之後，輸出 RGB 三通道等值）；format=jpeg|png|webp（別名 jpg；目標格式，重編碼後 cbz 內條目後綴同步改；透明轉 JPEG 預設補白，可 format=jpeg,black 或 #RRGGBB 改色；JPEG/WebP 走 quality 儲存、PNG 無損）；quality=1-100（重編碼儲存品質覆蓋，預設 95，越界報錯）；scale=NNN%%（百分比相對縮放，保持頁間比例，如 200%%=放大 2 倍；1~1000）或 scale=NNNw（統一目標寬度像素、高度按原始比例，如 1200w；1~100000，二選一）；trim[=容差]（自動白邊裁切：依邊緣統一背景色四向收縮並外擴安全邊界，無參=智慧容差 0.05，可給 0~1）；strip（清光圖片全部 EXIF/中繼資料，恆為管線末位）；固定順序 denoise→whitebalance→rotate→flip→grayscale→format→quality→scale→trim→strip 與書寫順序無關；同一操作重複給不同值報錯、相同值冪等忽略；三入口：mobi→cbz 轉換 / --repack 打包前 / 對既有 .cbz 就地修正；連動 --dry-run/--json/--json-out/--log",
+        "help.pages": "指定頁處理（可多次；值內逗號切分、免引號）：只保留/處理選取頁，其餘頁不輸出或原樣透傳。語法：單頁 5｜閉區間 1-3｜開區間 7-*（*=最後1頁）｜逗號混合，如 --pages 1-3,5,7-*。頁碼從 1 起（第 1 頁 = 卷內第 1 張圖，依各鏈路有序圖片列表編號）。適用鏈路：mobi→cbz 轉換（CBZ 只含選取頁）/ --repack 只打包選取頁 / --unpack 只解開選取頁 / --img-edit 就地修正只處理選取頁；與 --drop 共存按 AND（先鎖定頁再丟棄）。越界頁彙總提示『忽略第 N 頁（越界）』；全部越界/空命中報錯終止。亦可按篩選詞選頁：非數字段沿用 --list-images/--drop 詞庫（name=檔名子串（值含 * 或 ? 按 glob 通配，如 name=*_封面*、name=p00?）、name==完整檔名精確、name=\"檔名\"引號亦精確｜標籤如 封面/雙頁/方向異常/small/超大頁/動圖｜方向/格式/尺寸），逗號=OR、'+'=AND，命中頁併入選取集，如 --pages 1-3,name=cover 或 --pages 封面。",
+        "error.pages_invalid": "無效 --pages 表達式 '{expr}': {reason}",
+        "pages.enabled": "已啟用 --pages（{expr}）",
+        "pages.selected": "已選取 {count}/{total} 頁（--pages {expr}）",
+        "pages.skip_out_of_range": "忽略第 {n} 頁（越界，全書共 {total} 頁）",
+        "pages.empty": "--pages 未命中任何有效頁（全部越界或空命中），已終止",
+        "pages.hit_line": "  {n}. {name}",
+        "repack.fail_pages": "  [!] {dir} 因 --pages 空命中未打包",
+    "error.img_edit_bad_rotate": "無效的 rotate 值 '{value}'：僅支援 {allowed}",
+    "error.img_edit_bad_flip": "無效的 flip 值 '{value}'：僅支援 {allowed}（必填，x/y/both）",
+    "error.img_edit_bad_quality": "無效的 quality 值 '{value}'：僅支援 {allowed}（必須是 1-100 的整數）",
+    "error.img_edit_bad_trim": "無效的 trim 值 '{value}'：僅支援 {allowed}（無參=auto 自動偵測）",
+    "error.img_edit_bad_format": "無效的 format 值 '{value}'：僅支援 {allowed}（透明轉 JPEG 預設補白，可加 ,black 或 ,#RRGGBB 改色）",
+    "error.img_edit_bad_scale": "無效的 scale 值 '{value}'：僅支援 {allowed}（NNN%=百分比縮放 1~1000，NNNw=目標寬度像素）",
+    "error.img_edit_no_value": "--img-edit 操作 {op} 不接受參數值",
+    "error.img_edit_unknown_op": "--img-edit 未知操作 '{op}'：首版僅支援 {supported}",
+    "error.img_edit_conflict": "--img-edit 同一操作 {op} 衝突：'{prev}' vs '{cur}'（重複請給相同值，不同值會歧義）",
+    "error.img_edit_missing_pillow": "--img-edit 需要 Pillow 但未安裝，請先安裝：pip install Pillow",
+    "img_edit.skip_warn": "無法處理圖片 {name}，已保留原始位元組：{err}",
+    "img_edit.header": "將為 {count} 個既有 CBZ 就地修正內部圖片",
+    "img_edit.plan": "[計畫] {name}：將就地修正 {count} 張圖片",
+    "img_edit.modified": "已修正 {name}：{edited}/{total} 張圖片重編碼",
+    "img_edit.nochange": "{name}：全部圖片無需處理（未改動）",
+    "img_edit.processed": "圖像處理：{count} 張圖片已重編碼",
+    "img_edit.dryrun_end": "試運行：僅預覽，未就地修正任何 CBZ",
+    "progress.desc.img_edit": "圖像處理",
+    "help.drop_extra": "丟棄目錄外多餘圖（隱藏別名，已併入 --drop extra）：無值=丟棄目錄外多餘圖（預設追加）；off/no/0=關閉；帶值請用 --選項=值 寫法，或將目標路徑放在本選項之前",
         "help.drop": "丟棄指定圖片（統一丟棄入口）：無值/extra=丟棄目錄外多餘圖（預設追加）；格式詞丟棄對應格式（如 gif 丟 gif）；條件詞過濾（small[=比例] 小圖、超大頁、疑似旋轉跨頁、異常、封面、寬高比等，支援中/日/英多語言別名）；off/no/0=關閉；多條件逗號=OR、加號=AND、- 前綴排除；過濾面與 --list-images 同源；帶值請用 --選項=值 寫法，或將目標路徑放在本選項之前",
         "help.overwrite": "目標 cbz 已存在時強制重新生成（預設跳過）",
         "help.timeout": "單檔轉換逾時秒數，逾時自動跳過並計入失敗（預設 600，0 表示不限制；逾時後底層解包執行緒可能於背景殘留）",
@@ -1142,6 +1241,7 @@ LANGUAGES = {
         "error.double_page_invalid": "無效的 --double-page 值 '{value}'：支援 auto/數值/off/no/0",
         "help.drop_small": "丟棄小圖（隱藏別名，已併入 --drop small）：轉換時剔除尺寸明顯偏小的圖片（面積 寬×高 < 面積中位數×比例 判為小圖；不傳/auto=0.5，可傳 0~1 數值調比例，off/no/0 關閉）；丟棄後 PageCount 按實際剩餘圖數重算；帶值請用 --選項=值 寫法，或將目標路徑放在本選項之前",
         "error.drop_small_invalid": "無效的 --drop-small 值 '{value}'：支援 auto 或數值(0~1)",
+        "error.orient_invalid": "方向篩選值 '{value}' 無效（僅支援 1~8）",
         "convert.drop_small": "  [清理] 丟棄小圖 {count} 張{names}",
         "run.drop_small_total": "丟棄小圖合計: {count} 張",
         "inspect.drop_small_preview": "  [提示] 圖片中 {count} 張為小圖（開啟 --drop small 時將被丟棄）",
@@ -1270,6 +1370,7 @@ LANGUAGES = {
         "inspect.opf_exists": "  OPF檔案: 存在",
         "inspect.opf_missing": "  OPF檔案: 不存在",
         "inspect.spine_count": "  Spine 提取圖片: {count} 張",
+        "inspect.rotated_count": "方向異常 {count} 張（rotate=auto 將旋轉）",
         "inspect.ncx_count": "  目錄(NCX): {count} 個條目 | 預覽: {preview}",
         "inspect.ncx_missing": "  目錄(NCX): 未找到或解析失敗",
         "inspect.nav_count": "  目錄(EPUB3 nav): {count} 個條目 | 預覽: {preview}",
@@ -1312,6 +1413,7 @@ LANGUAGES = {
         "anom.small": "異常小圖",
         "anom.overscale": "超大頁",
         "anom.rotated_double": "旋轉跨頁",
+        "anom.orientation": "方向異常（Orientation={n}）",
         "anom.thumbnail": "縮圖",
         "convert.drop_filter": "按過濾表達式丟棄 {count} 張圖片{names}",
         "dir.landscape": "橫向",
@@ -1358,6 +1460,7 @@ LANGUAGES = {
         "mark.append": "[追加]",
         "mark.overscale": "[超大頁]",
         "mark.rotated_double": "[旋轉跨頁]",
+        "mark.rotate": "[旋轉{n}]",
         "mark.anom": "[異常]",
         "mark.inferred": "[推斷]",
         "unpack.path_skip": "[警告] {name}: 跳過不安全解包路徑 {entry}",
@@ -1443,12 +1546,39 @@ LANGUAGES = {
         "help.delete": "Delete the original ebook file after successful conversion",
         "help.prefer": "Which directory to keep when both mobi7/mobi8 exist: auto (default) prefers mobi8 and falls back to mobi7 if empty; when mobi7/mobi8 is specified, falls back to the other if the chosen one is empty",
         "help.ext_priority": "When same-name files differ only by extension in the same directory, which format to keep: comma-separated, order is priority high->low, only mobi/azw/azw3/epub accepted, default azw3; falls back to azw3->epub->mobi->azw when not covered; unrelated to --prefer (mobi7/mobi8 selection)",
-        "help.drop_extra": "Drop extra images outside the collection (hidden alias, merged into --drop extra): no value drops extra images (default: appended); off/no/0 disables; when passing a value use --option=value, or place the target path before this option",
+        "help.img_edit": "Image processing pipeline (repeatable; use '+' inside a value to split into separate ops): rotate[=auto|90|180|270] (no value = auto: burn EXIF Orientation into pixels, strip the Orientation field and re-encode; 90/180/270 rotate manually after normalizing EXIF orientation); flip=x|y|both (x=horizontal mirror / y=vertical mirror / both=both); grayscale (grayscale conversion, always inserted right after flip, output stays RGB with equal channels); format=jpeg|png|webp (alias jpg; target format, entry suffix inside the cbz is renamed to match after re-encode; transparent-to-JPEG backfills with white by default, override with format=jpeg,black or a #RRGGBB color; JPEG/WebP saved with quality, PNG lossless); quality=1-100 (override re-encode save quality, default 95, out-of-range errors); scale=NNN%% (percent relative scale keeping aspect ratios across pages, e.g. 200%% = double size; 1~1000) OR scale=NNNw (unify target width in px with height scaled to the original ratio, e.g. 1200w; 1~100000, pick one); trim[=tolerance] (auto white-border crop: shrink to the content bbox on the uniform background color with a safe margin; no value = smart tolerance 0.05, or give 0~1); strip (remove all EXIF/metadata, always the last pipeline stage); fixed pipeline order denoise→whitebalance→rotate→flip→grayscale→format→quality→scale→trim→strip regardless of writing order; repeating the same op with a different value errors, the same value is idempotently ignored; three entry points: mobi→cbz conversion / before --repack packing / in-place fixing of existing .cbz; works with --dry-run/--json/--json-out/--log",
+        "help.pages": "Page-range processing (repeatable; comma-separated inside the value, no quoting needed): keep/process only the selected pages, drop the rest or pass them through untouched. Syntax: single page 5 | closed range 1-3 | open range 7-* (* = last page) | comma mix, e.g. --pages 1-3,5,7-*. Pages are 1-based (page 1 = 1st image in the volume, numbered by the ordered image list of each path). Applicable paths: mobi→cbz conversion (CBZ contains only selected pages) / --repack packs only selected pages / --unpack extracts only selected pages / --img-edit in-place fixing processes only selected pages; combines with --drop as AND (pages locked first, then dropped). Out-of-range pages produce one summary hint (ignoring page N, out of range); empty match / all out of range errors out and aborts. Filter words can also select pages: non-numeric segments reuse the --list-images/--drop lexicon (name=filename substring (with * or ? it becomes glob matching, e.g. name=*_cover*, name=p00?), name==exact full filename, name=\"filename\" quotes also exact | marks like cover / double / orientation / small / oversize / animated | orientation/format/size), comma=OR, '+'(plus)=AND; matching pages merge into the selection, e.g. --pages 1-3,name=cover or --pages 封面 (cover).",
+        "error.pages_invalid": "invalid --pages expression '{expr}': {reason}",
+        "pages.enabled": "--pages enabled ({expr})",
+        "pages.selected": "selected {count}/{total} pages (--pages {expr})",
+        "pages.skip_out_of_range": "ignoring page {n} (out of range; {total} pages total)",
+        "pages.empty": "--pages matched no valid page (all out of range or empty match), aborted",
+        "pages.hit_line": "  {n}. {name}",
+        "repack.fail_pages": "  [!] {dir} not repacked: --pages matched nothing",
+    "error.img_edit_bad_rotate": "Invalid rotate value '{value}': only {allowed} are supported",
+    "error.img_edit_bad_flip": "Invalid flip value '{value}': only {allowed} are supported (required; x/y/both)",
+    "error.img_edit_bad_quality": "Invalid quality value '{value}': only {allowed} are supported (must be an integer 1-100)",
+    "error.img_edit_bad_trim": "Invalid trim value '{value}': only {allowed} are supported (no value = auto-detect)",
+    "error.img_edit_bad_format": "Invalid format value '{value}': only {allowed} are supported (transparent-to-JPEG backfills white by default; append ,black or ,#RRGGBB to change the color)",
+    "error.img_edit_bad_scale": "Invalid scale value '{value}': only {allowed} are supported (NNN% = percent scale 1-1000, NNNw = target width in px)",
+    "error.img_edit_no_value": "--img-edit op {op} takes no value",
+    "error.img_edit_unknown_op": "--img-edit unknown op '{op}': v1 supports only {supported}",
+    "error.img_edit_conflict": "--img-edit conflicting values for {op}: '{prev}' vs '{cur}' (repeat with the same value; different values are ambiguous)",
+    "error.img_edit_missing_pillow": "--img-edit requires Pillow which is not installed; install it first: pip install Pillow",
+    "img_edit.skip_warn": "Cannot process image {name}, kept original bytes: {err}",
+    "img_edit.header": "Will in-place fix images inside {count} existing CBZ file(s)",
+    "img_edit.plan": "[plan] {name}: will in-place fix {count} image(s)",
+    "img_edit.modified": "Fixed {name}: {edited}/{total} image(s) re-encoded",
+    "img_edit.nochange": "{name}: no images need processing (unchanged)",
+    "img_edit.processed": "Image processing: {count} image(s) re-encoded",
+    "img_edit.dryrun_end": "Dry run: preview only, no CBZ was modified",
+    "progress.desc.img_edit": "Image processing",
+    "help.drop_extra": "Drop extra images outside the collection (hidden alias, merged into --drop extra): no value drops extra images (default: appended); off/no/0 disables; when passing a value use --option=value, or place the target path before this option",
         "help.drop": "Drop images matching the given formats/conditions (unified drop entry): no value/extra drops extra images outside the collection (default: appended); a format word drops that format (e.g. gif); condition words filter (small[=ratio] small images, overscale, suspected rotated spread, anomaly, cover, aspect ratio etc., with zh/ja/en aliases); off/no/0 disables; comma = OR, plus = AND, - prefix excludes; shares the filter engine with --list-images; when passing a value use --option=value, or place the target path before this option",
         "help.overwrite": "Force regenerate when the target cbz already exists (default: skip)",
         "help.timeout": "Per-file conversion timeout in seconds; on timeout the file is skipped and counted as failed (default 600, 0 = no limit; on timeout the underlying unpack thread may linger in the background)",
         "help.min_size": "Filter out ebooks smaller than the given bytes; without a number defaults to 1000 bytes, 0 disables size filtering, omitted disables it; when passing a value use --option=value, or place the target path before this option",
-        "help.output_dir": "Output CBZ to the given directory (auto-created); by default keeps the relative subdirectory structure of the input (e.g. Sample Series/001.mobi -> DIR/Sample Series/001.cbz), add --flatten to flatten into the root; ignored in --unpack mode",
+        "help.output_dir": "Output CBZ to the given directory (auto-created); by default keeps the relative subdirectory structure of the input (e.g. Sample Series/001.mobi -> DIR/Sample Series/001.cbz), add --flatten to flatten into the root; in --unpack mode extracts to this directory (defaults to the input file's directory)",
         "help.top_only": "Only process ebook files directly in the target directory (do not recurse into subdirectories)",
     "help.flatten": "Only with --output-dir: flatten all CBZ into the root of the output directory; same-name files are skipped (SKIP) unless --overwrite is given, which overwrites the preferred name; using it alone exits with an error",
         "help.dry_run": "Dry run: only scan files and print the conversion flow, without extracting, packing or creating output directories",
@@ -1468,6 +1598,7 @@ LANGUAGES = {
         "error.double_page_invalid": "Invalid --double-page value '{value}': use auto, a number, or off/no/0",
         "help.drop_small": "Drop small images (hidden alias, merged into --drop small): exclude images clearly smaller than others during conversion (an image is small if its area width x height is below median area x ratio; no value/auto = 0.5, a 0~1 number sets ratio, off/no/0 disables). PageCount is recalculated after dropping; when passing a value use --option=value, or place the target path before this option",
         "error.drop_small_invalid": "Invalid --drop-small value '{value}': use auto or a number (0~1)",
+        "error.orient_invalid": "Invalid orientation filter value '{value}': only 1~8 allowed",
         "convert.drop_small": "  [Clean] Dropped {count} small image(s){names}",
         "run.drop_small_total": "Total small images dropped: {count}",
         "inspect.drop_small_preview": "  [Note] {count} small image(s) found (will be dropped when --drop small is enabled)",
@@ -1583,6 +1714,7 @@ LANGUAGES = {
         "anom.small": "abnormally small",
         "anom.overscale": "overscale",
         "anom.rotated_double": "rotated double-page",
+        "anom.orientation": "orientation anomaly (Orientation={n})",
         "anom.thumbnail": "thumbnail",
         "convert.drop_filter": "Dropped {count} image(s) by filter{names}",
         "dir.landscape": "landscape",
@@ -1629,6 +1761,7 @@ LANGUAGES = {
         "mark.append": "[append]",
         "mark.overscale": "[overscale]",
         "mark.rotated_double": "[rotated]",
+        "mark.rotate": "[rotate{n}]",
         "mark.anom": "[anomaly]",
         "mark.inferred": "[inferred]",
         "unpack.path_skip": "[Warning] {name}: skipping unsafe extraction path {entry}",
@@ -1652,6 +1785,7 @@ LANGUAGES = {
         "inspect.opf_exists": "  OPF file: exists",
         "inspect.opf_missing": "  OPF file: missing",
         "inspect.spine_count": "  Spine images: {count}",
+        "inspect.rotated_count": "{count} image(s) with orientation anomaly (rotate=auto will rotate)",
         "inspect.ncx_count": "  TOC (NCX): {count} entries | preview: {preview}",
         "inspect.ncx_missing": "  TOC (NCX): not found or parse failed",
         "inspect.nav_count": "  TOC (EPUB3 nav): {count} entries | preview: {preview}",
@@ -1769,12 +1903,39 @@ LANGUAGES = {
         "help.delete": '変換成功後に元の電子書籍ファイルを削除',
         "help.prefer": '二重ディレクトリ mobi（mobi7/mobi8）がある場合にどちらを残すか：auto（デフォルト）は mobi8 優先、空なら mobi7 に自動フォールバック。mobi7/mobi8 指定時も、指定先が空ならもう一方に自動フォールバック',
         "help.ext_priority": '同じディレクトリで同名（拡張子のみ異なる）の場合にどの形式を残すか：カンマ区切り、順序が優先度（高→低）、mobi/azw/azw3/epub のみ指定可能、デフォルト azw3；優先度がカバーしない場合は azw3→epub→mobi→azw にフォールバック；--prefer（二重ディレクトリ選択）とは無関係',
-        "help.drop_extra": "目次外の余分な画像を破棄（隠しエイリアス、--drop extra に統合）：値なし=目次外の余分な画像を破棄（デフォルトは末尾に追加）；off/no/0 で無効；値を渡す場合は --オプション=値 の形式にするか、対象パスをこのオプションの前に置いてください",
+        "help.img_edit": "画像処理パイプライン（複数回指定可、値内の '+' で分割してフラット化）：rotate[=auto|90|180|270]（値なし=auto：EXIF Orientation をピクセルに焼き込み Orientation フィールドを削除して再エンコード；90/180/270 は EXIF 方向を正規化した上で手動回転）；flip=x|y|both（x=水平ミラー / y=垂直ミラー / both=両方）；grayscale（グレースケール化、常に flip の直後に挿入、出力は RGB 三チャンネル等値）；format=jpeg|png|webp（別名 jpg；目標形式、再エンコード後に cbz 内エントリの拡張子を同期変更；透明→JPEG はデフォルトで白を補填、format=jpeg,black や #RRGGBB で色変更可；JPEG/WebP は quality で保存、PNG は可逆）；quality=1-100（再エンコードの保存品質を上書き、デフォルト 95、範囲外はエラー）；scale=NNN%%（パーセント相対拡縮、ページ間の比率を維持、例 200%%=2 倍に拡大；1〜1000）または scale=NNNw（目標幅ピクセルに統一、高さは元の比率でスケール、例 1200w；1〜100000、どちらか一方）；trim[=許容差]（自動白縁トリミング：端の一様な背景色に基づき内容 bbox まで縮め、安全マージンを外側に確保。値なし=スマート許容差 0.05、0~1 も指定可）；strip（画像の全 EXIF/メタデータを除去、常にパイプライン末尾）；固定順序 denoise→whitebalance→rotate→flip→grayscale→format→quality→scale→trim→strip は記述順に関係なし；同一操作を異なる値で繰り返すとエラー、同じ値は冪等に無視；三つの入口：mobi→cbz 変換 / --repack パッキング前 / 既存 .cbz のその場修正；--dry-run/--json/--json-out/--log と連動",
+        "help.pages": "指定ページ処理（複数回指定可、値内はカンマ区切りで引用符不要）：選択ページのみ保持/処理し、その他は出力しないかそのまま透過。記法：単ページ 5｜閉区間 1-3｜開区間 7-*（*=最終ページ）｜カンマ混在、例 --pages 1-3,5,7-*。ページ番号は 1 始まり（1 ページ目 = 巻内の 1 枚目の画像、各経路の整列済み画像リストで採番）。対応経路：mobi→cbz 変換（CBZ は選択ページのみ）/ --repack は選択ページのみパック / --unpack は選択ページのみ展開 / --img-edit のその場修正は選択ページのみ処理；--drop とは AND で併用（先にページを確定してから除去）。範囲外ページは『ページ N（範囲外）を無視』と要約提示され、全範囲外/空ヒットならエラー終了。またフィルタ語でページを選択できます：非数値セグメントは --list-images/--drop と同じ語彙（name=ファイル名部分文字列（* か ? を含むと glob 一致、例 name=*_表紙*・name=p00?）、name==完全一致のファイル名、name=\"ファイル名\"引用符でも完全一致｜タグ例 表紙/見開き/向き異常/small/超大/アニメ｜向き/形式/サイズ）を使用、カンマ=OR、'+'=AND、一致ページは選択に合流、例 --pages 1-3,name=cover や --pages 表紙。",
+        "error.pages_invalid": "無効な --pages 式 '{expr}': {reason}",
+        "pages.enabled": "--pages 有効（{expr}）",
+        "pages.selected": "{count}/{total} ページを選択（--pages {expr}）",
+        "pages.skip_out_of_range": "ページ {n} を無視（範囲外、全 {total} ページ）",
+        "pages.empty": "--pages が有効なページに一致しませんでした（全範囲外または空ヒット）、終了しました",
+        "pages.hit_line": "  {n}. {name}",
+        "repack.fail_pages": "  [!] {dir} は --pages が空ヒットのためパックされませんでした",
+    "error.img_edit_bad_rotate": "無効な rotate 値 '{value}'：対応は {allowed} のみ",
+    "error.img_edit_bad_flip": "無効な flip 値 '{value}'：対応は {allowed} のみ（必須、x/y/both）",
+    "error.img_edit_bad_quality": "無効な quality 値 '{value}'：対応は {allowed} のみ（1-100 の整数である必要があります）",
+    "error.img_edit_bad_trim": "無効な trim 値 '{value}'：対応は {allowed} のみ（値なし=auto 自動検出）",
+    "error.img_edit_bad_format": "無効な format 値 '{value}'：対応は {allowed} のみ（透明→JPEG はデフォルトで白を補填、,black や ,#RRGGBB を追加して色を変更可）",
+    "error.img_edit_bad_scale": "無効な scale 値 '{value}'：対応は {allowed} のみ（NNN%=パーセント拡縮 1〜1000、NNNw=目標幅ピクセル）",
+    "error.img_edit_no_value": "--img-edit 操作 {op} は値を取りません",
+    "error.img_edit_unknown_op": "--img-edit 不明な操作 '{op}'：初版では {supported} のみ対応",
+    "error.img_edit_conflict": "--img-edit 同一操作 {op} で競合：'{prev}' と '{cur}'（同じ値を指定してください。異なる値は曖昧です）",
+    "error.img_edit_missing_pillow": "--img-edit には Pillow が必要ですがインストールされていません。先にインストールしてください：pip install Pillow",
+    "img_edit.skip_warn": "画像 {name} を処理できませんでした。元のバイト列を保持：{err}",
+    "img_edit.header": "{count} 個の既存 CBZ の内部画像をその場修正します",
+    "img_edit.plan": "[計画] {name}：{count} 枚の画像をその場修正します",
+    "img_edit.modified": "{name} を修正：{edited}/{total} 枚の画像を再エンコード",
+    "img_edit.nochange": "{name}：処理が必要な画像なし（変更なし）",
+    "img_edit.processed": "画像処理：{count} 枚の画像を再エンコード",
+    "img_edit.dryrun_end": "試行：プレビューのみで、CBZ はその場修正されていません",
+    "progress.desc.img_edit": "画像処理",
+    "help.drop_extra": "目次外の余分な画像を破棄（隠しエイリアス、--drop extra に統合）：値なし=目次外の余分な画像を破棄（デフォルトは末尾に追加）；off/no/0 で無効；値を渡す場合は --オプション=値 の形式にするか、対象パスをこのオプションの前に置いてください",
         "help.drop": "指定した形式・条件の画像を破棄（統合破棄エントリ）：値なし/extra=目次外の余分な画像を破棄（デフォルトは末尾に追加）；形式語でその形式を破棄（例: gif）；条件語でフィルタ（small[=比率] 小画像、超大、疑似回転見開き、異常、表紙、アスペクト比など、中/日/英の別名対応）；off/no/0 で無効；複数条件はカンマ=OR、プラス=AND、- プレフィックスで除外；--list-images と同一フィルタエンジン；値を渡す場合は --オプション=値 の形式にするか、対象パスをこのオプションの前に置いてください",
         "help.overwrite": '対象 cbz が既に存在する場合に強制的に再生成（デフォルトはスキップ）',
         "help.timeout": 'ファイルごとの変換タイムアウト秒数。タイムアウトで自動スキップし失敗に計上（デフォルト 600、0 は制限なし。タイムアウト後、基盤の解凍スレッドがバックグラウンドに残る可能性あり）',
         "help.min_size": '指定バイト数未満の電子書籍を除外；数字なしでデフォルト 1000 バイト、0 でサイズフィルタ無効、未指定で無効；値を渡す場合は --オプション=値 の形式にするか、対象パスをこのオプションの前に置いてください',
-        "help.output_dir": "CBZ を指定ディレクトリに出力（自動作成）、デフォルトでは入力の相対サブディレクトリ構造を保持（例: Sample Series/001.mobi → DIR/Sample Series/001.cbz）、--flatten でルートにフラット化；--unpack モードでは無視",
+        "help.output_dir": "CBZ を指定ディレクトリに出力（自動作成）、デフォルトでは入力の相対サブディレクトリ構造を保持（例: Sample Series/001.mobi → DIR/Sample Series/001.cbz）、--flatten でルートにフラット化；--unpack モードではこのディレクトリに展開（未指定時は入力ファイルのディレクトリ）",
         "help.top_only": "target ディレクトリ直下の電子書籍のみ処理（サブディレクトリへ再帰しない）",
     "help.flatten": "--output-dir との併用時のみ：全 CBZ を出力ディレクトリのルートにフラット化、同名ファイルは --overwrite 指定時のみ上書き、未指定時はスキップ（SKIP）；単独使用はエラー終了",
         "help.dry_run": '試運転：ファイルをスキャンして変換フローを表示するだけで、解凍・パッキング・出力ディレクトリ作成は行わない',
@@ -1794,6 +1955,7 @@ LANGUAGES = {
         "error.double_page_invalid": "無効な --double-page 値 '{value}'：auto/数値/off/no/0 のいずれか",
         "help.drop_small": "小画像を破棄（隠しエイリアス、--drop small に統合）：明らかに小さい画像を変換時に除外（面積 幅×高さ が 面積中央値×比率 未満で小画像と判定；値なし/auto=0.5、0〜1 の数値で比率調整、off/no/0 で無効）。破棄後は PageCount を実画像数で再計算；値を渡す場合は --オプション=値 の形式にするか、対象パスをこのオプションの前に置いてください",
         "error.drop_small_invalid": "無効な --drop-small 値 '{value}'：auto または数値(0〜1) のいずれか",
+        "error.orient_invalid": "方向フィルター値 '{value}' は無効です（1〜8 のみ）",
         "convert.drop_small": "  [クリーン] 小画像を {count} 枚破棄{names}",
         "run.drop_small_total": "破棄した小画像の合計: {count} 枚",
         "inspect.drop_small_preview": "  [注意] 小画像が {count} 枚（--drop small 有効時は破棄されます）",
@@ -1856,6 +2018,7 @@ LANGUAGES = {
         "anom.small": "異常に小さい",
         "anom.overscale": "特大ページ",
         "anom.rotated_double": "回転見開き",
+        "anom.orientation": "方向異常（Orientation={n}）",
         "anom.thumbnail": "縮小サムネイル",
         "convert.drop_filter": "フィルタで {count} 枚の画像を破棄{names}",
         "dir.landscape": "横向き",
@@ -1902,6 +2065,7 @@ LANGUAGES = {
         "mark.append": "[追加]",
         "mark.overscale": "[特大ページ]",
         "mark.rotated_double": "[回転見開き]",
+        "mark.rotate": "[回転{n}]",
         "mark.anom": "[異常]",
         "mark.inferred": "[推測]",
         "unpack.path_skip": "[警告] {name}: 安全でない展開パス {entry} をスキップ",
@@ -1978,6 +2142,7 @@ LANGUAGES = {
         "inspect.opf_exists": '  OPF ファイル: あり',
         "inspect.opf_missing": '  OPF ファイル: なし',
         "inspect.spine_count": '  Spine 抽出画像: {count} 枚',
+        'inspect.rotated_count': '方向異常 {count} 枚（rotate=auto で回転します）',
         "inspect.ncx_count": '  目次(NCX): {count} エントリ | プレビュー: {preview}',
         "inspect.ncx_missing": '  目次(NCX): 見つからないか解析失敗',
         "inspect.nav_count": '  目次(EPUB3 nav): {count} エントリ | プレビュー: {preview}',
@@ -2995,7 +3160,8 @@ def select_mobi_dir(tempdir: Path, prefer: str) -> Path:
 
 
     # 输入：电子书路径与转换选项（delete/prefer/drop_extra/overwrite/output_dir/compress）；输出：(cbz 路径或 None, ConvStatus, 原因, 来源)
-def ebook_to_cbz(ebook_path: Path, delete_original: bool = False, prefer: str = "mobi8", drop_expr: object | None = None, overwrite: bool = False, output_dir: Path | None = None, compress: int = 0, flatten: bool = False, input_root: Path | None = None, comicinfo: bool = True, setinfo_args: list | None = None, double_page: float | None = None, rename_template: str | None = None) -> tuple[Path | None, ConvStatus, str | None, dict | None]:
+def ebook_to_cbz(ebook_path: Path, delete_original: bool = False, prefer: str = "mobi8", drop_expr: object | None = None, overwrite: bool = False, output_dir: Path | None = None, compress: int = 0, flatten: bool = False, input_root: Path | None = None, comicinfo: bool = True, setinfo_args: list | None = None, double_page: float | None = None, rename_template: str | None = None, img_edit_ops: object | None = None,
+                pages_expr: object | None = None) -> tuple[Path | None, ConvStatus, str | None, dict | None]:
     """将单个电子书文件转换为 cbz
 
     prefer: "auto"（默认）双目录时优先 mobi8，mobi8 为空壳（无图片）自动回退 mobi7
@@ -3011,6 +3177,13 @@ def ebook_to_cbz(ebook_path: Path, delete_original: bool = False, prefer: str = 
     小图丢弃: 面积口径（宽×高 < 中位面积×比例），比例来自 drop_expr 内 small 条件（--drop small）
     rename_template: --rename 模板；None=关闭（保持原名），"default"=默认模板（系列名+自动标记前缀），
                 其余为自定义模板（%series/%number/%volume 等占位符，自动补标记前缀）
+    img_edit_ops: --img-edit 规范化管线（parse_img_edit 结果，[(op, value), ...]）；
+                None=关闭。打包写入前对每张图按管线处理（仅方向需改/需剥离 EXIF 的图重编码，
+                其余原样透传）；处理异常跳过该图保留原字节
+    pages_expr: --pages 归一化页段列表（parse_pages_expr 结果）；None=关闭。只保留选中页
+                （页码 = 卷内第 1 张图 = 第 1 页，按转换后有序图片列表编号）；与 --drop
+                按 AND 共存：先 --pages 锁定页，再在锁定内按 --drop 条件丢弃。越界页
+                汇总提示忽略，全部越界/空命中 → 报错终止
 
     返回 (结果, 状态, 原因, 来源)：状态为 ConvStatus 枚举，
     - OK: 转换成功，结果为 cbz 路径，原因为 None，来源为 {series_source/number_source/cover_source/dropped_small} 字典
@@ -3118,6 +3291,47 @@ def ebook_to_cbz(ebook_path: Path, delete_original: bool = False, prefer: str = 
             emit(t("convert.dedup_physical", count=len(images) - len(deduped)))
         images = deduped
 
+        # --pages 指定页：只保留选中页（页码 = 卷内第 1 张图 = 第 1 页，0-based 换算）。
+        # 位于 drop 之前 → 与 --drop 按 AND 共存：先锁定页，再在锁定内按条件丢弃。
+        # v3.6.0 方案A：支持筛选词（name=/标签/方向/格式/尺寸）并入选中集。
+        if pages_expr is not None:
+            if images and _pages_need_attrs(pages_expr):
+                # 封面路径集合（OPF guide 优先，文件名关键词兜底），供 cover 原子过滤
+                cover_paths = set()
+                if opf_path:
+                    gc = get_opf_guide_cover_href(opf_path)
+                    if gc:
+                        clean = gc.split("#", 1)[0]
+                        cand = (opf_path.parent / clean).resolve()
+                        if not cand.is_file():
+                            cand = (base_dir / clean).resolve()
+                        cover_paths.add(norm_path(cand))
+                for img in images:
+                    if any(k in img.name.lower() for k in COVER_KEYWORDS):
+                        cover_paths.add(norm_path(img))
+                attrs_list = []
+                for img in images:
+                    a = build_image_attrs(img, double_page)
+                    if norm_path(img) in cover_paths:
+                        a["cover"] = True
+                    attrs_list.append(a)
+                _fill_small_mark(attrs_list, None)
+                _fill_overscale_mark(attrs_list)
+                _fill_orientation_mark(attrs_list)
+            else:
+                attrs_list = []
+            sel_idx, oob = _pages_merge_selection(pages_expr, len(images), attrs_list)
+            if oob:
+                _emit_pages_oob(oob, len(images))
+            if sel_idx is None or not sel_idx:
+                # 全部越界/空命中 → 报错终止
+                emit(t("pages.empty", total=len(images)), level="error")
+                sys.exit(2)
+            if len(sel_idx) != len(images):
+                emit(t("pages.selected", count=len(sel_idx), total=len(images),
+                       expr=format_pages_hint(pages_expr)), level="summary")
+            images = [images[i] for i in sel_idx]
+
         # 丢弃小图（--drop small）：面积口径 宽×高 < 中位面积×比例 判为小图（封面缩略图等）
         dropped_small = 0
         if drop_small is not None:
@@ -3193,6 +3407,10 @@ def ebook_to_cbz(ebook_path: Path, delete_original: bool = False, prefer: str = 
 
         # arcname 预计算：重名图加序号前缀（与打包一致），ComicInfo Page Image 与打包共用
         arcnames, _ = _compute_arcnames(images)
+        fmt_spec = _imi_format_from_ops(img_edit_ops)
+        if fmt_spec is not None:
+            # format 转格式：ComicInfo 与打包条目共用改名（与重编码输出后缀一致）
+            arcnames = {img: _imi_arcname_swap(arc, fmt_spec[1]) for img, arc in arcnames.items()}
 
         # Step 3.6: 生成 ComicInfo.xml（默认启用，--no-comicinfo 关闭）
         comicinfo_xml = None
@@ -3230,6 +3448,7 @@ def ebook_to_cbz(ebook_path: Path, delete_original: bool = False, prefer: str = 
         else:
             zf_obj = zipfile.ZipFile(str(tmp_cbz), "w", zipfile.ZIP_STORED)
         with zf_obj as zf:
+            img_edited = 0  # 实际执行了图像处理（重编码）的图片数
             for idx, img in enumerate(images, 1):
                 norm = norm_path(img)
                 if norm in seen_paths:
@@ -3239,7 +3458,16 @@ def ebook_to_cbz(ebook_path: Path, delete_original: bool = False, prefer: str = 
                 seen_paths.add(norm)
                 # arcname 由 _compute_arcnames 预计算（重名加序号前缀），与 ComicInfo Page Image 共用
                 arcname = arcnames[img]
+                if img_edit_ops:
+                    # --img-edit：写图前应用图像处理管线（rotate/strip）；无需改动返回 None
+                    new_bytes = apply_image_pipeline(img, img_edit_ops)
+                    if new_bytes is not None:
+                        zf.writestr(arcname, new_bytes)
+                        img_edited += 1
+                        continue
                 zf.write(str(img), arcname)
+            if img_edited:
+                emit(t("img_edit.processed", count=img_edited), level="summary")
             # Step 4b: 写入 ComicInfo.xml（并入同一次 zip 写入，避免二次打开）
             if comicinfo_xml is not None:
                 try:
@@ -4574,6 +4802,105 @@ def image_dimensions_bytes(head: bytes) -> tuple[int, int] | None:
         return None
 
 
+def _exif_tiff_orientation(t: bytes) -> int | None:
+    """从 TIFF 块解析 EXIF Orientation（tag 0x0112，SHORT）；无该 tag/解析失败返回 None。
+
+    字节序由头 2 字节决定（II=小端 / MM=大端）；IFD0 条目 12 字节一组，
+    tag(2) type(2) count(4) value(4)，SHORT 值取 value 低 2 字节。
+    """
+    try:
+        if len(t) < 8:
+            return None
+        if t[0:2] == b"II":
+            bo = "<"
+        elif t[0:2] == b"MM":
+            bo = ">"
+        else:
+            return None
+        if struct.unpack(bo + "H", t[2:4])[0] != 42:
+            return None
+        off = struct.unpack(bo + "I", t[4:8])[0]
+        if off + 2 > len(t):
+            return None
+        n = struct.unpack(bo + "H", t[off:off + 2])[0]
+        for i in range(n):
+            base = off + 2 + i * 12
+            if base + 12 > len(t):
+                break
+            tag = struct.unpack(bo + "H", t[base:base + 2])[0]
+            if tag == 0x0112:
+                vtype = struct.unpack(bo + "H", t[base + 2:base + 4])[0]
+                # SHORT 值存放于 value 4 字节的前 2 字节（按 TIFF 字节序），
+                # 不能整读 4 字节再掩码（大端文件会读到高 16 位 → 误判），须按
+                # bo 直接解 2 字节。
+                if vtype == 3:
+                    return struct.unpack(bo + "H", t[base + 8:base + 10])[0]
+                v = struct.unpack(bo + "I", t[base + 8:base + 12])[0]
+                return v
+        return None
+    except Exception:
+        return None
+
+
+def _exif_orientation_bytes(head: bytes) -> int | None:
+    """从图片文件头 bytes 读取 EXIF Orientation（1~8），无 EXIF/非标准返回 None。
+
+    支持 JPEG（APP1 'Exif\\x00\\x00'）、PNG（eXIf chunk，TIFF 直块）、
+    WebP（'EXIF ' chunk，兼容带/不带 'Exif\\x00\\x00' 前缀）。与 --img-edit rotate
+    判定口径一致：Orientation≠1 即方向异常（rotate=auto 将烧录旋转）。
+    """
+    try:
+        if head.startswith(b"\xff\xd8"):
+            # JPEG：扫描 APP 段，取 APP1 且以 'Exif\0\0' 开头的 payload
+            pos = 2
+            while pos + 8 < len(head):
+                if head[pos] != 0xFF:
+                    pos += 1
+                    continue
+                marker = head[pos + 1]
+                if 0xE0 <= marker <= 0xEF:
+                    seg_len = struct.unpack(">H", head[pos + 2:pos + 4])[0]
+                    payload = head[pos + 4:pos + 2 + seg_len]
+                    if marker == 0xE1 and payload.startswith(b"Exif\x00\x00"):
+                        return _exif_tiff_orientation(payload[6:])
+                    pos += 2 + seg_len
+                    continue
+                if marker in (0xD8, 0xD9) or 0xD0 <= marker <= 0xD7:
+                    pos += 2
+                    continue
+                # 其它段（含 SOS/数据段前的 SOF 等）：按段长跳过
+                if pos + 4 > len(head):
+                    break
+                seg_len = struct.unpack(">H", head[pos + 2:pos + 4])[0]
+                pos += 2 + seg_len
+            return None
+        if head.startswith(b"\x89PNG\r\n\x1a\n"):
+            # PNG：遍历 chunk，找 'eXIf'（TIFF 直块）
+            pos = 8
+            while pos + 8 < len(head):
+                clen = struct.unpack(">I", head[pos:pos + 4])[0]
+                ctype = head[pos + 4:pos + 8]
+                if ctype == b"eXIf":
+                    return _exif_tiff_orientation(head[pos + 8:pos + 8 + clen])
+                pos += 12 + clen
+            return None
+        if head.startswith(b"RIFF") and head[8:12] == b"WEBP":
+            pos = 12
+            while pos + 8 < len(head):
+                cid = head[pos:pos + 4]
+                csz = struct.unpack("<I", head[pos + 4:pos + 8])[0]
+                data = head[pos + 8:pos + 8 + csz]
+                if cid == b"EXIF":
+                    if data.startswith(b"Exif\x00\x00"):
+                        return _exif_tiff_orientation(data[6:])
+                    return _exif_tiff_orientation(data)
+                pos += 8 + csz + (csz & 1)
+            return None
+        return None
+    except Exception:
+        return None
+
+
 def image_dimensions(img: Path) -> tuple[int, int] | None:
     """从图片文件读取宽高（不加载整图），支持 png/jpeg/gif/webp/bmp，失败返回 None。"""
     try:
@@ -4827,6 +5154,7 @@ def inspect_ebook(p: Path, min_bytes: int, prefer: str = "mobi8", setinfo_args: 
         "toc": None,
         "filter_hits": None,
         "formats": None,
+        "rotate_count": None,
     }
 
     # CBZ 分支：纯 zipfile 读取，不解压
@@ -4868,6 +5196,7 @@ def inspect_ebook(p: Path, min_bytes: int, prefer: str = "mobi8", setinfo_args: 
                 # 格式分布 + 分辨率统计（zip 内 bytes 读取，不落盘）
                 fmt_counter = {}
                 res_list = []
+                orient_n = 0
                 for n in img_names:
                     ext = Path(n).suffix.lower().lstrip(".")
                     if ext == "jpeg":
@@ -4880,6 +5209,9 @@ def inspect_ebook(p: Path, min_bytes: int, prefer: str = "mobi8", setinfo_args: 
                     dim = image_dimensions_bytes(data)
                     if dim:
                         res_list.append(dim)
+                    _o = _exif_orientation_bytes(data)
+                    if _o is not None and _o != 1:
+                        orient_n += 1
 
                 total_fmt = sum(fmt_counter.values())
                 fmt_parts = [
@@ -4921,6 +5253,9 @@ def inspect_ebook(p: Path, min_bytes: int, prefer: str = "mobi8", setinfo_args: 
                 else:
                     emit(t("inspect.adv_mixed"))
                 info.update(_inspect_img_summary(fmt_counter))
+                info["rotate_count"] = orient_n
+                if orient_n:
+                    emit(t("inspect.rotated_count", count=orient_n), level="summary")
 
                 # --inspect FILTER：命中条件的图片输出数量+清单（CBZ zip 内直读，不落盘）
                 if filter_expr:
@@ -5150,6 +5485,7 @@ def inspect_ebook(p: Path, min_bytes: int, prefer: str = "mobi8", setinfo_args: 
         fmt_counter = {}
         res_list = []
         all_imgs = []
+        orient_n = 0
         for root, dirs, files in os.walk(base_dir):
             for f in files:
                 fp = Path(root) / f
@@ -5163,6 +5499,13 @@ def inspect_ebook(p: Path, min_bytes: int, prefer: str = "mobi8", setinfo_args: 
                 dim = image_dimensions(fp)
                 if dim:
                     res_list.append(dim)
+                try:
+                    with open(fp, "rb") as _f:
+                        _o = _exif_orientation_bytes(_f.read(HEAD_READ_BYTES))
+                except Exception:
+                    _o = None
+                if _o is not None and _o != 1:
+                    orient_n += 1
 
         total_fmt = sum(fmt_counter.values())
         fmt_parts = [
@@ -5227,6 +5570,9 @@ def inspect_ebook(p: Path, min_bytes: int, prefer: str = "mobi8", setinfo_args: 
         else:
             emit(t("inspect.adv_mixed"))
         info.update(_inspect_img_summary(fmt_counter))
+        info["rotate_count"] = orient_n
+        if orient_n:
+            emit(t("inspect.rotated_count", count=orient_n), level="summary")
 
         # ComicInfo.xml 预览块（inspect 不写文件，仅展示即将生成的元数据）
         opf_meta = read_opf_metadata(opf_path) if opf_path else {}
@@ -5591,6 +5937,204 @@ def rename_cbz_mode(cbz_files: list[Path], args) -> None:
               failed=len(failed_files), interrupted=False, total_elapsed=time.perf_counter() - total_start)
 
 
+def _rewrite_cbz_images(cbz_path: Path, img_edit_ops: list, out_path: Path | None = None,
+                        pages_expr: object | None = None) -> tuple[int, int]:
+    """就地重写 CBZ：对内部图片应用 --img-edit 管线（v3.6.0 CBZ 方向修正模式）。
+
+    保持 CBZ 内全部非图片条目字节原样（含 ComicInfo.xml / OPF / 封面等），
+    图片条目的压缩类型尽量沿用原条目。format 操作同时把对应图片条目
+    后缀同步改为目标格式。全部图片均无需改动时返回
+    (0, total) 且不触碰文件；处理失败的图片保留原字节。
+    pages_expr 非 None 时（--pages）：仅对选中页应用管线，其余页原样透传，
+    CBZ 总页数不变。越界页汇总提示忽略，全部越界/空命中 → 报错终止。
+    页号序号 = 按文件名自然排序后从 1 数（与 --list-images 清单序号同基准）。
+    返回 (实际重编码图片数, CBZ 内图片总数)。
+    """
+    with zipfile.ZipFile(str(cbz_path)) as zf:
+        infos = list(zf.infolist())
+        img_infos = [i for i in infos
+                     if not i.is_dir() and Path(i.filename).suffix.lower() in IMAGE_EXTENSIONS]
+        # 与 --list-images 序号统一：按文件名自然排序后再数页（避免 zip 内存储乱序导致错位）
+        img_infos.sort(key=lambda i: natural_key(Path(i.filename)))
+        if not img_infos:
+            return 0, 0
+        sel_set: set | None = None
+        if pages_expr is not None:
+            attrs_list = _cbz_attrs_roll(zf, img_infos) if _pages_need_attrs(pages_expr) else []
+            sel_idx, oob = _pages_merge_selection(pages_expr, len(img_infos), attrs_list)
+            if oob:
+                _emit_pages_oob(oob, len(img_infos))
+            if sel_idx is None or not sel_idx:
+                # 全部越界/空命中 → 报错终止
+                emit(t("pages.empty", total=len(img_infos)), level="error")
+                raise SystemExit(2)
+            sel_set = set(sel_idx)
+        tmpdir = Path(tempfile.mkdtemp(prefix="imi_cbz_"))
+        fmt_spec = _imi_format_from_ops(img_edit_ops)
+        name_map: dict[str, tuple[str, bytes]] = {}
+        for idx, info in enumerate(img_infos):
+            if sel_set is not None and idx not in sel_set:
+                continue  # 未选中页：原样透传，不调用管线
+            cand = tmpdir / f"img_{idx}_{Path(info.filename).name}"
+            cand.write_bytes(zf.read(info.filename))
+            new_bytes = apply_image_pipeline(cand, img_edit_ops)
+            if new_bytes is not None:
+                # format 转格式时同步改名（换后缀）；否则保留原名写回
+                target_name = info.filename
+                if fmt_spec is not None and target_name.rsplit(".", 1)[-1].lower() != fmt_spec[1]:
+                    target_name = _imi_arcname_swap(info.filename, fmt_spec[1])
+                name_map[info.filename] = (target_name, new_bytes)
+    # 外层读句柄已关闭，才可原子替换目标文件（v3.6.0 修复：读写共持句柄致 WinError 5）
+    try:
+        if not name_map:
+            return 0, len(img_infos)
+        target = out_path or cbz_path
+        tmp_out = target.with_name(target.name + ".tmp")
+        zfi = zipfile.ZipFile(str(cbz_path))
+        zfo = zipfile.ZipFile(str(tmp_out), "w", zipfile.ZIP_STORED)
+        try:
+            for info in infos:
+                if info.filename in name_map:
+                    target_name, payload = name_map[info.filename]
+                    zfo.writestr(target_name, payload)
+                else:
+                    data = zfi.read(info.filename)
+                    if info.compress_type != zipfile.ZIP_STORED:
+                        zfo.writestr(info.filename, data, compress_type=info.compress_type)
+                    else:
+                        zfo.writestr(info.filename, data)
+        finally:
+            zfo.close()
+            zfi.close()
+        os.replace(str(tmp_out), str(target))
+        return len(name_map), len(img_infos)
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+def _preview_img_edit_count(cbz_path: Path, pages_expr: object | None = None) -> int:
+    """预览将就地修正的图片数（dry-run / 处理前清单用），不重写不落盘。
+
+    不带 --pages 时返回 CBZ 内图片总数；带 --pages 且 pages_expr 非 None 时
+    返回选中页数，并逐条输出命中清单（页号+文件名，供正式执行前核对）；
+    越界页提示忽略，全部越界/空命中 → 报错终止（sys.exit 2）。
+    """
+    try:
+        with zipfile.ZipFile(str(cbz_path)) as zf:
+            infos = [i for i in zf.infolist()
+                     if not i.is_dir() and Path(i.filename).suffix.lower() in IMAGE_EXTENSIONS]
+            infos.sort(key=lambda i: natural_key(Path(i.filename)))
+            total = len(infos)
+            if pages_expr is None or total == 0:
+                return total
+            attrs_list = _cbz_attrs_roll(zf, infos) if _pages_need_attrs(pages_expr) else []
+            sel_idx, oob = _pages_merge_selection(pages_expr, total, attrs_list)
+            if oob:
+                _emit_pages_oob(oob, total)
+            if sel_idx is None or not sel_idx:
+                emit(t("pages.empty", total=total), level="error")
+                raise SystemExit(2)
+            # 命中清单：正式改写前逐条输出「页号 文件名」供核对
+            for i in sel_idx:
+                emit(t("pages.hit_line", n=i + 1, name=infos[i].filename), level="summary")
+            return len(sel_idx)
+    except Exception:
+        return 0
+
+
+def modify_cbz_images_mode(cbz_files: list[Path], args) -> None:
+    """--img-edit 就地修正已有 CBZ 的模式入口（CBZ 方向修正模式，v3.6.0）。
+
+    对输入为 .cbz 时应用图像处理管线：重写内部图片条目（仅重编码需改的），
+    保持其余条目原样；纳入 --dry-run / 进度条 / 汇总统计 / --json / --json-out / --log。
+    """
+    total_start = time.perf_counter()
+    emit(t("img_edit.header", count=len(cbz_files)), level="summary")
+    if args.dry_run:
+        pbar = create_progress_if_needed(args, cbz_files, t("progress.desc.img_edit"))
+        json_files: list = []
+        try:
+            for mf in cbz_files:
+                if pbar is not None:
+                    pbar.set_postfix_str(truncate_name(mf.name))
+                n = _preview_img_edit_count(mf, args.pages_expr)
+                emit(t("img_edit.plan", name=mf.name, count=n), level="summary")
+                json_files.append({
+                    "source": str(mf),
+                    "status": "pending",
+                    "target": str(mf),
+                    "reason": None,
+                    "elapsed_sec": None,
+                    "dry_run": True,
+                })
+                if pbar is not None:
+                    pbar.update(1)
+        finally:
+            if pbar is not None:
+                pbar.close()
+        emit(t("img_edit.dryrun_end"), level="summary")
+        emit_json(json_files, success=0, skipped=0, failed=0,
+                  interrupted=False, total_elapsed=time.perf_counter() - total_start)
+        return
+
+    # 处理前清单：逐文件列出将就地修正的图片数（与 dry-run 分支一致）
+    for mf in cbz_files:
+        n = _preview_img_edit_count(mf, args.pages_expr)
+        emit(t("img_edit.plan", name=mf.name, count=n), level="summary")
+
+    success = 0
+    nochange = 0
+    failed_files = []
+    failed_reasons = Counter()
+    json_files: list = []
+    pbar = create_progress_if_needed(args, cbz_files, t("progress.desc.img_edit"))
+    try:
+        for mf in cbz_files:
+            if pbar is not None:
+                pbar.set_postfix_str(truncate_name(mf.name))
+            try:
+                edited, total = _rewrite_cbz_images(mf, args.img_edit_ops,
+                                                    pages_expr=args.pages_expr)
+                if edited:
+                    success += 1
+                    emit(t("img_edit.modified", name=mf.name, edited=edited, total=total), level="summary")
+                    json_status = "modified"
+                else:
+                    nochange += 1
+                    emit(t("img_edit.nochange", name=mf.name), level="summary")
+                    json_status = "nochange"
+                json_files.append({
+                    "source": str(mf),
+                    "status": json_status,
+                    "target": str(mf),
+                    "reason": None,
+                    "elapsed_sec": None,
+                })
+            except Exception as e:
+                failed_files.append(mf)
+                failed_reasons[str(e)] += 1
+                emit(t("run.error", name=mf.name, err=e), level="error")
+                json_files.append({
+                    "source": str(mf),
+                    "status": "fail",
+                    "target": None,
+                    "reason": str(e),
+                    "elapsed_sec": None,
+                })
+            if pbar is not None:
+                pbar.update(1)
+    finally:
+        if pbar is not None:
+            pbar.close()
+
+    if failed_reasons:
+        parts = ", ".join(f"{k}={v}" for k, v in failed_reasons.items())
+        emit(t("modify.failed_reasons", summary=parts), level="summary")
+    emit_json(json_files, success=success, skipped=nochange,
+              failed=len(failed_files), interrupted=False,
+              total_elapsed=time.perf_counter() - total_start)
+
+
 def modify_cbz_mode(cbz_files: list[Path], args) -> None:
     """--setinfo 修改已有 CBZ 的 ComicInfo.xml 模式入口。
 
@@ -5732,13 +6276,17 @@ def _unpack_target_dir(p: Path, out_root: Path) -> Path:
     return out_dir
 
 
-def unpack_ebook(p: Path, out_root: Path) -> Path:
+def unpack_ebook(p: Path, out_root: Path, pages_expr: object | None = None) -> Path:
     """解包电子书到 out_root 下的同名子目录（默认 源名_扩展名，撞名时再以 (N) 序号避让）。
 
     目录名为 `源名_扩展名`（如 vol.cbz → vol_cbz/，vol.mobi → vol_mobi/），
     统一来源标签且与源文件不撞名；--repack 按 _cbz 结尾识别 cbz 解包目录。
     mobi 走 mobi.extract 保留完整结构（mobi7/mobi8 等），cbz/epub 逐条目
     安全解压（含 zip-slip 路径穿越防护）。返回实际解包到的目录。
+    pages_expr 非 None 时（--pages）：只保留选中页对应的图片文件，删除其余
+    图片文件（非图片文件如 ComicInfo.xml/OPF/版式文件原样保留）。页码 = 卷内
+    第 1 张图 = 第 1 页（自然排序基准）；越界页汇总提示忽略，全部越界/空命中
+    → 报错终止（sys.exit 2）。
     """
     out_dir = _unpack_target_dir(p, out_root)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -5756,6 +6304,34 @@ def unpack_ebook(p: Path, out_root: Path) -> Path:
                 shutil.rmtree(str(tempdir))
             except Exception as e:
                 emit(t("warn.cleanup_tmp_fail", path=tempdir, err=e), level="warning")
+    # --pages 指定页：只保留选中页图片文件
+    if pages_expr is not None:
+        imgs: list = []
+        for _root, _dirs, files in os.walk(out_dir):
+            for fn in files:
+                if Path(fn).suffix.lower() in IMAGE_EXTENSIONS:
+                    imgs.append(Path(_root) / fn)
+        imgs.sort(key=natural_key)
+        attrs_list = _dir_attrs_roll(imgs) if _pages_need_attrs(pages_expr) else []
+        sel_idx, oob = _pages_merge_selection(pages_expr, len(imgs), attrs_list)
+        if oob:
+            _emit_pages_oob(oob, len(imgs))
+        if sel_idx is None or not sel_idx:
+            # 全部越界/空命中 → 报错终止
+            emit(t("pages.empty", total=len(imgs)), level="error")
+            sys.exit(2)
+        keep = set(sel_idx)
+        removed = 0
+        for i, imgp in enumerate(imgs):
+            if i not in keep:
+                try:
+                    imgp.unlink(missing_ok=True)
+                    removed += 1
+                except OSError:
+                    pass
+        if removed:
+            emit(t("pages.selected", count=len(sel_idx), total=len(imgs),
+                   expr=format_pages_hint(pages_expr)), level="summary")
     return out_dir
 
 
@@ -5767,6 +6343,8 @@ def unpack_mode(ebook_files: list[Path], args) -> int:
     if not ebook_files:
         emit(t("inspect_mode.none"), level="error")
         return 0
+    # --output-dir 指定解包输出根目录（v3.6.0+）；未指定时默认各源文件所在目录
+    out_root = Path(args.output_dir) if args.output_dir else None
     # 处理清单：先列出将解包的文件
     emit(t("unpack.plan", count=len(ebook_files)), level="summary")
     for i, mf in enumerate(ebook_files, 1):
@@ -5776,7 +6354,7 @@ def unpack_mode(ebook_files: list[Path], args) -> int:
         emit(t("run.dryrun_banner"), level="summary")
         json_files: list = []
         for i, mf in enumerate(ebook_files, 1):
-            out_dir = _unpack_target_dir(mf, mf.parent)
+            out_dir = _unpack_target_dir(mf, out_root or mf.parent)
             emit(f"  {i}. {mf.name} -> {out_dir}", level="summary")
             json_files.append({
                 "source": str(mf),
@@ -5793,7 +6371,7 @@ def unpack_mode(ebook_files: list[Path], args) -> int:
     ok_n = fail_n = 0
     for mf in ebook_files:
         try:
-            out_dir = unpack_ebook(mf, mf.parent)
+            out_dir = unpack_ebook(mf, out_root or mf.parent, pages_expr=args.pages_expr)
             emit(t("unpack.done", name=mf.name, dir=out_dir))
             ok_n += 1
         except Exception as e:
@@ -5828,8 +6406,28 @@ def repack_one(src_dir: Path, args) -> bool:
         emit(t("repack.no_images", dir=src_dir), level="error")
         return False
 
+    # --pages 指定页：只打包选中页（页码 = 卷内第 1 张图 = 第 1 页，自然排序基准）
+    if getattr(args, "pages_expr", None) is not None:
+        attrs_list = _dir_attrs_roll(images) if _pages_need_attrs(args.pages_expr) else []
+        sel_idx, oob = _pages_merge_selection(args.pages_expr, len(images), attrs_list)
+        if oob:
+            _emit_pages_oob(oob, len(images))
+        if sel_idx is None or not sel_idx:
+            # 全部越界/空命中 → 报错终止
+            emit(t("pages.empty", total=len(images)), level="error")
+            emit(t("repack.fail_pages", dir=src_dir), level="error")
+            sys.exit(2)
+        if len(sel_idx) != len(images):
+            emit(t("pages.selected", count=len(sel_idx), total=len(images),
+                   expr=format_pages_hint(args.pages_expr)), level="summary")
+        images = [images[i] for i in sel_idx]
+
     # arcname 预计算（跨子目录重名加序号前缀），与 ComicInfo Page Image 共用
     arcnames, skipped_dup = _compute_arcnames(images)
+    fmt_spec = _imi_format_from_ops(getattr(args, "img_edit_ops", None))
+    if fmt_spec is not None:
+        # format 转格式：ComicInfo 与打包条目共用改名（与重编码输出后缀一致）
+        arcnames = {img: _imi_arcname_swap(arc, fmt_spec[1]) for img, arc in arcnames.items()}
 
     # ComicInfo.xml：--no-comicinfo 关闭；有则原样带回（--setinfo 叠加）；无则生成基础版
     xml_bytes: bytes | None = None
@@ -5878,6 +6476,7 @@ def repack_one(src_dir: Path, args) -> bool:
         return True
 
     # 原子打包：先写 .tmp，校验通过后 os.replace；失败只删 .tmp 不碰已有目标
+    img_edited = 0
     tmp = out_file.with_name(out_file.name + ".tmp")
     try:
         with zipfile.ZipFile(str(tmp), "w", zipfile.ZIP_STORED) as zf:
@@ -5887,6 +6486,13 @@ def repack_one(src_dir: Path, args) -> bool:
                 if norm in seen:
                     continue
                 seen.add(norm)
+                if getattr(args, "img_edit_ops", None):
+                    # --img-edit：写图前应用图像处理管线（rotate/strip）
+                    new_bytes = apply_image_pipeline(img, getattr(args, "img_edit_ops"))
+                    if new_bytes is not None:
+                        zf.writestr(arcnames[img], new_bytes)
+                        img_edited += 1
+                        continue
                 zf.write(str(img), arcnames[img])
             if xml_bytes is not None:
                 zf.writestr("ComicInfo.xml", xml_bytes)
@@ -5902,6 +6508,8 @@ def repack_one(src_dir: Path, args) -> bool:
         return False
     if skipped_dup:
         emit(t("convert.dedup_physical", count=skipped_dup), level="summary")
+    if img_edited:
+        emit(t("img_edit.processed", count=img_edited), level="summary")
     size_mb = out_file.stat().st_size / (1024 * 1024)
     emit(t("repack.done", name=out_file.name, count=len(images), size=f"{size_mb:.1f}"))
     return True
@@ -6104,7 +6712,7 @@ def _attrs_marks(a: dict) -> list:
     ms = []
     if a.get("anom"):
         ms.append("anom")
-    for k in ("double", "animated", "small", "thumbnail", "overscale", "rotated_double"):
+    for k in ("double", "animated", "small", "thumbnail", "overscale", "rotated_double", "orientation"):
         if k in a.get("mark", ()):
             ms.append(k)
     if a.get("inferred"):
@@ -6136,6 +6744,7 @@ def _build_list_record(source: str, attrs_list: list[dict], has_toc: bool) -> di
             "size": a.get("size"),
             "mode": a.get("mode"), "depth": a.get("depth"),
             "dir": a.get("dir"),
+            "orientation": a.get("orientation"),
             "toc": a.get("toc"),
             "extra": bool(a.get("extra") or a.get("cover_extra")),
             "cover": bool(a.get("cover") or a.get("cover_extra")),
@@ -6147,6 +6756,7 @@ def _build_list_record(source: str, attrs_list: list[dict], has_toc: bool) -> di
         "double": sum(1 for a in attrs_list if "double" in a.get("mark", ())),
         "animated": sum(1 for a in attrs_list if "animated" in a.get("mark", ())),
         "small": sum(1 for a in attrs_list if "small" in a.get("mark", ())),
+        "orientation": sum(1 for a in attrs_list if "orientation" in a.get("mark", ())),
         "extra": sum(1 for a in attrs_list if a.get("extra") or a.get("cover_extra")),
         "dropped": sum(1 for a in attrs_list if a.get("extra_dropped") or a.get("drop_small_hit")),
     }
@@ -6166,6 +6776,7 @@ def _emit_list_json(records: list, total_elapsed: float) -> None:
             "double": sum(r["stats"]["double"] for r in records),
             "animated": sum(r["stats"]["animated"] for r in records),
             "small": sum(r["stats"]["small"] for r in records),
+            "orientation": sum(r["stats"]["orientation"] for r in records),
             "extra": sum(r["stats"]["extra"] for r in records),
             "dropped": sum(r["stats"]["dropped"] for r in records),
         }
@@ -6194,6 +6805,7 @@ def _emit_list_json(records: list, total_elapsed: float) -> None:
                 "double": r["stats"]["double"],
                 "animated": r["stats"]["animated"],
                 "small": r["stats"]["small"],
+                "orientation": r["stats"]["orientation"],
                 "extra": r["stats"]["extra"],
                 "dropped": r["stats"]["dropped"],
                 "toc": r["has_toc"],
@@ -6371,7 +6983,8 @@ _ATOM_ALIASES = {
 def _parse_atom(atom: str):
     """解析单个条件词 → 原子元组；无法识别返回 None。
     原子: ('extra',) ('ext',fmt) ('mode',m) ('depth',n) ('dir',d)
-          ('mark',m) ('res',op,n) ('size',op,n) ('name',kw) ('small',ratio|None)
+          ('mark',m) ('res',op,n) ('size',op,n) ('name',kw) ('name_exact',kw)
+          ('small',ratio|None)
     small 为独立带参条件词：无参/auto=默认比例（None→0.5），可带比例 0<r<=1；
     多语言别名通用（异常小图/異常小圖/異常小画像/極小画像 均可带参）。
     支持多语言别名与 [标签] 方括号写法（见 _ATOM_ALIASES）。"""
@@ -6401,10 +7014,37 @@ def _parse_atom(atom: str):
         if not 0 < r <= 1:
             raise argparse.ArgumentTypeError(t("error.drop_small_invalid", value=val))
         return ("small", r)
+    # 方向（EXIF 方向异常）独立带参条件词：无参/auto=选全部方向异常图
+    # （EXIF Orientation≠1，rotate=auto 将旋转）；可带 Orientation 值精确匹配
+    # （方向=6 / orient=6，合法范围 1~8；=1 正常图不命中）
+    om = re.fullmatch(r"(orient|orientation|direction|方向|方向异常|方向異常)(?:=(\d+))?", al)
+    if om:
+        val = om.group(2)
+        if val is None or val.lower() in ("auto", "on"):
+            return ("orient", None)
+        n = int(val)
+        if 1 <= n <= 8:
+            return ("orient", n)
+        raise argparse.ArgumentTypeError(t("error.orient_invalid", value=val))
     hit = _ATOM_ALIASES.get(al)
     if hit is not None:
         return hit
-    # 按文件名关键词筛选：name=关键词（文件名含关键词即命中，不区分大小写）
+    # 按文件名关键词筛选：name=关键词（文件名含关键词即命中，不区分大小写）；
+    #   值含 * / ? 通配符时按 glob 匹配（仅 * ? 生效、[] 不当字符类），如
+    #   name=*_封面*（含组名方括号的文件名不受影响）、name=p00?（单字符通配）。
+    # name==文件名 精确匹配（整个文件名含扩展名完全一致才命中，不区分大小写）。
+    # name="文件名" / name='文件名' 等价 name==（引号=精确）；引号须保留在参数值内，
+    # 若被外层 shell 剥掉则退化为 name= 子串（可改用 name== 规避）。
+    # 注意顺序：先试双等号精确原子，再试引号包裹，最后回落 name= 子串原子
+    m = re.fullmatch(r"name==(.+)", al)
+    if m and m.group(1):
+        return ("name_exact", m.group(1))
+    m = re.fullmatch(r'name="([^"]+)"', al)
+    if m:
+        return ("name_exact", m.group(1))
+    m = re.fullmatch(r"name='([^']+)'", al)
+    if m:
+        return ("name_exact", m.group(1))
     m = re.fullmatch(r"name=(.+)", al)
     if m and m.group(1):
         return ("name", m.group(1))
@@ -6443,6 +7083,721 @@ def parse_drop_expr(value: str | None):
         if atoms:
             groups.append(atoms)
     return groups or None
+
+
+# ---------------------------------------------------------------------------
+# --pages 指定页处理（v3.6.0）
+# 语法照搬 CBZTool -p：单个 5 / 闭区间 1-3 / 开区间 7-*（*=最后1页）/ 逗号混合；
+# 可重复 --pages 分次给出，全部并入同一列表（对齐 --drop/--img-edit 风格）。
+# 页码从 1 起（第 1 页 = 卷内第 1 张图，按各链路的有序图片列表编号）。
+# 与 --drop 共存时按 AND：先 --pages 锁定页，再在锁定内按 --drop 条件丢弃。
+# 边界：越界页汇总提示"忽略第 N 页（越界）"；全部越界/空命中 → 报错终止。
+# ---------------------------------------------------------------------------
+
+
+class _PagesSel:
+    """--pages 归一化结果：数字页段 segs + 筛选词分组 filter_groups + 原始筛选词 tokens。
+
+    segs          数字页段 [(start, end_or_None), ...]（v3.6.0 原有语义，用于页码展开）；
+    filter_groups 筛选词分组 list[list[atom]]（与 --drop/--list-images 同一 _ATOM_ALIASES 词表，
+                  name= 按纯文件名子串匹配；标签/方向/格式/尺寸与清单同源语义）；None=无筛选；
+    tokens        原始筛选词串（供 format_pages_hint 展示）。
+    """
+    __slots__ = ("segs", "filter_groups", "tokens")
+
+    def __init__(self, segs, filter_groups=None, tokens=None):
+        self.segs = segs
+        self.filter_groups = filter_groups if filter_groups else None
+        self.tokens = list(tokens) if tokens else []
+
+
+def _pages_need_attrs(pages) -> bool:
+    """是否需要在页选择阶段构建 attrs（仅含筛选词时需要，纯数字页无需读图头）。"""
+    return pages is not None and bool(getattr(pages, "filter_groups", None))
+
+
+def _pages_merge_selection(pages, total: int, attrs_list: list):
+    """合并数字页段选中索引与筛选词命中索引。
+
+    返回 (merged_sorted_indices, out_of_range_pages)。筛选词逐 attrs 用
+    _list_filter_pass 求值（组间 OR、组内 AND，与 --drop/--list-images 一致），
+    命中页追加进选中集合并按序去重；无筛选词时退化为原 expand_pages。
+    """
+    sel, oob = expand_pages(pages, total)
+    if sel is None:
+        sel = []
+    if _pages_need_attrs(pages):
+        for i, a in enumerate(attrs_list):
+            if _list_filter_pass(a, pages.filter_groups):
+                if i not in sel:
+                    sel.append(i)
+        sel = sorted(sel)
+    return sel, oob
+
+
+def _cbz_attrs_roll(zf, img_infos) -> list:
+    """CBZ 内图片属性批量构建（就地修正 / dry-run 预览共用）：
+
+    与 --list-images 的 _list_cbz 同一口径：natural 排序后的条目名，cover 判定
+    = CBZ 内 OPF guide 优先 + 文件名关键词兜底；回填 small/overscale/orientation 标记。
+    """
+    cover_zname = _cbz_opf_cover_zname(zf)
+    attrs_list = []
+    for info in img_infos:
+        a = build_cbz_image_attrs(zf, info.filename, None)
+        nm = info.filename.replace("\\", "/")
+        if (cover_zname and cover_zname == nm) or            any(k in Path(info.filename).name.lower() for k in COVER_KEYWORDS):
+            a["cover"] = True
+        attrs_list.append(a)
+    _fill_small_mark(attrs_list, None)
+    _fill_overscale_mark(attrs_list)
+    _fill_orientation_mark(attrs_list)
+    return attrs_list
+
+
+def _dir_attrs_roll(paths) -> list:
+    """目录内图片（解包目录 / --repack 源目录）属性批量构建：
+
+    与 --list-images 的电子书分支同口径：cover 按文件名关键词兜底（目录场景无 OPF guide）。
+    """
+    attrs_list = []
+    for p in paths:
+        a = build_image_attrs(p, None)
+        if any(k in p.name.lower() for k in COVER_KEYWORDS):
+            a["cover"] = True
+        attrs_list.append(a)
+    _fill_small_mark(attrs_list, None)
+    _fill_overscale_mark(attrs_list)
+    _fill_orientation_mark(attrs_list)
+    return attrs_list
+
+
+def parse_pages_expr(values: list[str] | None):
+    """解析 --pages 多值 → _PagesSel（数字页段 + 可选筛选词分组）。
+
+    数字段：单页 '5'｜闭区间 '1-3'｜开区间 '7-*'（*=最后1页）｜逗号混合；
+    筛选词段（v3.6.0 方案A）：复用 --drop/--list-images 同一 _ATOM_ALIASES 词表，
+      支持 name=文件名子串（name==完整文件名精确）/ 标签（封面、双页、方向异常、small、超大页、动图…）/
+      方向 / 格式 / 尺寸 原子，逗号=OR、'+'=AND；如 --pages name=cover 或 --pages 1-3,封面。
+    可重复 --pages 分次给出，全部并入同一结果。数字段自动排序、合并重叠/相邻区间，
+    开区间与后续任何区间合并（覆盖到结尾）。
+    页码从 1 起（第 1 页 = 卷内第 1 张图）；* 需在运行时按实际总页数展开。
+    非法语法抛 ValueError；None/空/全关闭词 → None（未启用）。
+    """
+    if not values:
+        return None
+    segs: list = []
+    fgroups: list = []
+    tokens: list = []
+    for v in values:
+        if v is None:
+            continue
+        for part in str(v).split(","):
+            part = part.strip()
+            if not part:
+                continue
+            m_range = re.fullmatch(r"(\d+)\s*-\s*(\d+|\*)", part)
+            if m_range:
+                start = int(m_range.group(1))
+                if start < 1:
+                    raise ValueError(t("error.pages_invalid", expr=part, reason="start < 1"))
+                end_s = m_range.group(2)
+                end = None if end_s == "*" else int(end_s)
+                if end is not None and end < start:
+                    raise ValueError(t("error.pages_invalid", expr=part, reason="end < start"))
+                if end is not None and end < 1:
+                    raise ValueError(t("error.pages_invalid", expr=part, reason="end < 1"))
+                segs.append([start, end])
+                continue
+            if part.isdigit():
+                n = int(part)
+                if n < 1:
+                    raise ValueError(t("error.pages_invalid", expr=part, reason="page < 1"))
+                segs.append([n, n])
+                continue
+            # 非数字段 → 按筛选词解析（同一 _ATOM_ALIASES 引擎，逗号=OR、'+'=AND）
+            try:
+                groups = parse_drop_expr(part)
+            except argparse.ArgumentTypeError as e:
+                raise ValueError(t("error.pages_invalid", expr=part, reason=str(e)))
+            if not groups:
+                # parse_drop_expr 对关闭词返回 None；--pages 不接受关闭词，保持 v3.6.0 报错语义
+                raise ValueError(t("error.pages_invalid", expr=part,
+                                   reason="expect N, N-M, N-* or filter word (name=…/cover/…)"))
+            for g in groups:
+                fgroups.append(g)
+            if part not in tokens:
+                tokens.append(part)
+    if not segs and not fgroups:
+        return None
+    # 去重（列表元素）
+    dedup: list = []
+    for s in segs:
+        if s not in dedup:
+            dedup.append(s)
+    # 排序：start 升序；同 start 封闭区间优先，其次开区间（视为无穷大 end）
+    dedup.sort(key=lambda s: (s[0], s[1] if s[1] is not None else (1 << 62)))
+    # 合并重叠/相邻闭区间；开区间出现后与一切后续合并
+    merged: list = []
+    for s in dedup:
+        if not merged:
+            merged.append(list(s))
+            continue
+        prev = merged[-1]
+        if prev[1] is None:
+            continue  # 已开区间覆盖到结尾，后续区间全部冗余
+        if s[1] is None:
+            # 开区间：与前一区间相邻/重叠才合并覆盖到结尾，否则独立追加
+            # （如 1-3,5,7-* 应保留页5，不能因开区间把不邻接的 [5,5] 吞并掉）
+            if s[0] <= prev[1] + 1:
+                prev[1] = None
+            else:
+                merged.append(list(s))
+            continue
+        if s[0] <= prev[1] + 1:
+            prev[1] = max(prev[1], s[1])  # 重叠/相邻合并
+            continue
+        merged.append(list(s))
+    return _PagesSel(merged, fgroups if fgroups else None, tokens)
+
+
+def expand_pages(pages, total: int):
+    """把归一化页段按实际总页数 total 展开为 0-based 选中索引（有序去重）。
+
+    返回 (selected_indices, out_of_range_pages)。
+    - selected_indices: 有序 0-based 索引列表；pages 为 None 时返回 (None, [])；
+      开区间 N-* 展开到 total；无任何有效选中时返回 ([], oob)。
+    - out_of_range_pages: 越界 1-based 页码列表（升序、去重）。
+    """
+    if pages is None:
+        return None, []
+    selected: set = set()
+    oob: list = []
+    segs = getattr(pages, "segs", pages)
+    for start, end in segs:
+        if end is None:
+            end = total
+        for p in range(start, end + 1):
+            if p < 1 or p > total:
+                if p not in oob:
+                    oob.append(p)
+                continue
+            selected.add(p - 1)  # 1-based → 0-based
+    oob.sort()
+    return sorted(selected), oob
+
+
+def _emit_pages_oob(oob: list, total: int) -> None:
+    """汇总输出越界页码提示（每页一行 warning）。"""
+    for p in oob:
+        emit(t("pages.skip_out_of_range", n=p, total=total), level="warning")
+
+
+def format_pages_hint(pages) -> str:
+    """把 _PagesSel 转回紧凑展示串，如 [[1,3],[7,None]] → '1-3,7-*'；含筛选词时追尾拼接。"""
+    if not pages:
+        return ""
+    segs = getattr(pages, "segs", pages)
+    parts = []
+    for start, end in segs:
+        if end is None:
+            parts.append(f"{start}-*")
+        elif start == end:
+            parts.append(str(start))
+        else:
+            parts.append(f"{start}-{end}")
+    if getattr(pages, "tokens", None):
+        parts.extend(pages.tokens)
+    return ",".join(parts)
+
+
+# ---------------------------------------------------------------------------
+# --img-edit 图像处理管线（v3.6.0）
+# 固定管线顺序：denoise→whitebalance→rotate→flip→quality→scale→strip，
+# 与用户书写顺序无关；首版仅实现 rotate 与 strip，其余操作词暂未开放。
+# 同一操作重复给不同值报错、相同值幂等忽略；strip 恒为管线末位。
+# 三入口共用本模块：mobi→cbz 转换输出前 / --repack 打包前 / CBZ 就地修正。
+# 处理策略：仅对"方向需改"或"需剥离 EXIF"的图重编码，其余原样透传，
+# 避免无谓的质量损失与体积膨胀；Pillow 处理异常一律跳过该图保留原字节。
+# ---------------------------------------------------------------------------
+import io  # noqa: E402  （图像管线局部依赖，此处集中声明）
+
+_IMAGEDIT_PIPELINE_ORDER = (
+    "denoise", "whitebalance", "rotate", "flip", "grayscale", "format",
+    "quality", "scale", "trim", "strip",
+)
+_IMAGEDIT_IMPLEMENTED = ("rotate", "flip", "quality", "trim", "strip", "scale",
+                         "grayscale", "format")
+_IMAGEDIT_ROTATE_VALUES = {"auto": None, "90": 90, "180": 180, "270": 270}
+_IMAGEDIT_FLIP_VALUES = {"x": None, "y": None, "both": None}
+_IMAGEDIT_QUALITY_DEFAULT = 95  # --img-edit 重编码默认保存质量（1-100）
+_IMAGEDIT_TRIM_DEFAULT = 0.05   # trim 智能默认容差比（0~1）
+_IMAGEDIT_TRIM_SAFE = 8         # trim 安全边界像素数，避免误切内容
+_IMAGEDIT_SCALE_PERCENT_MIN = 1     # scale=NNN% 相对缩放允许的最小百分比（%）
+_IMAGEDIT_SCALE_PERCENT_MAX = 1000  # scale=NNN% 相对缩放允许的最大百分比（%）
+_IMAGEDIT_SCALE_WIDTH_MIN = 1       # scale=NNNw 目标宽度允许的最小像素
+_IMAGEDIT_SCALE_WIDTH_MAX = 100000  # scale=NNNw 目标宽度允许的最大像素
+# format 目标格式：别名 → 规范格式名
+_IMAGEDIT_FORMAT_ALIASES = {"jpeg": "JPEG", "jpg": "JPEG", "png": "PNG", "webp": "WEBP"}
+_IMAGEDIT_FORMAT_SUFFIX = {"JPEG": "jpg", "PNG": "png", "WEBP": "webp"}
+_IMAGEDIT_FORMAT_TRANSPARENT = (255, 255, 255)  # 透明转 JPEG 默认补白（可用 format=...,black 改黑）
+
+
+class _imi_format_spec(tuple):
+    """format 的规范化值：(fmt, suffix, bg_rgb|None)。
+
+    元组子类以兼容解包与逐元素比较；__str__ 返回可读形式（'jpg' /
+    'jpg,black'），用于冲突报错文案。fmt 为规范大写格式名（JPEG/PNG/WEBP），
+    suffix 为写入 cbz 的条目后缀（jpg/png/webp），bg_rgb 为透明补色
+    （仅 JPEG 生效，None 表示无需补色）。"""
+
+    __slots__ = ()
+
+    def __new__(cls, fmt, suffix, bg):
+        return super().__new__(cls, (fmt, suffix, bg))
+
+    def __str__(self):
+        fmt, suffix, bg = self
+        if fmt != "JPEG" or bg is None or bg == _IMAGEDIT_FORMAT_TRANSPARENT:
+            return suffix
+        if bg == (0, 0, 0):
+            return f"{suffix},black"
+        return f"{suffix},#{bg[0]:02x}{bg[1]:02x}{bg[2]:02x}"
+
+
+class _imi_scale_spec(tuple):
+    """scale 的规范化值：(mode, value)。元组子类以兼容解包与逐元素比较；
+    __str__ 返回可读形式（'200%' / '1200w'），用于冲突报错文案。"""
+
+    __slots__ = ()
+
+    def __new__(cls, mode, value):
+        return super().__new__(cls, (mode, value))
+
+    def __str__(self):
+        mode, value = self
+        if mode == "percent":
+            return f"{value:g}%"
+        return f"{int(value)}w"
+
+
+def _imi_format_norm(value: str | None):
+    """规范化 format 操作值 → (fmt, suffix, bg_rgb|None)。
+
+    format=jpeg|png|webp（别名亦接受 jpg）：像素格式转换，重编码后 cbz 内
+    条目后缀同步改为 jpg/png/webp。仅 JPEG 需处理透明补色（默认补白，
+    可传 black 或 #RRGGBB，如 format=jpeg,black）；png/webp 保留 alpha
+    无需补色（多余补色参数被忽略）。无参/非法/越界报错；归一为互异元组
+    交给上层冲突检测（同时给不同值报错、相同幂等忽略）。"""
+    if value is None or not str(value).strip():
+        raise ValueError(t("error.img_edit_bad_format", value="" if value is None else value,
+                            allowed="jpeg/png/webp"))
+    parts = [p.strip() for p in str(value).split(",")]
+    name = parts[0].strip().lower()
+    if name not in _IMAGEDIT_FORMAT_ALIASES:
+        raise ValueError(t("error.img_edit_bad_format", value=value,
+                            allowed="jpeg/png/webp"))
+    fmt = _IMAGEDIT_FORMAT_ALIASES[name]
+    suffix = _IMAGEDIT_FORMAT_SUFFIX[fmt]
+    bg: tuple | None = None
+    if len(parts) > 1:
+        bgs = parts[1].replace(" ", "").lower()
+        if bgs in ("", "white", "default"):
+            bg = _IMAGEDIT_FORMAT_TRANSPARENT
+        elif bgs == "black":
+            bg = (0, 0, 0)
+        elif bgs.startswith("#") and len(bgs) == 7:
+            try:
+                bg = (int(bgs[1:3], 16), int(bgs[3:5], 16), int(bgs[5:7], 16))
+            except ValueError:
+                raise ValueError(t("error.img_edit_bad_format", value=value,
+                                    allowed="jpeg[,white|black|#RRGGBB]")) from None
+        elif bgs.startswith("rgb(") and bgs.endswith(")"):
+            try:
+                comps = [int(x.strip()) for x in bgs[4:-1].split(",")]
+                if len(comps) == 3 and all(0 <= c <= 255 for c in comps):
+                    bg = tuple(comps)
+                else:
+                    raise ValueError
+            except ValueError:
+                raise ValueError(t("error.img_edit_bad_format", value=value,
+                                    allowed="jpeg[,white|black|#RRGGBB]")) from None
+        else:
+            raise ValueError(t("error.img_edit_bad_format", value=value,
+                                allowed="jpeg[,white|black|#RRGGBB]"))
+        if fmt != "JPEG":
+            bg = None  # png/webp 保留 alpha，补色参数无意义，忽略
+    return _imi_format_spec(fmt, suffix, bg)
+
+
+def _imi_format_from_ops(ops: list[tuple[str, object]] | None) -> _imi_format_spec | None:
+    """从 op 管线中提取 format 操作（无则 None），供写回后缀同步使用。"""
+    if not ops:
+        return None
+    for op, v in ops:
+        if op == "format":
+            return v
+    return None
+
+
+def _imi_arcname_swap(name: str, suffix: str) -> str:
+    """将条目名改为目标后缀，保留主体与可能的前缀序号；仅换扩展名。"""
+    p = str(name).rsplit(".", 1)
+    if len(p) == 2:
+        return f"{p[0]}.{suffix}"
+    return f"{name}.{suffix}"
+
+
+def _imi_rotate_norm(value: str | None):
+    """规范化 rotate 操作值：无参/auto → auto(None)；90/180/270 → 度数值；其余报错。"""
+    v = value
+    if v is None:
+        return None
+    s = str(v).strip().lower()
+    if s in _IMAGEDIT_ROTATE_VALUES:
+        return _IMAGEDIT_ROTATE_VALUES[s]
+    raise ValueError(t("error.img_edit_bad_rotate", value=v, allowed="auto/90/180/270"))
+
+
+def _imi_flip_norm(value: str | None):
+    """规范化 flip 操作值：x（水平镜像）/ y（垂直镜像）/ both（两者）；必填，非法报错。"""
+    val_s = "" if value is None else str(value).strip().lower()
+    if val_s not in _IMAGEDIT_FLIP_VALUES:
+        raise ValueError(t("error.img_edit_bad_flip", value=val_s, allowed="x/y/both"))
+    return val_s
+
+
+def _imi_quality_norm(value: str | None):
+    """规范化 quality 操作值：1-100 整数（覆盖重编码保存质量，默认 95）；必填且越界报错。"""
+    if value is None or not str(value).strip():
+        raise ValueError(t("error.img_edit_bad_quality", value="" if value is None else value, allowed="1-100"))
+    try:
+        q = int(str(value).strip())
+    except ValueError:
+        raise ValueError(t("error.img_edit_bad_quality", value=value, allowed="1-100")) from None
+    if not (1 <= q <= 100):
+        raise ValueError(t("error.img_edit_bad_quality", value=value, allowed="1-100"))
+    return q
+
+
+def _imi_trim_norm(value: str | None):
+    """规范化 trim 操作值：无参/auto → 智能默认容差；也可给 0~1 容差比；其余报错。"""
+    if value is None:
+        return _IMAGEDIT_TRIM_DEFAULT
+    s = str(value).strip().lower()
+    if s in ("", "auto"):
+        return _IMAGEDIT_TRIM_DEFAULT
+    try:
+        tol = float(s)
+    except ValueError:
+        raise ValueError(t("error.img_edit_bad_trim", value=value, allowed="auto/0~1")) from None
+    if not (0.0 <= tol <= 1.0):
+        raise ValueError(t("error.img_edit_bad_trim", value=value, allowed="auto/0~1"))
+    return tol
+
+
+def _imi_scale_norm(value: str | None):
+    """规范化 scale 操作值：两种语法二选一，返回 ('percent', p) 或 ('width', w)。
+
+    scale=NNN%：按百分比相对缩放（如 200%=放大 2 倍、50%=缩半，保持页间比例），
+    NNN 为 1~1000（%）。scale=NNNw：统一目标宽度像素（如 1200w=宽 1200 px、高按
+    原始比例），NNN 为 1~100000。无参/非法/越界报错；两种语法归一为互异元组，
+    交给上层冲突检测（同时给不同值报错、相同幂等忽略）。
+    """
+    if value is None:
+        raise ValueError(t("error.img_edit_bad_scale", value="", allowed="NNN% / NNNw"))
+    s = str(value).strip().lower()
+    if not s:
+        raise ValueError(t("error.img_edit_bad_scale", value=value, allowed="NNN% / NNNw"))
+    if s.endswith("%"):
+        try:
+            p = float(s[:-1])
+        except ValueError:
+            raise ValueError(t("error.img_edit_bad_scale", value=value, allowed="NNN% / NNNw")) from None
+        if not (_IMAGEDIT_SCALE_PERCENT_MIN <= p <= _IMAGEDIT_SCALE_PERCENT_MAX):
+            raise ValueError(t("error.img_edit_bad_scale", value=value, allowed="NNN% / NNNw"))
+        return _imi_scale_spec("percent", p)
+    if s.endswith("w"):
+        try:
+            w = int(s[:-1])
+        except ValueError:
+            raise ValueError(t("error.img_edit_bad_scale", value=value, allowed="NNN% / NNNw")) from None
+        if not (_IMAGEDIT_SCALE_WIDTH_MIN <= w <= _IMAGEDIT_SCALE_WIDTH_MAX):
+            raise ValueError(t("error.img_edit_bad_scale", value=value, allowed="NNN% / NNNw"))
+        return _imi_scale_spec("width", w)
+    raise ValueError(t("error.img_edit_bad_scale", value=value, allowed="NNN% / NNNw"))
+
+
+def parse_img_edit(values: list | None) -> list[tuple[str, object]] | None:
+    """解析 --img-edit 多值 → 规范化操作管线（按固定管线顺序排序）。
+
+    values 为 argparse action='append' 收集的原始字符串列表；每个值内可
+    用 '+' 粘连多个操作（如 'rotate=90+strip'）自动摊平。返回按固定管线
+    顺序排列的 [(op, value), ...]；相同操作重复给相同值幂等忽略、给不同
+    值抛 ValueError。None / 空 → None（未启用）。
+    """
+    if not values:
+        return None
+    units: list[tuple[str, object]] = []
+    seen: dict[str, object] = {}
+    for raw in values:
+        if not raw:
+            continue
+        for token in str(raw).split("+"):
+            token = token.strip()
+            if not token:
+                continue
+            op, _, val = token.partition("=")
+            op = op.strip().lower()
+            val = val.strip() if val else None
+            if op == "strip":
+                if val is not None:
+                    raise ValueError(t("error.img_edit_no_value", op="strip"))
+                normed: object = None
+            elif op == "rotate":
+                normed = _imi_rotate_norm(val)
+            elif op == "flip":
+                normed = _imi_flip_norm(val)
+            elif op == "quality":
+                normed = _imi_quality_norm(val)
+            elif op == "trim":
+                normed = _imi_trim_norm(val)
+            elif op == "scale":
+                normed = _imi_scale_norm(val)
+            elif op == "grayscale":
+                if val is not None:
+                    raise ValueError(t("error.img_edit_no_value", op="grayscale"))
+                normed = None
+            elif op == "format":
+                normed = _imi_format_norm(val)
+            else:
+                raise ValueError(
+                    t("error.img_edit_unknown_op", op=op, supported="rotate/flip/quality/trim/strip/scale/grayscale/format"))
+            if op in seen:
+                # 相同操作重复：值一致则幂等忽略；不一致则报错防歧义
+                if seen[op] != normed:
+                    cur = str(normed) if normed is not None else "auto"
+                    prev = str(seen[op]) if seen[op] is not None else "auto"
+                    raise ValueError(t("error.img_edit_conflict", op=op, cur=cur, prev=prev))
+                continue
+            seen[op] = normed
+            units.append((op, normed))
+    if not units:
+        return None
+    units.sort(key=lambda x: _IMAGEDIT_PIPELINE_ORDER.index(x[0]))
+    return units
+
+
+def _imi_exif_bytes(img, strip_all: bool) -> bytes | None:
+    """构造保存时使用的 EXIF 字节：strip_all → None（清光全部，即不写 EXIF）；
+    否则仅删除 Orientation 字段后返回其余 EXIF（已清空则 None）。"""
+    if strip_all:
+        return None
+    try:
+        exif = img.getexif()
+    except Exception:
+        return None
+    if 0x0112 in exif:
+        del exif[0x0112]
+    try:
+        data = exif.tobytes()
+    except Exception:
+        return None
+    return data if data else None
+
+
+def _imi_collect_exif(img):
+    """读取图片方向信息：(has_exif, orientation|None)。GIF 无 EXIF 概念。"""
+    if (img.format or "").upper() == "GIF":
+        return False, None
+    try:
+        exif = img.getexif()
+    except Exception:
+        return False, None
+    if exif is None or len(exif) == 0:
+        return True, None
+    return True, exif.get(0x0112, None)
+
+
+def _imi_warn_skip(name, exc):
+    """图像处理失败统一提示：跳过该图保留原字节，不中断整批转换。"""
+    try:
+        emit(t("img_edit.skip_warn", name=name, err=exc), level="warning")
+    except Exception:
+        pass
+
+
+def _imi_bg_color(img):
+    """估算图像边缘统一背景色：取四角内侧采样点，返回出现次数最多的颜色。
+
+    采样点各位于四角向内 1/10 边长处，避免角落单点噪讯干扰；全部不同则
+    取第一个（四角不一致即属于非统一背景，后续 trim 判定不会误裁）。"""
+    from PIL import Image, ImageChops, ImageOps  # 懒加载：仅在启用 --img-edit 时依赖 Pillow
+    rgb = img.convert("RGB")
+    w, h = rgb.size
+    mx, my = max(1, w // 10), max(1, h // 10)
+    pts = (
+        (mx, my), (w - 1 - mx, my),
+        (mx, h - 1 - my), (w - 1 - mx, h - 1 - my),
+    )
+    counts: dict[tuple[int, int, int], int] = {}
+    for p in pts:
+        c = rgb.getpixel(p)
+        counts[c] = counts.get(c, 0) + 1
+    return max(counts, key=counts.get)
+
+
+def _imi_trim(img, tol: float):
+    """自动白边裁剪：以边缘统一背景色为基准，四向收缩到内容 bbox。
+
+    返回 (img, trimmed)。tol 为颜色差异容差比（0~1）；裁出的 bbox 四周外扩
+    _IMAGEDIT_TRIM_SAFE 像素安全边界，避免把接近背景色的内容误切；四边无
+    白边或整图均为背景时不动图，返回原图引用。"""
+    from PIL import Image, ImageChops, ImageOps  # 懒加载：仅在启用 --img-edit 时依赖 Pillow
+    rgb = img.convert("RGB")
+    w, h = rgb.size
+    bg = _imi_bg_color(rgb)
+    diff = ImageChops.difference(rgb, Image.new("RGB", rgb.size, bg))
+    r, g, b = diff.split()
+    dmax = ImageChops.lighter(ImageChops.lighter(r, g), b)
+    threshold = max(1, int(tol * 255))
+    mask = dmax.point(lambda p: 255 if p > threshold else 0)
+    bbox = mask.getbbox()
+    if bbox is None:
+        return img, False
+    l, t, rp, bp = bbox  # noqa: E741
+    safe = _IMAGEDIT_TRIM_SAFE
+    box = (
+        max(0, l - safe), max(0, t - safe),
+        min(w, rp + safe), min(h, bp + safe),
+    )
+    if box == (0, 0, w, h):
+        return img, False
+    return img.crop(box), True
+
+
+def apply_image_pipeline(
+    img_path: Path,
+    ops: list[tuple[str, object]],
+    on_skip=_imi_warn_skip,
+) -> bytes | None:
+    """对单张图片应用 --img-edit 管线，返回新图字节；无需改动返回 None。
+
+    仅当发生像素变更（rotate 命中 Orientation≠1、手动 90/180/270、flip
+    镜像、grayscale 灰度化、format 转格式、trim 裁边）或需清 EXIF（strip）
+    或显式指定 quality 时才重编码：JPEG/WebP 按 save_quality（quality 覆盖
+    值，默认 95）保存，其余格式原样回写；format 覆盖输出格式（含透明转
+    JPEG 补色；JPEG/WebP 走 quality 保存，PNG 无损）。GIF 动画 / 多页
+    TIFF 等不支持逐帧编辑，经 on_skip 提示后返回 None（保留原始字节，
+    绝不写入坏图）。
+    on_skip: callable(name, exc)，处理失败时回调提示。
+    """
+    if not ops:
+        return None
+    try:
+        raw = img_path.read_bytes()
+        from PIL import Image, ImageChops, ImageOps  # 懒加载：仅在启用 --img-edit 时依赖 Pillow
+    except Exception as exc:
+        if on_skip:
+            on_skip(str(img_path), exc)
+        return None
+    try:
+        img = Image.open(io.BytesIO(raw))
+        if getattr(img, "is_animated", False):
+            if on_skip:
+                on_skip(str(img_path), ValueError("animated/multi-frame image not supported"))
+            return None
+        fmt = (img.format or "").upper()
+        if fmt not in ("JPEG", "PNG", "WEBP", "BMP", "TIFF", "GIF"):
+            return None
+        needs_rewrite = False
+        rotate_entries = [(op, v) for op, v in ops if op == "rotate"]
+        has_strip = any(op == "strip" for op, _ in ops)
+        format_spec = _imi_format_from_ops(ops)  # format op 的规范化值
+        target_fmt = format_spec[0] if format_spec is not None else fmt
+        if rotate_entries:
+            # 先按 EXIF Orientation 归一像素方向（若 ≠1 则烧录并重编码），
+            # 再按手动角度旋转；auto 仅走前者
+            _ok, ori = _imi_collect_exif(img) if fmt != "GIF" else (False, None)
+            if ori is not None and ori in range(2, 9):
+                img = ImageOps.exif_transpose(img)
+                needs_rewrite = True
+            deg = rotate_entries[0][1]  # None/0=auto
+            if deg == 180:
+                img = img.rotate(180, expand=True)
+                needs_rewrite = True
+            elif deg == 90:
+                img = img.transpose(Image.Transpose.ROTATE_270)  # 顺时针 90°
+                needs_rewrite = True
+            elif deg == 270:
+                img = img.transpose(Image.Transpose.ROTATE_90)  # 顺时针 270°
+                needs_rewrite = True
+            # deg 为 None → auto：仅烧录 Orientation≠1 的图，其余不重编码
+        flip_op = next((v for op, v in ops if op == "flip"), None)
+        if flip_op:
+            if flip_op in ("x", "both"):
+                img = img.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
+            if flip_op in ("y", "both"):
+                img = img.transpose(Image.Transpose.FLIP_TOP_BOTTOM)
+            needs_rewrite = True
+        # grayscale：恒插在 flip 之后（固定管线顺序）；转 L 灰度再回 RGB 三通道等值
+        if any(op == "grayscale" for op, _ in ops):
+            img = img.convert("L").convert("RGB")
+            needs_rewrite = True
+        scale_op = next((v for op, v in ops if op == "scale"), None)
+        if scale_op:
+            mode, arg = scale_op
+            w, h = img.size
+            if mode == "percent":
+                nw = max(1, round(w * arg / 100.0))
+                nh = max(1, round(h * arg / 100.0))
+            else:  # width
+                nw = arg
+                nh = max(1, round(h * arg / w))
+            try:
+                img = img.resize((nw, nh), Image.Resampling.LANCZOS)
+            except AttributeError:  # 兼容旧版 Pillow
+                img = img.resize((nw, nh), Image.LANCZOS)
+            needs_rewrite = True
+        trim_tol = next(
+            (v for op, v in ops if op == "trim"),
+            _IMAGEDIT_TRIM_DEFAULT)
+        if any(op == "trim" for op, _ in ops):
+            img, trimmed = _imi_trim(img, trim_tol if trim_tol is not None else _IMAGEDIT_TRIM_DEFAULT)
+            if trimmed:
+                needs_rewrite = True
+        save_quality = next(
+            (v for op, v in ops if op == "quality"), _IMAGEDIT_QUALITY_DEFAULT)
+        if any(op == "quality" for op, _ in ops):
+            needs_rewrite = True
+        # format：目标格式与当前格式不同才重编码（相同则等价无操作，避免有损二次压缩）
+        if format_spec is not None and target_fmt != fmt:
+            needs_rewrite = True
+        if has_strip:
+            needs_rewrite = True
+        if not needs_rewrite:
+            return None
+        # 透明转 JPEG：按 format 补色（默认白）合成背景后转 RGB；其余目标格式保留 alpha
+        if target_fmt == "JPEG" and img.mode in ("RGBA", "LA", "PA", "P"):
+            rgba = img.convert("RGBA")
+            bg_rgb = format_spec[2] if format_spec is not None and format_spec[2] else _IMAGEDIT_FORMAT_TRANSPARENT
+            base = Image.new("RGB", rgba.size, bg_rgb)
+            base.paste(rgba, mask=rgba.split()[3])
+            img = base
+        exif_bytes = _imi_exif_bytes(img, strip_all=bool(any(op == "strip" for op, _ in ops)))
+        buf = io.BytesIO()
+        save_kw: dict = {}
+        if exif_bytes is not None and target_fmt in ("JPEG", "WEBP", "PNG", "TIFF"):
+            save_kw["exif"] = exif_bytes
+        if target_fmt in ("JPEG", "WEBP"):
+            img.save(buf, format=target_fmt, quality=save_quality, **save_kw)
+        else:
+            img.save(buf, format=target_fmt, **save_kw)
+        return buf.getvalue()
+    except Exception as exc:
+        if on_skip:
+            on_skip(str(img_path), exc)
+        return None
 
 
 def extract_small_ratio(drop_expr) -> float | None:
@@ -6633,6 +7988,37 @@ def eval_filter_atoms(attrs: dict, atoms) -> bool:
     return True
 
 
+def _imi_name_has_glob(pattern: str) -> bool:
+    """name= 值是否启用 glob 匹配：仅 * 和 ? 视为通配符。
+
+    [] 字符类刻意不算 magic——漫画库文件名常带 [组名] 方括号字面量，
+    若把 [ 当字符类会 0 命中（详见 v3.0.0 target 通配的踩坑记录）。"""
+    return "*" in pattern or "?" in pattern
+
+
+def _imi_name_glob_match(pattern: str, basename_lower: str) -> bool:
+    """按"包含+通配"语义匹配文件名（大小写不敏感，pattern 转小写）。
+
+    仅 *（任意串）与 ?（单字符）生效，其余字符（含 [ ] . + 等）一律按
+    字面量匹配。为了延续 name= 原有的"子串包含"直觉，pattern 首尾不写 *
+    时自动放宽为包含（等价 *PAT*），用户无需每次手写首尾星号；这与
+    --drop / --pages 字面筛选词"不必写 *xx*"的习惯保持一致。不依赖
+    fnmatch.translate，避免其把 [ ] 当字符类导致方括号文件名 0 命中。"""
+    rx = []
+    if not pattern.startswith("*"):
+        rx.append(".*")
+    for ch in pattern.lower():
+        if ch == "*":
+            rx.append(".*")
+        elif ch == "?":
+            rx.append(".")
+        else:
+            rx.append(re.escape(ch))
+    if not pattern.endswith("*"):
+        rx.append(".*")
+    return re.search("".join(rx), basename_lower) is not None
+
+
 def eval_filter_atom(attrs: dict, a) -> bool:
     # ("neg", 内层原子)：取反语义（ATOM_ALIASES 中无 neg 键冲突）
     if a[0] == "neg":
@@ -6649,6 +8035,15 @@ def eval_filter_atom(attrs: dict, a) -> bool:
         return attrs.get("depth") == a[1]
     if t == "dir":
         return attrs.get("dir") == a[1]
+    if t == "orient":
+        # 方向异常（EXIF Orientation≠1，rotate=auto 将旋转）：无值=全部方向异常图；
+        # 方向=6 精确匹配 EXIF Orientation 值（1=正常不命中）
+        o = attrs.get("orientation")
+        if o is None:
+            return False
+        if a[1] is None:
+            return o != 1
+        return o == a[1]
     if t == "small":
         # small 独立条件词：读取 _fill_small_mark 按面积口径预填的 small_hit（True=小图）
         return bool(attrs.get("small_hit"))
@@ -6675,9 +8070,19 @@ def eval_filter_atom(attrs: dict, a) -> bool:
             return bool(attrs.get("inferred"))
         return m in (attrs.get("mark") or set())
     if t == "name":
-        # 按文件名关键词子串匹配（不区分大小写），只匹配纯文件名（zname/path 均归一为文件名）
+        # 按文件名关键词匹配（不区分大小写），只匹配纯文件名（zname/path 均归一为文件名）。
+        # 值含 * / ? 时按 glob 通配匹配（name=*_封面* / name=p00?），否则维持原有子串包含；
+        # name==/name=""/name='' 精确原子不受影响（name_exact 始终字面匹配）。
         nm = str(attrs.get("zname") or attrs.get("path") or "").replace("\\", "/")
-        return a[1] in nm.rsplit("/", 1)[-1].lower()
+        base = nm.rsplit("/", 1)[-1].lower()
+        p = a[1]
+        if _imi_name_has_glob(p):
+            return _imi_name_glob_match(p, base)
+        return p in base
+    if t == "name_exact":
+        # 精确匹配整个文件名（含扩展名，不区分大小写），只匹配纯文件名
+        nm = str(attrs.get("zname") or attrs.get("path") or "").replace("\\", "/")
+        return nm.rsplit("/", 1)[-1].lower() == a[1].lower()
     if t == "res":
         w, h = attrs.get("w"), attrs.get("h")
         if w is None or h is None:
@@ -6748,12 +8153,25 @@ def _fill_overscale_mark(attrs_list: list[dict]) -> None:
             a["anom"] = True
 
 
+def _fill_orientation_mark(attrs_list: list[dict]) -> None:
+    """EXIF 方向异常标记：Orientation≠1 的图置 mark='orientation' 并计入 anom。
+
+    与 --img-edit rotate=auto 判定口径一致（N=2~8 需烧录旋转，1=正常不标）；
+    与 [旋转跨页]（宽高比推断）并存互不冲突，各自独立标记。
+    """
+    for a in attrs_list:
+        o = a.get("orientation")
+        if o is not None and o != 1:
+            a["mark"].add("orientation")
+            a["anom"] = True
+
+
 def build_image_attrs(path: Path, double_ratio: float | None) -> dict:
     """从解包目录中的真实图片文件构建属性 dict（--list-images 用）。"""
     attrs = {"path": path, "zname": None, "ext": path.suffix.lower().lstrip("."),
              "w": None, "h": None, "mode": None, "depth": None, "size": None,
              "dir": None, "mark": set(), "extra": False, "toc": "", "dropped": None,
-             "frames": 0, "inferred": False}
+             "frames": 0, "inferred": False, "orientation": None}
     if attrs["ext"] == "jpeg":
         attrs["ext"] = "jpg"
     try:
@@ -6766,6 +8184,7 @@ def build_image_attrs(path: Path, double_ratio: float | None) -> dict:
     except Exception:
         head = b""
     dim = image_dimensions_bytes(head)
+    attrs["orientation"] = _exif_orientation_bytes(head)
     if dim:
         w, h = dim
         attrs["w"], attrs["h"] = w, h
@@ -6789,7 +8208,7 @@ def build_cbz_image_attrs(zf, name: str, double_ratio: float | None) -> dict:
     attrs = {"path": None, "zname": name, "ext": Path(name).suffix.lower().lstrip("."),
              "w": None, "h": None, "mode": None, "depth": None, "size": None,
              "dir": None, "mark": set(), "extra": False, "toc": "", "dropped": None,
-             "frames": 0}
+             "frames": 0, "inferred": False, "orientation": None}
     if attrs["ext"] == "jpeg":
         attrs["ext"] = "jpg"
     try:
@@ -6802,6 +8221,7 @@ def build_cbz_image_attrs(zf, name: str, double_ratio: float | None) -> dict:
     except Exception:
         head = b""
     dim = image_dimensions_bytes(head)
+    attrs["orientation"] = _exif_orientation_bytes(head)
     if dim:
         w, h = dim
         attrs["w"], attrs["h"] = w, h
@@ -7088,7 +8508,7 @@ def _strip_ansi(s: str) -> str:
 
 def _mark_color(key: str) -> int | None:
     """标记颜色映射：黄=可疑（多余/异常/小图/缩略图/筛选/超大页/推断），红=舍弃，绿=追加，青=中性（封面/跨页/动图）。"""
-    if key in ("extra", "anom", "small", "thumbnail", "filter", "overscale", "rotated_double", "inferred"):
+    if key in ("extra", "anom", "small", "thumbnail", "filter", "overscale", "rotated_double", "inferred", "orientation"):
         return 33
     if key == "drop":
         return 31
@@ -7103,9 +8523,10 @@ def _mark_strs(attrs: dict, is_cbz: bool, drop_expr, drop_small: float | None) -
     """标记列文本列表（CBZ 模式排除处置标记）。
 
     性质与处置两维独立拼接，全部为独立标记：
-      汇总：[异常] 首位恒显（overscale/rotated_double/small/thumbnail/animated/extra 任一）
+      汇总：[异常] 首位恒显（overscale/rotated_double/orientation/small/thumbnail/animated/extra 任一）
       性质：[多余] 不在 spine 的图（含封面补位）/ [封面] / [小图] / [跨页] / [动图] /
-            [缩略图] / [超大页] / [旋转跨页] / [筛选]（命中过滤表达式）
+            [缩略图] / [超大页] / [旋转跨页] / [旋转N]（EXIF Orientation≠1，rotate=auto 将旋转）/
+            [筛选]（命中过滤表达式）
       推断：[推断] 独立标记（旋转跨页 / 缩略图 / 封面补位等推断性识别，替代原"疑似"前缀）
       处置（仅非 CBZ）：[追加] 保留进 CBZ / [舍弃] 将被丢弃
     有目录的图在目录列展示，此处不重复标 [目录]。TTY 下按标记类型上色。
@@ -7132,6 +8553,8 @@ def _mark_strs(attrs: dict, is_cbz: bool, drop_expr, drop_small: float | None) -
         keys.append("overscale")
     if "rotated_double" in mark:
         keys.append("rotated_double")
+    if "orientation" in mark:
+        keys.append("orientation")
     d = _dropped_desc(drop_expr, attrs) if drop_expr is not None else None
     if d and "extra" not in d:
         keys.append("filter")
@@ -7145,7 +8568,13 @@ def _mark_strs(attrs: dict, is_cbz: bool, drop_expr, drop_small: float | None) -
             keys.append("drop")
         elif disp == "append":
             keys.append("append")
-    marks = [t(f"mark.{k}") for k in keys]
+    marks = []
+    for k in keys:
+        if k == "orientation":
+            # [旋转N] 带参标记：N=EXIF Orientation 值（2~8）
+            marks.append(t("mark.rotate", n=attrs.get("orientation")))
+        else:
+            marks.append(t(f"mark.{k}"))
     if _color_enabled:
         return [_c(_mark_color(k), m) for k, m in zip(keys, marks)]
     return marks
@@ -7198,6 +8627,8 @@ def _render_stats(attrs_list: list[dict], has_toc: bool, extra_dropped: bool, dr
             descs.append(t("anom.overscale"))
         if "rotated_double" in a["mark"]:
             descs.append(t("anom.rotated_double"))
+        if "orientation" in a["mark"]:
+            descs.append(t("anom.orientation", n=a.get("orientation")))
         if "thumbnail" in a["mark"]:
             descs.append(t("anom.thumbnail"))
         if "small" in a["mark"]:
@@ -7340,6 +8771,7 @@ def _list_ebook(p: Path, args, double_ratio, list_expr) -> None:
             attrs_list.append(a)
         _fill_small_mark(attrs_list, small_ratio)
         _fill_overscale_mark(attrs_list)
+        _fill_orientation_mark(attrs_list)
         # drop-small 命中判定（面积口径，与 [小图] 标记 / 转换丢弃 / inspect 预览统一）
         if small_ratio is not None:
             dims = [(a["w"], a["h"]) for a in attrs_list if a.get("w") and a.get("h")]
@@ -7471,6 +8903,7 @@ def _list_cbz(p: Path, args, double_ratio, list_expr) -> None:
                 attrs_list.append(a)
             _fill_small_mark(attrs_list, small_ratio)
             _fill_overscale_mark(attrs_list)
+            _fill_orientation_mark(attrs_list)
             if small_ratio is not None:
                 dims = [(a["w"], a["h"]) for a in attrs_list if a.get("w") and a.get("h")]
                 if len(dims) >= 2:
@@ -7574,17 +9007,39 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="EXTS",
         help=t("help.ext_priority"),
     )
-    # 输入：统一丢弃过滤器（--drop，nargs='?' 可选值）；输出：转换时按条件丢弃图片
+    # 输入：统一丢弃过滤器（--drop，nargs='?' 可选值、可重复）；输出：转换时按条件丢弃图片
     # 取值：无值 → 丢弃全部多余图片；带值 → extra/small[=比例]/格式/条件词过滤
     #       （逗号=OR、'+'=AND）；off/no/0/false → 关闭。三链路（转换/inspect/清单）同源。
+    # 可重复：多次 --drop = OR 并集（各自表达式组间 OR），action='append' 收集。
     parser.add_argument(
         "--drop",
+        action="append",
         nargs="?",
         const="extra",
         default=None,
         metavar="EXPR",
         type=parse_drop_expr,
         help=t("help.drop"),
+    )
+    # 输入：图像处理管线（--img-edit，可重复，值内 '+' 切分摊平）；输出：输出图应用旋转/剥离
+    # 取值：rotate[=auto|90|180|270]（无参=auto 按 EXIF Orientation 烧录并删字段）、
+    #       strip（清光全部 EXIF，恒为管线末位）。固定管线 denoise→whitebalance→rotate
+    #       →flip→quality→scale→strip 与书写顺序无关；同操作重复给不同值报错、相同幂等忽略。
+    # 三入口：mobi→cbz 转换 / --repack 打包前 / 目标为已有 .cbz 的就地修正（CBZ 方向修正模式）。
+    parser.add_argument(
+        "--img-edit",
+        action="append",
+        default=None,
+        metavar="EDIT",
+        help=t("help.img_edit"),
+    )
+    # --pages 指定页处理（v3.6.0）：只处理选中页；可重复，值内逗号切分免引号
+    parser.add_argument(
+        "--pages",
+        action="append",
+        default=None,
+        metavar="PAGES",
+        help=t("help.pages"),
     )
     # 隐藏兼容别名：旧 --drop-extra 并入 --drop（无值/extra 语义不变，带值即过滤表达式）
     parser.add_argument(
@@ -7837,13 +9292,44 @@ def _main() -> None:
         args.inspect = parse_inspect_arg("all")
 
     # --drop / --drop-extra / --drop-small 合并为统一丢弃表达式（组间 OR）
-    drop_groups = args.drop or []
+    # --drop 自 v3.6.0 支持重复 flag（action='append'）：每个值经 parse_drop_expr
+    # 产出各自组列表，重复 flag 语义 = OR 并集，此处逐一摊平进统一表达式。
+    drop_groups: list = []
+    for _chunk in (args.drop or []):
+        if _chunk:
+            drop_groups.extend(_chunk)
     if args.drop_extra is not None:
         drop_groups = drop_groups + args.drop_extra
     if args.drop_small is not None:
         # --drop-small 映射为 small 条件（无值/auto → 默认比例）
         drop_groups = drop_groups + [[("small", args.drop_small)]]
     args.drop = drop_groups or None
+
+    # --img-edit 解析为规范化管线（固定顺序、幂等去重、冲突校验）
+    args.img_edit_ops = None
+    if args.img_edit:
+        try:
+            args.img_edit_ops = parse_img_edit(args.img_edit)
+        except ValueError as e:
+            emit(str(e), level="error")
+            sys.exit(2)
+        if args.img_edit_ops:
+            try:
+                import PIL  # noqa: F401  仅启用 --img-edit 时强制校验 Pillow
+            except ImportError:
+                emit(t("error.img_edit_missing_pillow"), level="error")
+                sys.exit(2)
+
+    # --pages 解析为归一化页段列表（运行时按每本实际页数展开，* 与越界即时判定）
+    args.pages_expr = None
+    if args.pages:
+        try:
+            args.pages_expr = parse_pages_expr(args.pages)
+        except ValueError as e:
+            emit(str(e), level="error")
+            sys.exit(2)
+        if args.pages_expr is not None:
+            emit(t("pages.enabled", expr=", ".join(args.pages)), level="summary")
 
     global _debug_mode, _quiet_mode, _log_path, _short_summary, _compress_level, _json_stdout, _json_out_path, _color_enabled
     _debug_mode = args.debug
@@ -7893,7 +9379,7 @@ def _main() -> None:
         repack_mode(target, args)
         return
 
-    ebook_files = collect_ebook_files(target, include_cbz=args.inspect is not None or args.unpack or args.list_images or bool(args.setinfo) or bool(args.rename), top_only=args.top_only)
+    ebook_files = collect_ebook_files(target, include_cbz=args.inspect is not None or args.unpack or args.list_images or bool(args.setinfo) or bool(args.rename) or bool(args.img_edit), top_only=args.top_only)
     if not ebook_files:
         emit(t("run.no_ebooks", path=args.target), level="error")
         sys.exit(0)
@@ -7949,6 +9435,9 @@ def _main() -> None:
         #   rename 原地改名后 modify 打开旧路径 → FileNotFoundError。
         if args.setinfo:
             modify_cbz_mode(cbz_modify_files, args)
+        if args.img_edit_ops:
+            # v3.6.0：--img-edit 对已有 .cbz 就地修正内部图片（CBZ 方向修正模式）
+            modify_cbz_images_mode(cbz_modify_files, args)
         if args.rename:
             rename_cbz_mode(cbz_modify_files, args)
 
@@ -8084,6 +9573,8 @@ def _main() -> None:
             comicinfo=not args.no_comicinfo, setinfo_args=args.setinfo,
             double_page=args.double_page,
             rename_template=args.rename,
+            img_edit_ops=args.img_edit_ops,
+            pages_expr=args.pages_expr,
         )
         file_elapsed = time.perf_counter() - file_start
         json_status = "ok"
