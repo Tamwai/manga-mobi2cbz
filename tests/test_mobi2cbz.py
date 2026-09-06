@@ -8,6 +8,7 @@
 """
 import importlib.util
 import inspect
+import io
 import subprocess
 import sys
 import tempfile
@@ -16,6 +17,8 @@ import unittest
 import zipfile
 from argparse import ArgumentTypeError
 from pathlib import Path
+
+from PIL import Image  # 仅 TestCbzPageOrderNatsort 行为用例使用（主程序强依赖 Pillow）
 
 ROOT = Path(__file__).resolve().parent.parent
 MAIN = ROOT / "manga-mobi2cbz.py"
@@ -33,6 +36,9 @@ mod = _load_module()
 parse_atom = mod._parse_atom
 parse_drop_expr = mod.parse_drop_expr
 parse_inspect_arg = mod.parse_inspect_arg
+parse_pages_expr = mod.parse_pages_expr
+expand_pages = mod.expand_pages
+parse_img_edit = mod.parse_img_edit
 extract_small_ratio = mod.extract_small_ratio
 eval_atom = mod.eval_filter_atom
 fill_small = mod._fill_small_mark
@@ -183,6 +189,90 @@ class TestParseDropExpr(unittest.TestCase):
             with self.assertRaises(ArgumentTypeError, msg=f"{v!r} 应报错"):
                 parse_drop_expr(v)
 
+
+class TestParsePagesExpr(unittest.TestCase):
+    """--pages 表达式：单页/闭区间/开区间/逗号/多 flag、去重排序合并、非法。"""
+
+    def test_single(self):
+        self.assertEqual(parse_pages_expr(["5"]).segs, [[5, 5]])
+
+    def test_range_comma(self):
+        self.assertEqual(parse_pages_expr(["1-3,5"]).segs, [[1, 3], [5, 5]])
+
+    def test_open(self):
+        self.assertEqual(parse_pages_expr(["7-*"]).segs, [[7, None]])
+
+    def test_mix_multiple_flags(self):
+        self.assertEqual(parse_pages_expr(["1-3", "5,7-*"]).segs,
+                         [[1, 3], [5, 5], [7, None]])
+
+    def test_merge_overlap_adjacent(self):
+        self.assertEqual(parse_pages_expr(["1-3", "2-6"]).segs, [[1, 6]])
+        self.assertEqual(parse_pages_expr(["1-3", "4-5"]).segs, [[1, 5]])
+
+    def test_open_swallows_adjacent_only(self):
+        # 开区间与邻接前区间合并覆盖到结尾
+        self.assertEqual(parse_pages_expr(["1-3", "3-*"]).segs, [[1, None]])
+        # 开区间不吞并与其不邻接的闭区间（保留中间页）
+        self.assertEqual(parse_pages_expr(["1,3,5", "7-*"]).segs,
+                         [[1, 1], [3, 3], [5, 5], [7, None]])
+
+    def test_dedupe(self):
+        self.assertEqual(parse_pages_expr(["1-3", "1-3"]).segs, [[1, 3]])
+
+    def test_none_empty(self):
+        self.assertIsNone(parse_pages_expr(None))
+        self.assertIsNone(parse_pages_expr([]))
+        self.assertIsNone(parse_pages_expr([""]))
+
+    def test_invalid(self):
+        # 仍非法的输入：0/-1/倒序区间/残缺区间/未知筛选词
+        for v in ("0", "-1", "3-1", "1-", "unknown-atom-zzz"):
+            with self.assertRaises(ValueError, msg=f"{v!r} 应报错"):
+                parse_pages_expr([v])
+
+    def test_filter_words(self):
+        # 数字段 + 筛选词同 flag（逗号切分）：数字页段与 filter_groups 并存
+        p = parse_pages_expr(["1-3,name=cover"])
+        self.assertEqual(p.segs, [[1, 3]])
+        self.assertTrue(p.filter_groups)
+        self.assertIn("name=cover", p.tokens)
+        # 纯筛选词：segs 为空、filter_groups 非空
+        p2 = parse_pages_expr(["封面"])
+        self.assertEqual(p2.segs, [])
+        self.assertTrue(p2.filter_groups)
+        # '+'=AND 分组（如 封面+双页 为一组内 AND）
+        p3 = parse_pages_expr(["封面+双页"])
+        self.assertTrue(p3.filter_groups)
+        # 逗号=OR：两个筛选词各成一组
+        p4 = parse_pages_expr(["封面,双页"])
+        self.assertEqual(len(p4.filter_groups), 2)
+        # format_pages_hint 含筛选词尾巴
+        self.assertIn("name=cover", mod.format_pages_hint(p))
+
+
+class TestExpandPages(unittest.TestCase):
+    """--pages 展开：0-based 选中索引 + 越界汇总。"""
+
+    def test_all_selected(self):
+        self.assertEqual(expand_pages([[1, 3], [5, 5]], 5), ([0, 1, 2, 4], []))
+
+    def test_open_to_total(self):
+        self.assertEqual(expand_pages([[3, None]], 5), ([2, 3, 4], []))
+
+    def test_out_of_range_mixed(self):
+        self.assertEqual(expand_pages([[1, 2], [8, 9]], 5), ([0, 1], [8, 9]))
+
+    def test_out_of_range_all(self):
+        self.assertEqual(expand_pages([[6, 7]], 5), ([], [6, 7]))
+
+    def test_none_pages(self):
+        self.assertEqual(expand_pages(None, 5), (None, []))
+
+    def test_open_all_out_of_range(self):
+        # 开区间起点已超过总页数：range 空 → 空命中（触发空命中终止）
+        self.assertEqual(expand_pages([[6, None]], 5), ([], []))
+
     def test_neg_prefix(self):
         # v3.5.0：'-' 前缀 = 排除（负向条件），递归解析内层原子
         self.assertEqual(parse_atom("-gif"), ("neg", ("ext", "gif")))
@@ -218,6 +308,31 @@ class TestEvalAtom(unittest.TestCase):
         a = mkattrs(path="Cover00196.jpeg")
         self.assertTrue(eval_atom(a, ("name", "cover")))
         self.assertTrue(eval_atom(a, ("name", "00196")))
+        self.assertFalse(eval_atom(a, ("name", "zzz")))
+
+    def test_name_glob_wildcard(self):
+        # name= 值含 * / ? 时按 glob 匹配；[] 仅当字面量（方括号文件名不误伤）
+        base = mkattrs(path="[组名]vol03_封面_p002.png")
+        self.assertTrue(eval_atom(base, ("name", "*_封面_*")))
+        self.assertTrue(eval_atom(base, ("name", "vol0?_封面*")))
+        self.assertTrue(eval_atom(base, ("name", "vol0?_封面_p00?")))
+        self.assertTrue(eval_atom(base, ("name", "[组名]*")))       # [] 字面
+        self.assertTrue(eval_atom(base, ("name", "*p002.png")))
+        self.assertFalse(eval_atom(base, ("name", "vol0_封面*")))    # 缺尾数字符
+        self.assertFalse(eval_atom(base, ("name", "vol0?_封_*")))    # 字符不符
+        self.assertFalse(eval_atom(base, ("name", "vol0?_封面_p00x")))  # 字面不符
+
+    def test_name_glob_case_insensitive(self):
+        a = mkattrs(path="CoverP001.JPG")
+        self.assertTrue(eval_atom(a, ("name", "coverp00?")))
+        self.assertTrue(eval_atom(a, ("name", "*p001.*")))
+        self.assertTrue(eval_atom(a, ("name", "COVER*")))
+
+    def test_name_no_glob_keeps_substring(self):
+        # 无通配符时维持子串语义（回归护栏：含方括号文件名正常命中）
+        a = mkattrs(path="xxx[abc]yyy_封面.png")
+        self.assertTrue(eval_atom(a, ("name", "封面")))
+        self.assertTrue(eval_atom(a, ("name", "[abc]")))
         self.assertFalse(eval_atom(a, ("name", "zzz")))
 
     def test_mark_tags(self):
@@ -562,14 +677,460 @@ class TestInspectJsonFormats(unittest.TestCase):
 
 
 class TestVersionGuard(unittest.TestCase):
-    """v3.5.4 版本号同步护栏：__version__ / docstring 更新日志。"""
+    """v3.6.0 版本号同步护栏：__version__ / docstring 更新日志。"""
 
-    def test_version_is_3_5_4(self):
-        self.assertEqual(mod.__version__, "3.5.4")
+    def test_version_is_3_6_0(self):
+        self.assertEqual(mod.__version__, "3.6.0")
 
-    def test_docstring_changelog_has_3_5_4(self):
-        self.assertIn("v3.5.4", mod.__doc__)
+    def test_docstring_changelog_has_3_6_0(self):
+        self.assertIn("v3.6.0", mod.__doc__)
         self.assertIn("退出码", mod.__doc__)
+
+
+class TestImgEditOps(unittest.TestCase):
+    """--img-edit 三操作（quality/flip/trim）解析与边界（v3.6.0）。"""
+
+    def test_flip_accepts_xyboth(self):
+        self.assertEqual(parse_img_edit(["flip=x"]), [("flip", "x")])
+        self.assertEqual(parse_img_edit(["flip=y"]), [("flip", "y")])
+        self.assertEqual(parse_img_edit(["flip=both"]), [("flip", "both")])
+
+    def test_flip_bad_value(self):
+        for v in ("z", "", "diag", "xy"):
+            with self.subTest(v=v):
+                with self.assertRaises(ValueError):
+                    parse_img_edit([f"flip={v}"])
+
+    def test_quality_bounds(self):
+        self.assertEqual(parse_img_edit(["quality=1"]), [("quality", 1)])
+        self.assertEqual(parse_img_edit(["quality=100"]), [("quality", 100)])
+        self.assertEqual(parse_img_edit(["quality=80"]), [("quality", 80)])
+        for v in ("0", "101", "-1", "abc", "", "95.5"):
+            with self.subTest(v=v):
+                with self.assertRaises(ValueError):
+                    parse_img_edit([f"quality={v}"])
+
+    def test_quality_requires_value(self):
+        with self.assertRaises(ValueError):
+            parse_img_edit(["quality"])
+
+    def test_trim_defaults_and_bounds(self):
+        self.assertEqual(parse_img_edit(["trim"]), [("trim", 0.05)])
+        self.assertEqual(parse_img_edit(["trim=auto"]), [("trim", 0.05)])
+        self.assertEqual(parse_img_edit(["trim=0.2"]), [("trim", 0.2)])
+        self.assertEqual(parse_img_edit(["trim=1"]), [("trim", 1.0)])
+        for v in ("1.5", "-0.1", "abc", "2"):
+            with self.subTest(v=v):
+                with self.assertRaises(ValueError):
+                    parse_img_edit([f"trim={v}"])
+
+    def test_conflict_rule_extended(self):
+        with self.assertRaises(ValueError):
+            parse_img_edit(["quality=80", "quality=90"])
+        with self.assertRaises(ValueError):
+            parse_img_edit(["flip=x", "flip=y"])
+        with self.assertRaises(ValueError):
+            parse_img_edit(["trim=auto", "trim=0.1"])
+        self.assertEqual(parse_img_edit(["quality=80", "quality=80"]), [("quality", 80)])
+
+    def test_scale_percent_and_width(self):
+        # 百分比相对缩放
+        self.assertEqual(parse_img_edit(["scale=200%"]), [("scale", ("percent", 200.0))])
+        self.assertEqual(parse_img_edit(["scale=50%"]), [("scale", ("percent", 50.0))])
+        self.assertEqual(parse_img_edit(["scale=100%"]), [("scale", ("percent", 100.0))])
+        # 目标宽度像素
+        self.assertEqual(parse_img_edit(["scale=1200w"]), [("scale", ("width", 1200))])
+        self.assertEqual(parse_img_edit(["scale=1w"]), [("scale", ("width", 1))])
+        self.assertEqual(parse_img_edit(["scale=100000w"]), [("scale", ("width", 100000))])
+        # 大小写不敏感 & 空格容忍
+        self.assertEqual(parse_img_edit(["scale=200W"]), [("scale", ("width", 200))])
+        self.assertEqual(parse_img_edit(["scale= 150% "]), [("scale", ("percent", 150.0))])
+
+    def test_scale_bad_values(self):
+        for v in ("", "abc", "200", "w", "0%", "-5%", "1001%", "0w", "100001w", "12.5w",
+                  "1.5x", "abc%", "50w%", "999999999999w"):
+            with self.subTest(v=v):
+                with self.assertRaises(ValueError):
+                    parse_img_edit([f"scale={v}"])
+        with self.assertRaises(ValueError):
+            parse_img_edit(["scale"])
+
+    def test_scale_conflict_rule(self):
+        # 两种语法互异元组 → 冲突
+        with self.assertRaises(ValueError):
+            parse_img_edit(["scale=200%", "scale=1200w"])
+        with self.assertRaises(ValueError):
+            parse_img_edit(["scale=50%", "scale=60%"])
+        with self.assertRaises(ValueError):
+            parse_img_edit(["scale=1200w", "scale=1000w"])
+        # 相同值幂等忽略
+        self.assertEqual(parse_img_edit(["scale=200%", "scale=200%"]),
+                         [("scale", ("percent", 200.0))])
+        self.assertEqual(parse_img_edit(["scale=1200w", "scale=1200w"]),
+                         [("scale", ("width", 1200))])
+
+    def test_unknown_op_supported_lists_new_ops(self):
+        with self.assertRaises(ValueError) as cm:
+            parse_img_edit(["sepia"])
+        msg = str(cm.exception)
+        for op in ("rotate", "flip", "quality", "trim", "strip", "scale"):
+            self.assertIn(op, msg, f"supported 提示应含 {op}")
+
+    def test_pipeline_order_kept(self):
+        ops = dict(parse_img_edit(["strip+quality=80+flip=both+trim+scale=1200w"]))
+        self.assertEqual(list(ops), ["flip", "quality", "scale", "trim", "strip"])
+        self.assertEqual(ops["flip"], "both")
+        self.assertEqual(ops["quality"], 80)
+        self.assertEqual(ops["scale"], ("width", 1200))
+        self.assertEqual(ops["trim"], 0.05)
+
+    def test_grayscale_no_value(self):
+        self.assertEqual(parse_img_edit(["grayscale"]), [("grayscale", None)])
+        with self.assertRaises(ValueError):
+            parse_img_edit(["grayscale=1"])
+        with self.assertRaises(ValueError):
+            parse_img_edit(["grayscale=on"])
+
+    def test_format_parse_values(self):
+        # jpeg/png/webp + 别名 jpg；bg=None 表示走默认补白（写入层填白）
+        self.assertEqual(parse_img_edit(["format=jpeg"]),
+                         [("format", ("JPEG", "jpg", None))])
+        self.assertEqual(parse_img_edit(["format=jpg"]),
+                         [("format", ("JPEG", "jpg", None))])
+        self.assertEqual(parse_img_edit(["format=png"]),
+                         [("format", ("PNG", "png", None))])
+        self.assertEqual(parse_img_edit(["format=webp"]),
+                         [("format", ("WEBP", "webp", None))])
+        # 大小写与空格容忍
+        self.assertEqual(parse_img_edit(["format= JPEG "]),
+                         [("format", ("JPEG", "jpg", None))])
+
+    def test_format_backfill_colors(self):
+        # 补色：white / black / #RRGGBB；非 JPEG 忽略补色
+        self.assertEqual(parse_img_edit(["format=jpeg,white"]),
+                         [("format", ("JPEG", "jpg", (255, 255, 255)))])
+        self.assertEqual(parse_img_edit(["format=jpeg,black"]),
+                         [("format", ("JPEG", "jpg", (0, 0, 0)))])
+        self.assertEqual(parse_img_edit(["format=jpeg,#ff0000"]),
+                         [("format", ("JPEG", "jpg", (255, 0, 0)))])
+        # png/webp 保留 alpha，补色参数无意义 → 忽略为 None
+        self.assertEqual(parse_img_edit(["format=png,black"]),
+                         [("format", ("PNG", "png", None))])
+
+    def test_format_bad_values(self):
+        for v in ("", "bmp", "gif", "#ff00", "abc", "0",
+                  "jpeg,#12345", "jpeg,rgb(1,2,3)", "jpeg,notacolor"):
+            with self.subTest(v=v):
+                with self.assertRaises(ValueError):
+                    parse_img_edit([f"format={v}"])
+        with self.assertRaises(ValueError):
+            parse_img_edit(["format"])
+
+    def test_format_conflict_idempotent(self):
+        with self.assertRaises(ValueError):
+            parse_img_edit(["format=jpeg", "format=png"])
+        with self.assertRaises(ValueError):
+            parse_img_edit(["format=jpeg", "format=jpeg,black"])
+        self.assertEqual(parse_img_edit(["format=jpeg", "format=jpeg"]),
+                         [("format", ("JPEG", "jpg", None))])
+
+    def test_pipeline_order_grayscale_before_format(self):
+        # 固定管线顺序：flip → grayscale → format → quality → scale → trim → strip
+        ops = dict(parse_img_edit(
+            ["strip+format=webp+grayscale+flip=x+quality=80+trim+scale=1200w"]))
+        self.assertEqual(list(ops),
+                         ["flip", "grayscale", "format", "quality", "scale", "trim", "strip"])
+
+
+class TestImgEditGuard(unittest.TestCase):
+    """--img-edit 三操作实现痕迹护栏（常量/文档/CLI 行为）。"""
+
+    def test_pipeline_order_contains_trim(self):
+        self.assertIn("trim", mod._IMAGEDIT_PIPELINE_ORDER)
+        # flip/quality 均在 strip 前、trim 也参与管线
+        self.assertLess(mod._IMAGEDIT_PIPELINE_ORDER.index("flip"),
+                        mod._IMAGEDIT_PIPELINE_ORDER.index("strip"))
+        self.assertLess(mod._IMAGEDIT_PIPELINE_ORDER.index("quality"),
+                        mod._IMAGEDIT_PIPELINE_ORDER.index("strip"))
+        self.assertLess(mod._IMAGEDIT_PIPELINE_ORDER.index("trim"),
+                        mod._IMAGEDIT_PIPELINE_ORDER.index("strip"))
+
+    def test_quality_default_constant(self):
+        self.assertEqual(mod._IMAGEDIT_QUALITY_DEFAULT, 95)
+
+    def test_trim_safe_constant(self):
+        self.assertEqual(mod._IMAGEDIT_TRIM_SAFE, 8)
+
+    def test_docstring_mentions_new_ops(self):
+        doc = mod.__doc__ if isinstance(mod.__doc__, str) else ""
+        for kw in ("flip（x=水平镜像", "quality=1-100", "trim（自动白边裁剪",
+                   "scale=NNN%", "scale=NNNw", "grayscale（灰度化", "format=jpeg|png|webp"):
+            self.assertIn(kw, doc, f"docstring v3.6.0 段应提到 {kw}")
+
+    def test_cli_bad_quality_exit_2(self):
+        with tempfile.TemporaryDirectory() as td:
+            d = Path(td)
+            ep = _make_mini_epub(d)
+            r = _run_cli(str(ep), "--img-edit", "quality=0")
+            self.assertEqual(r.returncode, 2)
+
+    def test_cli_bad_flip_exit_2(self):
+        with tempfile.TemporaryDirectory() as td:
+            d = Path(td)
+            ep = _make_mini_epub(d)
+            r = _run_cli(str(ep), "--img-edit", "flip=diag")
+            self.assertEqual(r.returncode, 2)
+
+    def test_cli_bad_trim_exit_2(self):
+        with tempfile.TemporaryDirectory() as td:
+            d = Path(td)
+            ep = _make_mini_epub(d)
+            r = _run_cli(str(ep), "--img-edit", "trim=1.5")
+            self.assertEqual(r.returncode, 2)
+
+    def test_cli_bad_scale_exit_2(self):
+        for v in ("0%", "-5%", "1001%", "0w", "100001w", "abc", "1200"):
+            with self.subTest(v=v):
+                with tempfile.TemporaryDirectory() as td:
+                    d = Path(td)
+                    ep = _make_mini_epub(d)
+                    r = _run_cli(str(ep), "--img-edit", f"scale={v}")
+                    self.assertEqual(r.returncode, 2, f"scale={v} 应退出 2")
+
+    def test_scale_applies_inplace_cbz(self):
+        """就地修正 CBZ：scale=NNN% 等比放大、scale=NNNw 锁定目标宽度（高按比例）。"""
+        png = TestCbzPageOrderNatsort._make_png_bytes()  # 16x8 PNG
+        cbz = Path(tempfile.mkdtemp()) / "s.cbz"
+        with zipfile.ZipFile(cbz, "w") as z:
+            z.writestr("p001.png", png)
+        from PIL import Image as PImage
+
+        def _size(path):
+            with zipfile.ZipFile(path) as z:
+                return PImage.open(io.BytesIO(z.read("p001.png"))).size
+
+        # 百分比：16x8 → 200% → 32x16
+        r = _run_cli(str(cbz), "--img-edit", "scale=200%")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(_size(cbz), (32, 16))
+
+        # 目标宽度：重置为原图后 800w → 宽 800、高按 8/16 比例 = 400
+        cbz2 = Path(tempfile.mkdtemp()) / "s.cbz"
+        with zipfile.ZipFile(cbz2, "w") as z:
+            z.writestr("p001.png", png)
+        r = _run_cli(str(cbz2), "--img-edit", "scale=800w")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(_size(cbz2), (800, 400))
+
+    def test_pipeline_order_guard_grayscale_format(self):
+        # flip < grayscale < format < quality < scale < trim < strip
+        order = mod._IMAGEDIT_PIPELINE_ORDER
+        self.assertIn("grayscale", order)
+        self.assertIn("format", order)
+        for op in ("flip", "grayscale", "format", "quality", "scale", "trim", "strip"):
+            self.assertTrue(op in order, f"管线顺序应含 {op}")
+        self.assertLess(order.index("flip"), order.index("grayscale"))
+        self.assertLess(order.index("grayscale"), order.index("format"))
+        self.assertLess(order.index("format"), order.index("quality"))
+        self.assertLess(order.index("quality"), order.index("strip"))
+        # implemented 集合含二者
+        for op in ("grayscale", "format"):
+            self.assertIn(op, mod._IMAGEDIT_IMPLEMENTED)
+
+    def test_format_constants(self):
+        self.assertEqual(mod._IMAGEDIT_FORMAT_ALIASES,
+                         {"jpeg": "JPEG", "jpg": "JPEG", "png": "PNG", "webp": "WEBP"})
+        self.assertEqual(mod._IMAGEDIT_FORMAT_SUFFIX,
+                         {"JPEG": "jpg", "PNG": "png", "WEBP": "webp"})
+        self.assertEqual(mod._IMAGEDIT_FORMAT_TRANSPARENT, (255, 255, 255))
+
+    def test_help_texts_mention_grayscale_format(self):
+        # 四语 help.img_edit 均提到 grayscale 与 format（源码护栏）
+        src = inspect.getsource(mod)
+        for block in ("无效的 format 值", "無效的 format 值",
+                      "grayscale", "format=jpeg|png|webp",
+                      "グレースケール化", "灰階化",
+                      "fixed pipeline order denoise→whitebalance→rotate→flip→grayscale→format"):
+            self.assertIn(block, src, f"源码应含 {block}")
+
+    def test_cli_bad_format_exit_2(self):
+        for v in ("", "bmp", "gif", "jpeg,#12345", "jpeg,notacolor"):
+            with self.subTest(v=v):
+                with tempfile.TemporaryDirectory() as td:
+                    d = Path(td)
+                    ep = _make_mini_epub(d)
+                    r = _run_cli(str(ep), "--img-edit", f"format={v}")
+                    self.assertEqual(r.returncode, 2, f"format={v} 应退出 2")
+
+    def test_grayscale_applies_inplace_cbz(self):
+        """就地修正 CBZ：grayscale 灰度化 → 三通道等值、仍为 RGB。"""
+        png = TestCbzPageOrderNatsort._make_png_bytes()  # 16x8 渐变 RGB
+        cbz = Path(tempfile.mkdtemp()) / "g.cbz"
+        with zipfile.ZipFile(cbz, "w") as z:
+            z.writestr("p001.png", png)
+        r = _run_cli(str(cbz), "--img-edit", "grayscale")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        with zipfile.ZipFile(cbz) as z:
+            from PIL import Image as PImage
+            img = PImage.open(io.BytesIO(z.read("p001.png"))).convert("RGB")
+            self.assertEqual(img.mode, "RGB")  # 泛灰后仍 RGB
+            w, h = img.size
+            px = img.load()
+            # 抽查多个点：三通道等值（L=R=G=B）
+            for x, y in ((0, 0), (5, 3), (15, 7), (7, 2)):
+                rv, gv, bv = px[x, y]
+                self.assertEqual((rv, gv, bv),
+                                 (rv, rv, rv), f"({x},{y}) 应灰阶等值")
+
+    def test_format_switch_suffix_inplace_cbz(self):
+        """就地修正 CBZ：format=png → 条目后缀 .png、内容为 PNG；同名旧条目替换。"""
+        png = TestCbzPageOrderNatsort._make_png_bytes()  # 16x8 RGB PNG
+        cbz = Path(tempfile.mkdtemp()) / "f.cbz"
+        with zipfile.ZipFile(cbz, "w") as z:
+            z.writestr("p001.png", png)
+        r = _run_cli(str(cbz), "--img-edit", "format=png")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        with zipfile.ZipFile(cbz) as z:
+            self.assertIn("p001.png", z.namelist())  # 同名 PNG 仍存在
+            from PIL import Image as PImage
+            img = PImage.open(io.BytesIO(z.read("p001.png")))
+            self.assertEqual(img.format, "PNG")
+
+
+class TestCbzPageOrderNatsort(unittest.TestCase):
+    """就地修正（--img-edit/--pages）页号基准 = 文件名自然排序（与 --list-images 一致）。
+
+    构造内部条目乱序的 CBZ（存储序 p003→p001→p002→p004，目录名自然序 p001→…→p004），
+    验证 --pages 2 命中自然序第 2 张 p002，而非存储序第 2 张 p001（防回退）。
+    """
+
+    @staticmethod
+    def _make_png_bytes() -> bytes:
+        img = Image.new("RGB", (16, 8))
+        px = img.load()
+        for x in range(16):
+            for y in range(8):
+                px[x, y] = (x * 15, y * 30, 128)
+        b = io.BytesIO()
+        img.save(b, format="PNG")
+        return b.getvalue()
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.cbz = Path(self.tmp.name) / "jumbled.cbz"
+        self.png = self._make_png_bytes()
+        order = ["p003.png", "p001.png", "p002.png", "p004.png"]  # 存储序 ≠ 自然序
+        with zipfile.ZipFile(self.cbz, "w") as z:
+            for n in order:
+                z.writestr(n, self.png)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _changed(self) -> list[str]:
+        out = []
+        with zipfile.ZipFile(self.cbz) as z:
+            for n in ("p001.png", "p002.png", "p003.png", "p004.png"):
+                if z.read(n) != self.png:
+                    out.append(n)
+        return out
+
+    def test_pages_hit_natsorted_index(self):
+        edited, total = mod._rewrite_cbz_images(
+            self.cbz, [("flip", "both")], pages_expr=parse_pages_expr(["2"]))
+        self.assertEqual(edited, 1)
+        self.assertEqual(total, 4)
+        self.assertEqual(self._changed(), ["p002.png"])
+
+    def test_guard_sort_present(self):
+        src = inspect.getsource(mod._rewrite_cbz_images)
+        self.assertIn(
+            "img_infos.sort(key=lambda i: natural_key(Path(i.filename)))", src)
+
+    def test_cli_pages_on_jumbled_cbz(self):
+        r = _run_cli(str(self.cbz), "--img-edit", "flip=both", "--pages", "2")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self._changed(), ["p002.png"])
+
+    def test_pages_name_filter(self):
+        # 方案A：就地修正按压缩包内文件名筛页（name= 子串命中）
+        edited, total = mod._rewrite_cbz_images(
+            self.cbz, [("flip", "both")], pages_expr=parse_pages_expr(["name=p003"]))
+        self.assertEqual(edited, 1)
+        self.assertEqual(self._changed(), ["p003.png"])
+
+    def test_pages_name_glob_wildcard(self):
+        # name= 含 * / ? 时按 glob 匹配文件名选中多页
+        edited, total = mod._rewrite_cbz_images(
+            self.cbz, [("flip", "both")], pages_expr=parse_pages_expr(["name=p00?"]))
+        self.assertEqual(edited, 4)
+        self.assertEqual(total, 4)
+        self.assertEqual(self._changed(),
+                         ["p001.png", "p002.png", "p003.png", "p004.png"])
+
+    def test_pages_name_glob_specific_subset(self):
+        # glob 精确到特定页：p00? 只配三位数字文件名
+        edited, total = mod._rewrite_cbz_images(
+            self.cbz, [("flip", "both")], pages_expr=parse_pages_expr(["name=*003"]))
+        self.assertEqual(edited, 1)
+        self.assertEqual(self._changed(), ["p003.png"])
+
+    def test_pages_name_glob_no_empty_hit_raises(self):
+        # glob 零命中 → 报错终止（与子串筛页空命中语义一致）
+        with self.assertRaises(SystemExit):
+            mod._rewrite_cbz_images(
+                self.cbz, [("flip", "both")],
+                pages_expr=parse_pages_expr(["name=zzz_*"]))
+    def test_pages_name_filter_dryrun_lists_hits(self):
+        # dry-run：正式改写前必须输出命中清单（页号+文件名），且不落盘
+        r = _run_cli(str(self.cbz), "--img-edit", "flip=both",
+                     "--pages", "name=p002", "--dry-run")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("2", r.stdout)          # 自然序第 2 页
+        self.assertIn("p002.png", r.stdout)   # 命中文件名入清单
+        self.assertEqual(self._changed(), []) # dry-run 不改文件
+
+    def test_pages_filter_empty_hit_aborts(self):
+        # 筛选词空命中 → 报错终止（非零退出）
+        r = _run_cli(str(self.cbz), "--img-edit", "flip=both",
+                     "--pages", "name=zzz_no_match")
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+
+    def test_pages_name_exact_match(self):
+        # name== 精确匹配整个文件名（含扩展名，不区分大小写）
+        edited, total = mod._rewrite_cbz_images(
+            self.cbz, [("flip", "both")], pages_expr=parse_pages_expr(["name==P003.PNG"]))
+        self.assertEqual(edited, 1)
+        self.assertEqual(self._changed(), ["p003.png"])
+
+    def test_pages_name_exact_ignores_substr(self):
+        # name== 不做子串：p1 是 p003 的父串，但文件名 p1 不是完整文件名 → 空命中报错终止
+        with self.assertRaises(SystemExit):
+            mod._rewrite_cbz_images(
+                self.cbz, [("flip", "both")], pages_expr=parse_pages_expr(["name==p1"]))
+        self.assertEqual(self._changed(), [])
+
+    def test_atom_parse_name_exact(self):
+        self.assertEqual(mod._parse_atom("name==p003.png"), ("name_exact", "p003.png"))
+        self.assertEqual(mod._parse_atom("name=p003"), ("name", "p003"))
+        # 双等号（精确）优先于单等号（子串）
+        self.assertEqual(mod._parse_atom("name==cover"), ("name_exact", "cover"))
+
+    def test_atom_parse_name_quoted_exact(self):
+        # 引号包裹 = 精确（等价 name==），双引号/单引号均可
+        for q in ('"', "'"):
+            self.assertEqual(mod._parse_atom(f"name={q}p003.png{q}"),
+                             ("name_exact", "p003.png"))
+        # 未包裹仍为子串
+        self.assertEqual(mod._parse_atom("name=p003"), ("name", "p003"))
+
+    def test_pages_name_quoted_exact_match(self):
+        # name="文件名" 精确命中（含扩展名、大小写不敏感）
+        edited, total = mod._rewrite_cbz_images(
+            self.cbz, [("flip", "both")],
+            pages_expr=parse_pages_expr(['name="P003.PNG"']))
+        self.assertEqual(edited, 1)
+        self.assertEqual(self._changed(), ["p003.png"])
 
 
 if __name__ == "__main__":
