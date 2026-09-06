@@ -1,4 +1,4 @@
-**Languages:** [中文](README.md) | [English](README_en.md) | [日本語](README_ja.md
+**Languages:** [中文](README.md) | [English](README_en.md) | [日本語](README_ja.md)
 
 # manga-mobi2cbz
 
@@ -48,7 +48,9 @@
 - **断点续跑** — 目标 CBZ 已存在且完整性校验有效时直接跳过（SKIP）；源文件比 CBZ 更新时自动重新转换；损坏/无效自动重新转换；`--overwrite` 无条件覆盖
 - **失败分类** — 转换失败按原因分类统计（timeout / drm / corrupt / no_images / comicinfo / verify / other），汇总输出各类失败数量
 - **检查模式支持 CBZ** — `--inspect` 可直接检查 `.cbz` 文件（纯 zipfile 读取不解压）；封面行加分辨率+大小、格式统计加总文件数、Spine 前 5 列表每行加宽高
-- **只读图片清单** — `--list-images [FILTER]` 列出目标电子书内全部图片（序号 / 文件名 / 分辨率 / 大小 / 模式·色深 / 方向 / 目录 / 标记）+ 全量统计区块（格式 / 模式·色深 / 尺寸分布 / 双页横幅 / 动图 / 小图 / 异常明细），不转换、不写 CBZ、不生成 ComicInfo；FILTER 可选，支持条件表达式（格式 / `res` / `size` / 方向 / 模式 / 位深 / 标记，逗号 = OR、`+` = AND、`-` 前缀 = 排除）
+- **只读图片清单** — `--list-images [FILTER]` 列出目标电子书内全部图片（序号 / 文件名 / 分辨率 / 大小 / 模式·色深 / 方向 / 目录 / 标记）+ 全量统计区块（格式 / 模式·色深 / 尺寸分布 / 双页横幅 / 动图 / 小图 / 异常明细），不转换、不写 CBZ、不生成 ComicInfo；FILTER 可选，支持条件表达式（格式 / `res` / `size` / 方向 / 模式 / 位深 / 标记，逗号 = OR、`+` = AND、`-` 前缀 = 排除）；EXIF Orientation≠1 的图片带 `[旋转N]` 标记（N=2~8，正常=1 不标）并计入 `[异常]` 汇总；方向筛选词无值=选出全部方向异常图（rotate=auto 将旋转）、带值精确匹配 EXIF Orientation（如 `方向=6`）；`--json-out` 带 `orientation` 字段（v3.6.0）
+- **文件名通配筛选** — `name=` 匹配文件名时，值含 `*` / `?` 按 glob 通配处理（不区分大小写，仅 `*` 与 `?` 特殊，`[]` 按字面处理），否则保持子串包含匹配；`--list-images` / `--drop` / `--pages` 三个入口全部生效，如 `name=*_封面*`、`name=p00?`
+- **图像处理管线** — `--img-edit` 对输出图片做旋转 / 镜像翻转 / 灰度化 / 格式转换 / 重编码质量控制 / 缩放 / 白边裁剪 / 剥离 EXIF 处理（可多次指定，值内 `+` 切分摊平）：`rotate[=auto|90|180|270]` 按 EXIF Orientation 烧录像素、删除方向字段后重编码（无参=auto，仅处理 Orientation≠1 的图），`flip=x|y|both` 镜像翻转（x=水平、y=垂直、both=两者），`grayscale` 灰度化（恒插在 flip 之后，输出 RGB 三通道等值），`format=jpeg|png|webp`（别名 jpg；目标格式，重编码后 cbz 内条目后缀同步改；透明转 JPEG 默认补白，可 `format=jpeg,black` 或 `#RRGGBB` 改色；JPEG/WebP 走 quality 保存、PNG 无损），`quality=1-100` 覆盖重编码质量（默认 95，越界报错），`scale=NNN%` 百分比相对缩放（保持页间比例，如 200%=放大 2 倍，1~1000）或 `scale=NNNw` 统一目标宽度像素（高度按原始比例，如 1200w，1~100000，两种语法二选一），`trim[=容差]` 自动白边裁剪（无参/auto=0.05，检测边缘统一背景色、带安全边界避免误切），`strip` 清空图片全部 EXIF 元数据；固定管线顺序 `denoise→whitebalance→rotate→flip→grayscale→format→quality→scale→trim→strip` 与书写顺序无关；三入口全开：mobi→cbz 转换输出前 / `--repack` 打包前 / 目标为已有 `.cbz` 时就地修正（CBZ 方向修正模式）；联动 `--dry-run` / `--json` / `--json-out` / `--log`
 - **双页检测** — `--double-page` 识别跨页横幅（宽/高 ≥ 阈值，默认 2.0），开启时逐页写入 DoublePage 标记（不写 Manga 声明）；不带值 / `auto` 开启，可传数值调阈值，`off` / `no` / `0` 关闭
 - **丢弃小图** — `--drop small[=比例]` 剔除面积明显偏小的图片（宽×高 < 面积中位数×比例，默认 0.5），丢弃后 PageCount 按实际图片数重算；不带值 / `auto` = 0.5，可传 0~1 数值调比例，`off` / `no` / `0` 关闭；旧 `--drop-small` 为隐藏别名（等价 `--drop small`）仍可用
 - **ComicInfo 字段覆盖** — `--setinfo FIELD=VALUE` 覆盖/新增 ComicInfo 字段（优先级最高），VALUE 支持固定值 / `%series` / `%number` / `%title`/ `%writer` / `%publisher` / `%date` / `%language` / `%description` / `%filename` / `%leftN` / `%rightN` / `%subN_M` 占位符，可多次指定；字段名需在 ComicInfo 标准字段白名单内，白名单外字段 warning 忽略；已有 CBZ 场景下 `%series`/`%number`/`%volume` 优先读取 ComicInfo 内显式 Series/Number/Volume，缺失才回退文件名推断；输入为已有 CBZ 时直接修改其 ComicInfo.xml（未指定字段保留原值）
@@ -186,6 +188,14 @@ python manga-mobi2cbz.py "D:\ComicsLibrary\Vol.01.mobi" --setinfo "Title=Sample 
 python manga-mobi2cbz.py "D:\ComicsLibrary\Vol.01.mobi" --unpack
 ```
 
+### 就地修正方向（方向异常页按 EXIF 自动旋转，CBZ 就地修正模式）
+
+```bash
+python manga-mobi2cbz.py "D:\ComicsLibrary\Vol.01.cbz" --img-edit rotate
+```
+
+`--img-edit` 图像处理管线同样作用于 mobi→cbz 转换输出前与 `--repack` 打包前；rotate 无参（auto）按 EXIF Orientation 自动旋转方向异常的图（v3.6.0）。
+
 ### JSON 结构化输出（stdout 单行 / 写入文件）
 
 ```bash
@@ -211,7 +221,7 @@ python manga-mobi2cbz.py --version
 | `--top-only` | 仅处理 target 目录顶层的电子书文件，不递归子目录 |
 | `--delete` | 转换成功后删除原始电子书文件（默认不删除） |
 | `--prefer` | 双目录 mobi 时保留哪份：`auto` / `mobi7` / `mobi8`（默认 `auto`）；`auto` 优先 mobi8、mobi8 无图片自动回退 mobi7；明确指定 `mobi7`/`mobi8` 时该目录无图片自动回退另一份 |
-| `--drop [EXPR]` | 统一丢弃入口（`nargs='?'`）：无值 = `extra` 丢弃全部多余图片（默认追加到 cbz 末尾）；带值按条件丢弃——格式词 / 条件词（`res` / `size` / 方向 / 模式 / 位深 / 标记：`double` / `thumbnail` / `animated` / `cover` 等）/ `small[=比例]` 小图；多条件逗号 = OR、`+` = AND、`-` 前缀 = 排除，如 `--drop gif,extra`、`--drop small=0.4`、`--drop 封面+超大页`；`off` / `no` / `0` 关闭；执行顺序：多余图丢弃 → 去重 → 条件过滤 → 小图丢弃；处理结果逐条列出被丢弃图片文件名，`--short-summary` 下只显示数量；旧 `--drop-extra` / `--drop-small` 并入本参数（隐藏别名仍可用） |
+| `--drop [EXPR]` | 统一丢弃入口（`nargs='?'`，可重复指定 = OR 并集）：无值 = `extra` 丢弃全部多余图片（默认追加到 cbz 末尾）；带值按条件丢弃——格式词 / 条件词（`res` / `size` / 方向 / 模式 / 位深 / 标记：`double` / `thumbnail` / `animated` / `cover` 等）/ `small[=比例]` 小图；多条件逗号 = OR、`+` = AND、`-` 前缀 = 排除，如 `--drop gif,extra`、`--drop small=0.4`、`--drop 封面+超大页`；`off` / `no` / `0` 关闭；执行顺序：多余图丢弃 → 去重 → 条件过滤 → 小图丢弃；处理结果逐条列出被丢弃图片文件名，`--short-summary` 下只显示数量；旧 `--drop-extra` / `--drop-small` 并入本参数（隐藏别名仍可用） |
 | `--overwrite` | 目标 cbz 已存在时强制重新生成（默认跳过） |
 | `--ext-priority EXTS` | 同目录同名（仅扩展名不同）时保留哪种格式：逗号分隔、顺序即优先级从高到低，仅接受 mobi/azw/azw3/epub，默认 azw3；优先级未覆盖时回退兜底顺序 azw3→epub→mobi→azw；与 `--prefer`（双目录选择）无关 |
 | `--timeout` | 单文件转换超时秒数，超时自动跳过并计入失败（默认 600，`0` 表示不限制） |
@@ -227,15 +237,17 @@ python manga-mobi2cbz.py --version
 | `--debug` | 调试模式：向 stderr 输出 debug 级日志（默认静默，仅指定时输出；与 `--quiet` 同给时 debug 仍输出） |
 | `--short-summary` | 精简汇总：成功/跳过文件只显示数量不列出路径（失败文件始终全路径列出） |
 | `--compress LEVEL` | zip 压缩级别 0-9：`0`=不压缩（默认，图片本身已压缩），`1-9`=deflate 压缩（PNG 源有收益，级别越高越小但越慢） |
-| `--inspect [MODE][,FILTER]` | 检查模式：`sample` 随机抽查 1 个（默认），`all` 全量检查；可附过滤器（如 `all,small=0.6`），命中条件的图片输出数量 + 文件名清单（含尺寸）；位置参数为单个文件时直接检查该文件，只解包读取内部信息（元数据/结构/图片/分辨率/DRM 双重判断/NCX 目录），不生成 CBZ，结束自动清理临时目录；图片预览仅列前 5 张，图数 > 5 时末尾追加省略号行（英文 `...`，如 `...（共 N 张）`）；目录(NCX) / nav 预览截断统一为英文 `...` |
+| `--inspect [MODE][,FILTER]` | 检查模式：`sample` 随机抽查 1 个（默认），`all` 全量检查；可附过滤器（如 `all,small=0.6`），命中条件的图片输出数量 + 文件名清单（含尺寸）；位置参数为单个文件时直接检查该文件，只解包读取内部信息（元数据/结构/图片/分辨率/DRM 双重判断/NCX 目录），不生成 CBZ，结束自动清理临时目录；图片预览仅列前 5 张，图数 > 5 时末尾追加省略号行（英文 `...`，如 `...（共 N 张）`）；目录(NCX) / nav 预览截断统一为英文 `...`；书级摘要新增「方向异常 N 张（rotate=auto 将旋转）」输出行，`--json-out` 带出 `rotate_count` 字段，过滤支持方向筛选词（如 `all,方向`）（v3.6.0） |
 | `--inspect-all` | 检查全部电子书（等价 `--inspect all`，兼容旧命令） |
 | `--no-comicinfo` | 不生成 ComicInfo.xml（默认生成：向 CBZ 根目录写入 Title / Series / Number / Writer / Publisher / Year / LanguageISO / PageCount / Summary 漫画元数据） |
 | `--setinfo FIELD=VALUE` | 覆盖/新增 ComicInfo 字段（可多次指定，优先级最高）：`FIELD` 为 ComicInfo 字段名（需在 ComicInfo 标准字段白名单内，白名单外 warning 忽略），`VALUE` 支持固定值 / `%series` / `%number` / `%title`/ `%writer` / `%publisher` / `%date` / `%language` / `%description` / `%filename` / `%leftN` / `%rightN` / `%subN_M` 占位符（`%subN_M`=第 N 字符起 M 个，1-based；整段恰为单个已知占位符且对应值缺失时该字段不写入）；占位符可与固定文本混用（如 `%writer·重制`、`第%number话`），混用时缺失值渲染为空串；智能拆分：仅当逗号后紧跟"字段名="时才拆分，否则逗号视为值的一部分（如 `Summary=Vol. 1, First Edition` 不拆分）；值内含 `Key=` 结构请用多次 `--setinfo` 传入；`Manga` 默认不写入，需显式 `--setinfo Manga=Unknown\\|No\\|Yes\\|YesAndRightToLeft`（限官方 v2.0 枚举）；另支持 `CommunityRating`（0-5）/ `MainCharacterOrTeam` / `Review` 三个官方字段；已有 CBZ 场景下 `%series`/`%number`/`%volume` 优先读取 ComicInfo 内显式 Series/Number/Volume，缺失才回退文件名推断；开启 `--setinfo` 时输入目录中混有的已有 `.cbz` 会就地修改其 ComicInfo.xml（未指定字段保留原值），其余文件照常转换 |
-| `--unpack` | 解包查看：只解压不转换，输出到各源文件所在目录的同名子目录（已存在自动加序号避让）；mobi 走 extract 保留完整结构，cbz 走 extractall（含 zip-slip 路径穿越防护）；`--unpack` / `--setinfo` 时也会收集 `.cbz` 输入 |
+| `--unpack` | 解包查看：只解压不转换，输出到各源文件所在目录的同名子目录（已存在自动加序号避让；`--output-dir DIR` 可指定解包输出目录，未指定时默认各源文件所在目录，v3.6.0）；mobi 走 extract 保留完整结构，cbz 走 extractall（含 zip-slip 路径穿越防护）；`--unpack` / `--setinfo` 时也会收集 `.cbz` 输入 |
 | `--repack` | 重新打包模式：把已解包的 `_cbz` 解包目录（目录名以 `_cbz` 结尾，如 `vol_cbz/`）重新打包回 CBZ，输出名还原为源文件名（`vol_cbz` → `vol.cbz`）；支持单个目录或父目录批量，执行前先打印待处理清单（每行标注 `解包目录名 → 输出.cbz`）；目录内 ComicInfo.xml 有则原样带回、无则生成基础版，可 `--setinfo` 叠加覆盖、`--no-comicinfo` 关闭；已存在默认跳过、`--overwrite` 覆盖；`--rename` 不适用于本模式 |
 | `--double-page VALUE` | 双页检测：不传或 `auto` 开启（阈值 2.0，检测宽/高 ≥ 阈值的横幅跨页大图，ComicInfo 写入逐页 `Type="DoublePage"`，`Manga` 不再自动声明）；传数值（如 `2.5`）开启并调整阈值；`off` / `no` / `0` 关闭；非法值报错 |
 | `--drop small[=比例]` | 丢弃小图：转换时剔除面积明显偏小的图片（宽×高 < 面积中位数×比例 判为小图，如封面缩略图 / 版权页）；`small` 无参 / `auto` 用默认比例 0.5，可传 `0~1` 数值（如 `--drop small=0.4`）调比例；`off` / `no` / `0` 关闭（默认关闭，不改变现有行为）；丢弃后 ComicInfo `PageCount` 按实际剩余图数重算，汇总 / `--log` / `--json` 新增"丢弃小图"计数（`--json` 输出 `dropped_small` 字段）并逐条列出被丢弃文件名（`--short-summary` 下只显示数量）；`--inspect` 预览会提示"开启 --drop small 时将丢弃 N 张"；横幅双页（宽不小）不会被误删；仅转换模式生效；旧 `--drop-small` 等价 `--drop small`（隐藏别名仍可用） |
-| `--list-images FILTER` | 只读图片清单（`nargs='?'`）：列出目标电子书内全部图片（序号 / 文件名 / 分辨率 / 大小 / 模式·色深 / 方向 / 目录 / 标记）+ 全量统计区块（格式 / 模式·色深 / 尺寸分布 / 双页横幅 / 动图 / 小图 / 异常明细），不转换、不写 CBZ、不生成 ComicInfo、不落盘；与 `--inspect` 完全独立。无值 = 全部列出；带值 = FILTER 筛选表达式（与 `--drop` 同源引擎：格式 / `res` / `size` / 方向 / 模式 / 位深 / 标记 / `small[=比例]` 条件词，逗号 = OR、`+` = AND，`-` 前缀排除，如 `jpeg,size>1MB`、`-webp`），筛选只影响清单行，统计恒全量。CBZ 直读 zip 不落盘（无目录列 / 无转换态标记）；配 `--json` 每文件一行精简 JSON，配 `--quiet` 抑制明细只剩计数 |
+| `--img-edit [EDIT]` | 图像处理管线（可多次指定，值内 `+` 切分摊平）：`rotate[=auto |
+| `--pages PAGES` | 指定页处理（可多次指定，值内逗号切分免引号）：只处理指定页码的图片，页码从 1 起（第 1 页 = 卷内第 1 张图）。支持单页 `5`｜闭区间 `1-3`｜开区间 `7-*`（*=最后 1 页），可逗号混用（如 `1-3,5,7-*`）；越界页码忽略并逐页提示；全部越界/空命中报错退出；与 `--img-edit` 组合仅选中页走管线、与 `--drop` 按 AND 共存（先锁页再过滤）、与 `--unpack` / `--repack` 只解/打包选中页（v3.6.0）；页面也可按筛选词选择——`name=` 的值含 `*` / `?` 时按 glob 匹配文件名（如 `name=*_封面*`、`name=p00?`），其余筛选词与 `--drop` 共用词表 |
+| `--list-images FILTER` | 只读图片清单（`nargs='?'`）：列出目标电子书内全部图片（序号 / 文件名 / 分辨率 / 大小 / 模式·色深 / 方向 / 目录 / 标记）+ 全量统计区块（格式 / 模式·色深 / 尺寸分布 / 双页横幅 / 动图 / 小图 / 异常明细），不转换、不写 CBZ、不生成 ComicInfo、不落盘；与 `--inspect` 完全独立。无值 = 全部列出；带值 = FILTER 筛选表达式（与 `--drop` 同源引擎：格式 / `res` / `size` / 方向 / 模式 / 位深 / 标记 / `small[=比例]` 条件词，逗号 = OR、`+` = AND，`-` 前缀排除，如 `jpeg,size>1MB`、`-webp`），筛选只影响清单行，统计恒全量。EXIF Orientation≠1 的图片带 `[旋转N]` 标记（N=2~8，正常=1 不标）并计入 `[异常]` 汇总，新增方向筛选词（同义词 `orient`/`orientation`/`方向`/`方向异常`）：无值=选出全部方向异常图（rotate=auto 将旋转）、带值精确匹配 EXIF Orientation（如 `方向=6`）；`--json-out` 图片记录新增 `orientation` 字段（v3.6.0）。CBZ 直读 zip 不落盘（无目录列 / 无转换态标记）；配 `--json` 每文件一行精简 JSON，配 `--quiet` 抑制明细只剩计数 |
 | `--log FILE` | 将全部输出追加写入指定日志文件；不带文件名时自动生成 `manga-mobi2cbz_YYYYMMDD_HHMMSS.log`（当前目录） |
 | `--json` | stdout 输出 JSON（供 AI / 管道 / 脚本读取），开启时屏蔽人类可读文本输出（进度条 / emit 提示 / 汇总）；转换/修改模式为整体单行紧凑 JSON，检查（`--inspect`）模式为每文件一行精简 JSON（status/series/number/source/page_count/drm，status 取值 ok/drm/invalid/noimg/timeout/fail）；试运行（`--dry-run`）输出带 `dry_run` 标记的 JSON（status 取值 will_skip/pending），unpack 模式不输出；进度条写 stderr 不混流，但 `2>&1` 合并重定向会混入进度条 |
 | `--json-out FILE` | 将结构化结果写入 JSON 文件（缩进格式）；不带文件名时自动生成时间戳文件（当前目录），带文件名写入指定路径，行为对齐 `--log`；与 `--json` 可共存；转换/修改模式写入文件级结果，检查（`--inspect`）模式写入全量（含 spine/toc 与 summary） |
@@ -291,6 +303,22 @@ A: 支持。v1.8.0 起输入扩展名扩展为 `.mobi` / `.azw` / `.azw3`，三�
 A: 支持。v2.4.0 起输入扩展名扩展为 `.mobi` / `.azw` / `.azw3` / `.epub`。EPUB 本质为 ZIP 容器，直接走 zipfile 安全解包并复用 OPF spine 提取链路；封面自动识别支持 EPUB2（`<meta name="cover">`）与 EPUB3（`properties="cover-image"`）两种约定；无 EXTH 头时元数据从 OPF `dc:` 字段读取；`--prefer` 对 EPUB 静默忽略。加密 EPUB（Adobe DRM 等）无法解析内容，会提示无图片/无有效元数据并跳过，请先去除 DRM 再转换。
 
 ## 更新日志
+
+### [3.6.0] - 2026-09-05
+
+#### 新增
+
+- **指定页处理 `--pages PAGES`** — 只处理指定页码的图片（页码从 1 起，第 1 页 = 卷内第 1 张图），可多次指定（按并集合并）、值内逗号切分免引号：支持单页 `5`｜闭区间 `1-3`｜开区间 `7-*`（*=最后 1 页）与逗号混用（`1-3,5,7-*`）；越界页码忽略并逐页提示，全部越界/空命中报错退出；与 `--img-edit` 组合仅选中页走管线、与 `--drop` 按 AND 共存（先锁页再过滤）、与 `--unpack` / `--repack` 只解/打包选中页；**页码统一以文件名自然排序为基准**（与 `--list-images` 清单序号同基准，`--img-edit` 就地修正的 `--pages` 同样按此计数，与 zip 内条目存储顺序无关，消除打包乱序/无前导零文件名导致的页码错位）
+- **图像处理管线 `--img-edit [EDIT]`** — 可多次指定，值内 `+` 切分摊平；支持 `rotate[=auto|90|180|270]`（无参=auto：按 EXIF Orientation 烧录像素、删除 Orientation 字段并重编码，quality 默认 95；`90/180/270` 手动强制旋转，先归一 EXIF 方向；仅重编码方向需改的图）、`flip=x|y|both`（镜像翻转：x=水平、y=垂直、both=两者同做）、`grayscale`（灰度化：恒插在 flip 之后，输出 RGB 三通道等值）、`format=jpeg|png|webp`（别名 jpg；目标格式，重编码后 cbz 内条目后缀同步改；透明转 JPEG 默认补白，可 `format=jpeg,black` 或 `#RRGGBB` 改色；JPEG/WebP 走 quality 保存、PNG 无损）、`quality=1-100`（重编码质量覆盖，1-100 的整数，默认 95，越界/非整数报错）、`scale=NNN%`（百分比相对缩放：按百分比整体缩放保持页间比例，如 `200%`=放大 2 倍、`50%`=缩到一半，1~1000）或 `scale=NNNw`（统一目标宽度像素、高度按原始比例，如 `1200w` 把页统一到 1200 宽，1~100000；百分比与宽度两种语法二选一）、`trim[=容差]`（自动白边裁剪：检测边缘统一背景色后裁掉，带安全边界避免误切；无参/auto=容差 0.05，容差 0~1，超范围报错）与 `strip`（清光图片全部 EXIF 元数据，恒为管线末位）；固定管线顺序 `denoise→whitebalance→rotate→flip→grayscale→format→quality→scale→trim→strip` 与书写顺序无关；同一操作重复给不同值报错、相同值幂等忽略；三入口全开：mobi→cbz 转换输出前 / `--repack` 打包前 / 目标为已有 `.cbz` 且不带 `--repack` 时的就地修正（CBZ 方向修正模式）；联动 `--dry-run` / `--json` / `--json-out` / `--log`；基于 Pillow 实现（未安装时明确报错提示）
+- **文件名通配筛选 `name=`（glob）** — `name=` 的值含 `*` / `?` 时按 glob 通配匹配文件名（不区分大小写，仅 `*` / `?` 特殊，`[]` 按字面处理），否则保持子串包含匹配；`--list-images` / `--drop` / `--pages` 三个入口全部生效，如 `name=*_封面*`、`name=p00?`
+- **`--drop` 支持重复 flag（action='append'）** — 多次指定 = OR 并集，复用同一表达式解析；保留 `--drop-extra` 隐藏别名
+- **`--unpack` 支持 `--output-dir`** — 解包输出目录可指定，未指定时默认仍为各源文件所在目录；`--dry-run` 预览与实跑目标目录口径一致
+- **`--list-images` 新增 `[旋转N]` 标记与方向筛选** — EXIF Orientation≠1 的图片带 `[旋转N]` 标记（N=2~8，正常=1 不标）并计入 `[异常]` 汇总；新增方向筛选词（同义词 orient/orientation/direction，中/日=方向/方向异常）：无值=选出全部方向异常图（rotate=auto 将旋转）、带值精确匹配 EXIF Orientation（如 `方向=6`）；`--json-out` 图片记录新增 `orientation` 字段
+- **`--inspect` 新增书级旋转总数摘要** — 摘要新增「方向异常 N 张（rotate=auto 将旋转）」输出行，`--json-out` 带出 `rotate_count` 字段；过滤支持方向筛选词
+  
+  #### 修复
+  
+- **大端 TIFF EXIF Orientation 解析** — SHORT 值整读 4 字节掩码误判，改按字节序解 2 字节
 
 ### [3.5.4] - 2026-09-04
 
