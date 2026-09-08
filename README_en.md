@@ -68,12 +68,14 @@ The following image formats are recognized and packed during conversion: `.jpg` 
 ## Requirements
 
 - Python 3.10+
-- Dependency: `mobi`
+- Runtime dependency: `mobi` (required)
+- Optional: `pillow` (only needed for the `--img-edit` pipeline), `tqdm` (progress bars; falls back to plain-text progress if missing)
 
 ## Installation
 
 ```bash
-pip install mobi
+pip install mobi          # required
+pip install pillow tqdm   # optional: --img-edit pipeline / progress bars (falls back to text)
 ```
 
 ## Usage
@@ -301,6 +303,20 @@ A: Yes. Since v1.8.0 the accepted input extensions are `.mobi` / `.azw` / `.azw3
 A: Yes. Since v2.4.0 the accepted input extensions are `.mobi` / `.azw` / `.azw3` / `.epub`. EPUB is a ZIP container, so it is safely unpacked via zipfile and reuses the OPF spine extraction pipeline; cover detection supports both EPUB2 (`<meta name="cover">`) and EPUB3 (`properties="cover-image"`); without an EXTH header, metadata is read from OPF `dc:` fields; `--prefer` is silently ignored for EPUB. Encrypted EPUBs (e.g. Adobe DRM) cannot be parsed — they are reported as no images / no usable metadata and skipped; remove the DRM before converting.
 
 ## Changelog
+
+### [3.6.1] - 2026-09-07
+
+#### Fixed
+
+- **`--pages` filter word `small` was ineffective** — the small-image mark was not filled in the mobi conversion and CBZ in-place fix paths (`_fill_small_mark` was passed `None`); now the small ratio is uniformly extracted from the `--pages` expression
+- **`--delete` could delete the source file on a concurrent conversion timeout** — deletion is now confined to the main thread and only runs after a confirmed successful conversion; orphaned `mobi.extract` threads from a timeout no longer delete the source
+- **`--setinfo` / `--img-edit` / `--rename` pure-CBZ modifications always exited 0 on failure** — now return a non-zero exit code based on the number of failed files (success/skip = 0)
+- **Missing CBZ in-place fix error wording (`run.error` completed in all four languages)** — no more KeyError
+- **Preview statistics exceptions were silently swallowed** — `_preview_img_edit_count` now prints an error hint before returning
+  
+  #### Internal
+  
+- Removed the dead `drop_extra_hit` variable
 
 ### [3.6.0] - 2026-09-05
 
