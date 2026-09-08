@@ -66,12 +66,14 @@
 ## 环境要求
 
 - Python 3.10+
-- 依赖：`mobi`
+- 运行时依赖：`mobi`（必需）
+- 可选依赖：`pillow`（使用 `--img-edit` 图像管线时需要）、`tqdm`（进度条，缺失时自动降级为文本进度）
 
 ## 安装
 
 ```bash
-pip install mobi
+pip install mobi          # 必需
+pip install pillow tqdm   # 可选：--img-edit 图像管线 / 进度条（缺失时降级为文本进度）
 ```
 
 ## 使用方法
@@ -303,6 +305,20 @@ A: 支持。v1.8.0 起输入扩展名扩展为 `.mobi` / `.azw` / `.azw3`，三�
 A: 支持。v2.4.0 起输入扩展名扩展为 `.mobi` / `.azw` / `.azw3` / `.epub`。EPUB 本质为 ZIP 容器，直接走 zipfile 安全解包并复用 OPF spine 提取链路；封面自动识别支持 EPUB2（`<meta name="cover">`）与 EPUB3（`properties="cover-image"`）两种约定；无 EXTH 头时元数据从 OPF `dc:` 字段读取；`--prefer` 对 EPUB 静默忽略。加密 EPUB（Adobe DRM 等）无法解析内容，会提示无图片/无有效元数据并跳过，请先去除 DRM 再转换。
 
 ## 更新日志
+
+### [3.6.1] - 2026-09-07
+
+#### 修复
+
+- **`--pages` 筛选词 `small` 失效** — mobi 转换与 CBZ 就地修正路径的 `_fill_small_mark` 未回填小图标记（传 `None`），现从 `--pages` 表达式统一提取 small 比例并校验
+- **`--delete` 与转换超时并发可能误删源文件** — 删除职责收口到主线程，仅确认转换成功后执行；超时产生的 `mobi.extract` 孤儿线程不再删源
+- **`--setinfo` / `--img-edit` / `--rename` 纯 CBZ 修改失败时退出码恒为 0** — 现按各模式失败文件数返回非零退出码（成功/跳过 = 0）
+- **CBZ 就地修正异常文案缺失（`run.error` 四语补齐）** — 不再 KeyError
+- **预览统计异常被静默吞掉** — `_preview_img_edit_count` 现输出错误提示后再返回
+  
+  #### 内部
+  
+- 清理失效的 `drop_extra_hit` 死变量
 
 ### [3.6.0] - 2026-09-05
 
