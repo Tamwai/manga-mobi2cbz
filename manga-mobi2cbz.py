@@ -138,6 +138,18 @@ manga-mobi2cbz — 将 mobi/azw/azw3/epub 电子书漫画文件批量转换为 c
 要求: Python 3.10+
 
 更新日志:
+    v3.6.1 (2026-09-07)
+        - 修复：--pages 筛选词 small 失效——mobi 转换与 CBZ 就地修正路径
+          未回填小图标记（_fill_small_mark 传 None），现从 --pages 表达式
+          提取 small 比例并统一口径
+        - 修复：--delete 与转换超时并发可能误删源文件——删除职责收口到主线程，
+          仅确认转换成功后执行，超时产生的 mobi.extract 孤儿线程不再删源
+        - 修复：--setinfo / --img-edit / --rename 纯 CBZ 修改失败时进程
+          退出码恒为 0，现按各模式失败文件数返回非零退出码（成功/跳过=0）
+        - 修复：CBZ 就地修正异常文案缺失（run.error 四语补齐，不再 KeyError）
+        - 修复：_preview_img_edit_count 预览异常被静默吞掉返回 0，
+          现输出错误提示后再返回 0
+        - 内部：清理失效的 drop_extra_hit 死变量
     v3.6.0 (2026-09-05)
         - 新增：--pages <PAGES> 指定页处理（可多次，值内逗号切分免引号）：
           只处理指定页码的图片（页码从 1 起，第 1 页 = 卷内第 1 张图）；
@@ -782,7 +794,7 @@ manga-mobi2cbz — 将 mobi/azw/azw3/epub 电子书漫画文件批量转换为 c
           EOCD + testzip 完整性校验、失败清理半成品
 """
 
-__version__ = "3.6.0"
+__version__ = "3.6.1"
 
 SCRIPT_NAME = "manga-mobi2cbz"
 
@@ -971,6 +983,7 @@ LANGUAGES = {
         "convert.verify_fail": "  [校验失败] {name}: {msg}，旧文件已保留",
         "convert.verify_ok": "  [校验] {msg}",
         "convert.deleted_original": "  [清理] 已删除原始文件: {name}",
+        "convert.delete_warn": "  [警告] {name}: 删除源文件失败（已保留）: {err}",
         "convert.error": "  [错误] {name}: {err}",
         "convert.error_drm_hint": "  [提示] 该文件可能为 DRM 加密的 Kindle 漫画，mobi 库无法解密，请先去除 DRM 后再转换",
         # ---- 【检查】校验（CBZ 完整性）----
@@ -1067,6 +1080,7 @@ LANGUAGES = {
         "run.start": "开始转换 {count} 个文件...\n",
         "run.timeout": "  [超时] {name}: 转换超过 {seconds} 秒，已跳过（计入失败）",
         "run.timeout_residue": "  [提示] 转换超时，底层解压线程可能残留，大量超时建议重启脚本",
+        "run.error": "  [错误] {name}: 修正失败: {err}",
         "run.elapsed": "  [耗时] {name}: {seconds} 秒",
         "rename.preview": "  [重命名] {old} -> {new}",
         "run.ctrl_c": "\n检测到 Ctrl+C，中断转换，输出当前进度汇总：",
@@ -1328,6 +1342,7 @@ LANGUAGES = {
         "convert.verify_fail": "  [校驗失敗] {name}: {msg}，舊檔案已保留",
         "convert.verify_ok": "  [校驗] {msg}",
         "convert.deleted_original": "  [清理] 已刪除原始檔案: {name}",
+        "convert.delete_warn": "  [警告] {name}: 刪除來源檔案失敗（已保留）: {err}",
         "convert.error": "  [錯誤] {name}: {err}",
         "convert.error_drm_hint": "  [提示] 該檔案可能為 DRM 加密的 Kindle 漫畫，mobi 函式庫無法解密，請先去除 DRM 後再轉換",
         # ---- 【检查】校验（CBZ 完整性）----
@@ -1482,6 +1497,7 @@ LANGUAGES = {
         "run.start": "開始轉換 {count} 個檔案...\n",
         "run.timeout": "  [逾時] {name}: 轉換超過 {seconds} 秒，已跳過（計入失敗）",
         "run.timeout_residue": "  [提示] 轉換逾時，底層解壓執行緒可能殘留，大量逾時建議重啟腳本",
+        "run.error": "  [錯誤] {name}: 修正失敗: {err}",
         "run.elapsed": "  [耗時] {name}: {seconds} 秒",
         "rename.preview": "  [重新命名] {old} -> {new}",
         "run.ctrl_c": "\n偵測到 Ctrl+C，中斷轉換，輸出目前進度彙總：",
@@ -1685,6 +1701,7 @@ LANGUAGES = {
         "convert.verify_fail": "  [Verify Failed] {name}: {msg}; old file kept",
         "convert.verify_ok": "  [Verify] {msg}",
         "convert.deleted_original": "  [Clean] Deleted original file: {name}",
+        "convert.delete_warn": "  [Warning] {name}: failed to delete the source file (kept): {err}",
         "convert.error": "  [Error] {name}: {err}",
         "convert.error_drm_hint": "  [Info] This file may be a DRM-protected Kindle comic; the mobi library cannot decrypt it. Remove DRM first and retry",
         # ---- 【检查】校验（CBZ 完整性）----
@@ -1839,6 +1856,7 @@ LANGUAGES = {
         "run.start": "Converting {count} files...\n",
         "run.timeout": "  [Timeout] {name}: conversion exceeded {seconds}s, skipped (counted as failed)",
         "run.timeout_residue": "  [Hint] Conversion timed out; the underlying extraction thread may be left behind, restart the script if many timeouts occur",
+        "run.error": "  [Error] {name}: image edit failed: {err}",
         "run.elapsed": "  [Elapsed] {name}: {seconds} s",
         "rename.preview": "  [Rename] {old} -> {new}",
         "run.ctrl_c": "\nCtrl+C detected, conversion interrupted; showing current progress summary:",
@@ -2100,6 +2118,7 @@ LANGUAGES = {
         "convert.verify_fail": '  [検証失敗] {name}: {msg}、元ファイルを保持しました',
         "convert.verify_ok": '  [検証] {msg}',
         "convert.deleted_original": '  [クリーンアップ] 元ファイルを削除しました: {name}',
+        "convert.delete_warn": '  [警告] {name}: ソースファイルの削除に失敗（保持）: {err}',
         "convert.error": '  [エラー] {name}: {err}',
         "convert.error_drm_hint": '  [情報] このファイルは DRM 暗号化された Kindle 漫画の可能性があります。mobi ライブラリでは復号できないため、DRM を除去してから再変換してください',
         # ---- 【检查】校验（CBZ 完整性）----
@@ -2196,6 +2215,7 @@ LANGUAGES = {
         "run.start": '{count} ファイルの変換を開始...\n',
         "run.timeout": '  [タイムアウト] {name}: 変換が {seconds} 秒を超えたためスキップ（失敗に計上）',
         "run.timeout_residue": '  [ヒント] 変換がタイムアウトしました。基盤の展開スレッドが残っている可能性があります。多数発生時はスクリプトを再起動してください',
+        "run.error": '  [エラー] {name}: 修正失敗: {err}',
         "run.elapsed": '  [経過時間] {name}: {seconds} 秒',
         "rename.preview": '  [リネーム] {old} -> {new}',
         "run.ctrl_c": '\nCtrl+C を検出、変換を中断し現在の進捗サマリーを表示：',
@@ -3266,7 +3286,6 @@ def ebook_to_cbz(ebook_path: Path, delete_original: bool = False, prefer: str = 
         # 目录对齐兜底：目录图片数 vs 收集数不一致时，多出的图片追加到末尾
         # drop 表达式含 extra 条件时放弃追加（否则多余图默认追加，符合历史 --drop-extra 语义）
         total_in_dir = count_images_in_dir(base_dir)
-        drop_extra_hit = bool(drop_expr and any(a[0] == "extra" for grp in drop_expr for a in grp))
         # P0-1 修复：传入原始 drop 表达式列表（函数内自行判定是否含 extra），不再传 bool，
         #           否则 --drop extra 且有多余图时 any(... for g in True) 抛 TypeError
         images, align_msg = align_images_with_dir(images, base_dir, drop_expr)
@@ -3315,7 +3334,7 @@ def ebook_to_cbz(ebook_path: Path, delete_original: bool = False, prefer: str = 
                     if norm_path(img) in cover_paths:
                         a["cover"] = True
                     attrs_list.append(a)
-                _fill_small_mark(attrs_list, None)
+                _fill_small_mark(attrs_list, _pages_small_ratio(pages_expr))
                 _fill_overscale_mark(attrs_list)
                 _fill_orientation_mark(attrs_list)
             else:
@@ -3496,10 +3515,8 @@ def ebook_to_cbz(ebook_path: Path, delete_original: bool = False, prefer: str = 
         size_mb = cbz_path.stat().st_size / (1024 * 1024)
         emit(t("convert.done", name=cbz_path.name, count=len(images), size=f"{size_mb:.1f}"))
 
-        # Step 5: 可选删除原始 mobi
-        if delete_original:
-            ebook_path.unlink()
-            emit(t("convert.deleted_original", name=ebook_path.name))
+        # Step 5: 源文件删除已收口到主线程 _convert_one 成功分支（v3.6.1）：
+        #   此处不再执行，避免转换超时后孤儿线程并发删除源文件。
 
         # 来源字典补丢弃小图计数（即使 --no-comicinfo 也带回，供 --json / 汇总统计）
         conv_sources = dict(conv_sources or {})
@@ -5779,7 +5796,7 @@ def _preview_modify_changes(cbz_path: Path, setinfo_args: list) -> list:
     return changes
 
 
-def rename_cbz_mode(cbz_files: list[Path], args) -> None:
+def rename_cbz_mode(cbz_files: list[Path], args) -> int:
     """--rename 独立批量重命名已有 CBZ 模式入口（不转换，只改文件名）。
 
     复用 _build_rename_basename 计算新文件名；纳入 --dry-run / 进度条 / 汇总统计 / --log / --json。
@@ -5846,7 +5863,7 @@ def rename_cbz_mode(cbz_files: list[Path], args) -> None:
         emit(t("rename_cbz.dryrun_end"), level="summary")
         emit_json(json_files, success=0, skipped=sum(1 for x in json_files if x["status"] == "will_skip"),
                   failed=0, interrupted=False, total_elapsed=time.perf_counter() - total_start)
-        return
+        return 0
 
     success = 0
     nochange = 0
@@ -5935,6 +5952,7 @@ def rename_cbz_mode(cbz_files: list[Path], args) -> None:
         emit(t("rename_cbz.failed_reasons", summary=parts), level="summary")
     emit_json(json_files, success=success, skipped=len(skipped_existing) + len(skipped_conflict) + nochange,
               failed=len(failed_files), interrupted=False, total_elapsed=time.perf_counter() - total_start)
+    return len(failed_files)
 
 
 def _rewrite_cbz_images(cbz_path: Path, img_edit_ops: list, out_path: Path | None = None,
@@ -5960,7 +5978,7 @@ def _rewrite_cbz_images(cbz_path: Path, img_edit_ops: list, out_path: Path | Non
             return 0, 0
         sel_set: set | None = None
         if pages_expr is not None:
-            attrs_list = _cbz_attrs_roll(zf, img_infos) if _pages_need_attrs(pages_expr) else []
+            attrs_list = _cbz_attrs_roll(zf, img_infos, pages_expr) if _pages_need_attrs(pages_expr) else []
             sel_idx, oob = _pages_merge_selection(pages_expr, len(img_infos), attrs_list)
             if oob:
                 _emit_pages_oob(oob, len(img_infos))
@@ -6027,7 +6045,7 @@ def _preview_img_edit_count(cbz_path: Path, pages_expr: object | None = None) ->
             total = len(infos)
             if pages_expr is None or total == 0:
                 return total
-            attrs_list = _cbz_attrs_roll(zf, infos) if _pages_need_attrs(pages_expr) else []
+            attrs_list = _cbz_attrs_roll(zf, infos, pages_expr) if _pages_need_attrs(pages_expr) else []
             sel_idx, oob = _pages_merge_selection(pages_expr, total, attrs_list)
             if oob:
                 _emit_pages_oob(oob, total)
@@ -6038,11 +6056,13 @@ def _preview_img_edit_count(cbz_path: Path, pages_expr: object | None = None) ->
             for i in sel_idx:
                 emit(t("pages.hit_line", n=i + 1, name=infos[i].filename), level="summary")
             return len(sel_idx)
-    except Exception:
+    except Exception as e:
+        # v3.6.1：预览统计失败不再静默吞掉，输出错误提示后返回 0
+        emit(t("run.error", name=cbz_path.name, err=e), level="warning")
         return 0
 
 
-def modify_cbz_images_mode(cbz_files: list[Path], args) -> None:
+def modify_cbz_images_mode(cbz_files: list[Path], args) -> int:
     """--img-edit 就地修正已有 CBZ 的模式入口（CBZ 方向修正模式，v3.6.0）。
 
     对输入为 .cbz 时应用图像处理管线：重写内部图片条目（仅重编码需改的），
@@ -6075,7 +6095,7 @@ def modify_cbz_images_mode(cbz_files: list[Path], args) -> None:
         emit(t("img_edit.dryrun_end"), level="summary")
         emit_json(json_files, success=0, skipped=0, failed=0,
                   interrupted=False, total_elapsed=time.perf_counter() - total_start)
-        return
+        return 0
 
     # 处理前清单：逐文件列出将就地修正的图片数（与 dry-run 分支一致）
     for mf in cbz_files:
@@ -6133,9 +6153,10 @@ def modify_cbz_images_mode(cbz_files: list[Path], args) -> None:
     emit_json(json_files, success=success, skipped=nochange,
               failed=len(failed_files), interrupted=False,
               total_elapsed=time.perf_counter() - total_start)
+    return len(failed_files)
 
 
-def modify_cbz_mode(cbz_files: list[Path], args) -> None:
+def modify_cbz_mode(cbz_files: list[Path], args) -> int:
     """--setinfo 修改已有 CBZ 的 ComicInfo.xml 模式入口。
 
     纳入 --dry-run / 进度条 / 汇总统计 / --log。
@@ -6171,7 +6192,7 @@ def modify_cbz_mode(cbz_files: list[Path], args) -> None:
         emit(t("modify.dryrun_end"), level="summary")
         emit_json(json_files, success=0, skipped=0, failed=0,
                   interrupted=False, total_elapsed=time.perf_counter() - total_start)
-        return
+        return 0
 
     # 处理前清单：逐文件列出将修改的字段变更（与 dry-run 分支一致）
     for mf in cbz_files:
@@ -6237,6 +6258,7 @@ def modify_cbz_mode(cbz_files: list[Path], args) -> None:
     emit_json(json_files, success=success, skipped=nochange,
               failed=len(failed_files), interrupted=False,
               total_elapsed=total_elapsed)
+    return len(failed_files)
 
 
 def _unpack_dir_parts(name: str) -> tuple[str, str, str]:
@@ -7135,7 +7157,7 @@ def _pages_merge_selection(pages, total: int, attrs_list: list):
     return sel, oob
 
 
-def _cbz_attrs_roll(zf, img_infos) -> list:
+def _cbz_attrs_roll(zf, img_infos, pages_expr=None) -> list:
     """CBZ 内图片属性批量构建（就地修正 / dry-run 预览共用）：
 
     与 --list-images 的 _list_cbz 同一口径：natural 排序后的条目名，cover 判定
@@ -7149,7 +7171,7 @@ def _cbz_attrs_roll(zf, img_infos) -> list:
         if (cover_zname and cover_zname == nm) or            any(k in Path(info.filename).name.lower() for k in COVER_KEYWORDS):
             a["cover"] = True
         attrs_list.append(a)
-    _fill_small_mark(attrs_list, None)
+    _fill_small_mark(attrs_list, _pages_small_ratio(pages_expr))
     _fill_overscale_mark(attrs_list)
     _fill_orientation_mark(attrs_list)
     return attrs_list
@@ -7808,6 +7830,25 @@ def extract_small_ratio(drop_expr) -> float | None:
     if not drop_expr:
         return None
     for grp in drop_expr:
+        for a in grp:
+            if a[0] == "small":
+                return a[1] if a[1] is not None else DEFAULT_DROP_SMALL_RATIO
+    return None
+
+
+def _pages_small_ratio(pages_expr) -> float | None:
+    """从 --pages 表达式提取 small 比例（v3.6.1）。
+
+    --pages 归一化为 _PagesSel（filter_groups 为筛选词分组），任一 group 含
+    small 条件即启用小图过滤，无参返回 DEFAULT_DROP_SMALL_RATIO、带参返回
+    其比例；无返回 None。也兼容裸 list 分组（与 drop 同构），口径与
+    extract_small_ratio 一致，供 CBZ 修正/预览链路的 small 标记共用。"""
+    groups = getattr(pages_expr, "filter_groups", None)
+    if groups is None:
+        if not isinstance(pages_expr, (list, tuple)):
+            return None
+        groups = pages_expr
+    for grp in groups:
         for a in grp:
             if a[0] == "small":
                 return a[1] if a[1] is not None else DEFAULT_DROP_SMALL_RATIO
@@ -9429,20 +9470,23 @@ def _main() -> None:
     # --rename 独立模式：输入为已有 CBZ 时仅重命名文件名（二者可叠加，P0-2 修复：先改元数据再改名）
     cbz_modify_files = [f for f in ebook_files if f.suffix.lower() == ".cbz"]
     ebook_files = [f for f in ebook_files if f.suffix.lower() != ".cbz"]
+    cbz_failed = 0
     if cbz_modify_files:
         # P0-2 修复（方案A，推荐）：先 setinfo 再 rename。
         #   原顺序先 rename 后 modify，二者共用 cbz_modify_files 旧路径列表，
         #   rename 原地改名后 modify 打开旧路径 → FileNotFoundError。
         if args.setinfo:
-            modify_cbz_mode(cbz_modify_files, args)
+            cbz_failed += modify_cbz_mode(cbz_modify_files, args)
         if args.img_edit_ops:
             # v3.6.0：--img-edit 对已有 .cbz 就地修正内部图片（CBZ 方向修正模式）
-            modify_cbz_images_mode(cbz_modify_files, args)
+            cbz_failed += modify_cbz_images_mode(cbz_modify_files, args)
         if args.rename:
-            rename_cbz_mode(cbz_modify_files, args)
+            cbz_failed += rename_cbz_mode(cbz_modify_files, args)
 
     if not ebook_files:
-        # 纯 CBZ 修改模式已处理完成，无待转换 mobi
+        # 纯 CBZ 修改模式已处理完成，无待转换 mobi；失败数非零 → 退出码 1
+        if cbz_failed:
+            sys.exit(1)
         return
 
     emit(t("run.found", total=len(ebook_files), pre=len(precheck_skipped), dedup=len(dedupe_skipped)))
@@ -9594,6 +9638,13 @@ def _main() -> None:
                 success += 1
                 success_cbzs.append(result)
                 json_target = str(result)
+                if args.delete:
+                    # v3.6.1：删除源文件收口到主线程成功分支（超时/失败文件不删除）
+                    try:
+                        mf.unlink(missing_ok=True)
+                        emit(t("convert.deleted_original", name=mf.name))
+                    except OSError as e:
+                        emit(t("convert.delete_warn", name=mf.name, err=e), level="warning")
             elif status == ConvStatus.SKIP:
                 skipped_files.append(mf)
                 json_status = "skip"
