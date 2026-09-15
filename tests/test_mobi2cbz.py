@@ -677,13 +677,13 @@ class TestInspectJsonFormats(unittest.TestCase):
 
 
 class TestVersionGuard(unittest.TestCase):
-    """v3.6.1 版本号同步护栏：__version__ / docstring 更新日志。"""
+    """v3.6.2 版本号同步护栏：__version__ / docstring 更新日志。"""
 
-    def test_version_is_3_6_1(self):
-        self.assertEqual(mod.__version__, "3.6.1")
+    def test_version_is_3_6_2(self):
+        self.assertEqual(mod.__version__, "3.6.2")
 
-    def test_docstring_changelog_has_3_6_1(self):
-        self.assertIn("v3.6.1", mod.__doc__)
+    def test_docstring_changelog_has_3_6_2(self):
+        self.assertIn("v3.6.2", mod.__doc__)
         self.assertIn("退出码", mod.__doc__)
 
 
@@ -950,7 +950,7 @@ class TestImgEditGuard(unittest.TestCase):
         for block in ("无效的 format 值", "無效的 format 值",
                       "grayscale", "format=jpeg|png|webp",
                       "グレースケール化", "灰階化",
-                      "fixed pipeline order denoise→whitebalance→rotate→flip→grayscale→format"):
+                      "fixed pipeline order rotate→flip→grayscale→format"):
             self.assertIn(block, src, f"源码应含 {block}")
 
     def test_cli_bad_format_exit_2(self):
