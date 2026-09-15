@@ -7,8 +7,6 @@ It natively follows the OPF spine reading order to extract images, and comes wit
 
 > ⚠️ Only supports DRM-free Kindle comics. Store-purchased DRM-protected eBooks cannot be parsed.
 > 
-> ⚠️ The code is entirely AI-generated. I cannot audit it line by line; please evaluate the risks before use.
-> 
 > 📝 Note: This project is for personal use, intended to preserve AI-generated scripts for future reuse.
 > 
 > **Project Origin**: It began with converting my own Kindle comics, having AI generate scripts each time. To simplify reuse and avoid losing scripts, I uploaded them to GitHub.
@@ -52,7 +50,7 @@ It natively follows the OPF spine reading order to extract images, and comes wit
 - **Inspect supports CBZ** — `--inspect` can inspect `.cbz` files directly (pure zipfile reading, no unpacking); cover line gains resolution+size, format stats gain total file count, and each of the first 5 Spine entries gains width/height
 - **Read-only image listing** — `--list-images [FILTER]` lists every image of the target ebook (No. / filename / resolution / size / mode·depth / orientation / TOC / tag) plus a full statistics block (format / mode·depth / size distribution / double-page banners / animated GIF / small images / anomaly details), without converting, writing a CBZ, or generating ComicInfo; FILTER is optional and supports conditional expressions (format / `res` / `size` / orientation / mode / depth / tag, comma = OR, `+` = AND, `-` prefix = exclude); images with EXIF Orientation≠1 carry a `[rotateN]` mark (N=2–8, normal=1 not marked) also counted in the `[anomaly]` summary; orientation filter words: no value = select all orientation-anomalous images (rotate=auto will rotate), a value = exact EXIF Orientation match (e.g. `orientation=6`); `--json-out` adds an `orientation` field (v3.6.0)
 - **Filename glob filter** — `name=` matches the filename with glob when its value contains `*` / `?` (case-insensitive; only `*` and `?` are special, `[]` is treated literally), and keeps substring matching otherwise; enabled in all three entry points `--list-images` / `--drop` / `--pages`, e.g. `name=*_cover*`, `name=p00?`
-- **Image processing pipeline** — `--img-edit` applies rotation / mirror flipping / grayscale conversion / format conversion / re-encode quality control / scaling / whitespace trimming / EXIF stripping to output images (repeatable; split ops with '+' inside a value): `rotate[=auto|90|180|270]` burns EXIF Orientation into pixels and removes the orientation field before re-encoding (no value = auto, only images with Orientation≠1 are processed), `flip=x|y|both` mirrors the image (x = horizontal, y = vertical, both = both), `grayscale` converts to grayscale (always inserted right after flip, output stays RGB with equal channels), `format=jpeg|png|webp` (alias jpg; target format, entry suffix inside the cbz is renamed to match after re-encode; transparent-to-JPEG backfills with white by default, override with `format=jpeg,black` or a `#RRGGBB` color; JPEG/WebP saved with quality, PNG lossless), `quality=1-100` overrides the re-encode quality (default 95, out-of-range errors), `scale=NNN%` scales relative by percent keeping aspect ratios across pages (e.g. `200%` = double size, 1~1000) or `scale=NNNw` unifies target width in px with height scaled to the original ratio (e.g. `1200w`, 1~100000; the two syntaxes are mutually exclusive), `trim[=tolerance]` auto-trims uniform border whitespace (no value / auto = 0.05, detects the uniform edge background, safe margin avoids over-trimming), `strip` clears all EXIF metadata from images; fixed pipeline order `denoise→whitebalance→rotate→flip→grayscale→format→quality→scale→trim→strip` regardless of writing order; three entry points: before mobi→cbz conversion output / before `--repack` packing / in-place fixing of an existing `.cbz` (CBZ orientation-fix mode); works with `--dry-run` / `--json` / `--json-out` / `--log`
+- **Image processing pipeline** — `--img-edit` applies rotation / mirror flipping / grayscale conversion / format conversion / re-encode quality control / scaling / whitespace trimming / EXIF stripping to output images (repeatable; split ops with '+' inside a value): `rotate[=auto|90|180|270]` burns EXIF Orientation into pixels and removes the orientation field before re-encoding (no value = auto, only images with Orientation≠1 are processed), `flip=x|y|both` mirrors the image (x = horizontal, y = vertical, both = both), `grayscale` converts to grayscale (always inserted right after flip, output stays RGB with equal channels), `format=jpeg|png|webp` (alias jpg; target format, entry suffix inside the cbz is renamed to match after re-encode; transparent-to-JPEG backfills with white by default, override with `format=jpeg,black` or a `#RRGGBB` color; JPEG/WebP saved with quality, PNG lossless), `quality=1-100` overrides the re-encode quality (default 95, out-of-range errors), `scale=NNN%` scales relative by percent keeping aspect ratios across pages (e.g. `200%` = double size, 1~1000) or `scale=NNNw` unifies target width in px with height scaled to the original ratio (e.g. `1200w`, 1~100000; the two syntaxes are mutually exclusive), `trim[=tolerance]` auto-trims uniform border whitespace (no value / auto = 0.05, detects the uniform edge background, safe margin avoids over-trimming), `strip` clears all EXIF metadata from images; fixed pipeline order `rotate→flip→grayscale→format→quality→scale→trim→strip` regardless of writing order; three entry points: before mobi→cbz conversion output / before `--repack` packing / in-place fixing of an existing `.cbz` (CBZ orientation-fix mode); works with `--dry-run` / `--json` / `--json-out` / `--log`
 - **Double-page detection** — `--double-page` identifies full-width spread images (width/height ≥ ratio, default 2.0); when enabled it writes per-page DoublePage marks (without a Manga declaration); no value / `auto` enables, a number sets the ratio, `off` / `no` / `0` disables
 - **Drop small images** — `--drop small[=ratio]` removes images whose area is clearly small (width × height < area median × ratio, default 0.5), such as cover thumbnails; PageCount is recalculated from the actual image count after dropping; no value / `auto` = 0.5, a 0~1 number sets the ratio, `off` / `no` / `0` disables; the old `--drop-small` remains a hidden alias (≡ `--drop small`)
 - **ComicInfo field override** — `--setinfo FIELD=VALUE` overrides/adds ComicInfo fields (highest priority); VALUE supports fixed values / `%series` / `%number` / `%title`/ `%writer` / `%publisher` / `%date` / `%language` / `%description` / `%filename` / `%leftN` / `%rightN` / `%subN_M` placeholders, repeatable; FIELD must be in the ComicInfo standard-field whitelist (39 simple fields, complex `Pages` excluded; out-of-whitelist fields emit a warning and are ignored); for existing `.cbz` inputs, `%series`/`%number`/`%volume` read the explicit Series/Number/Volume from ComicInfo first, falling back to filename inference only when absent; when the input is an existing `.cbz`, its ComicInfo.xml is modified in place (unspecified fields keep their original values, written via temp file + atomic replace)
@@ -253,6 +251,23 @@ python manga-mobi2cbz.py --version
 | `--json-out [FILE]` | Write the structured run result to a JSON file (indented format); without a filename, auto-generates a timestamped file (current directory, behaves exactly like `--log`); can be combined with `--json`; file-level results in conversion/modify mode, full record (incl. spine/toc and summary) in inspect mode |
 | `--version` | Show version number |
 
+## Parameter and Mode Effectiveness Matrix
+
+Some parameters do not apply to every mode; inapplicable ones are silently ignored (no error, no warning). Use this matrix as the source of truth:
+
+| Parameter | mobi→cbz conversion | `--unpack` | `--list-images` | `--repack` | CBZ in-place fix |
+| --- | --- | --- | --- | --- | --- |
+| `--img-edit` | ✅ pipeline before output | ⏭ ignored | ⏭ ignored | ✅ pipeline before writing images | ✅ in-place re-encode |
+| `--drop` | ✅ drop/filter | ⏭ ignored | ⏭ ignored (use FILTER words for read-only filtering) | ⏭ ignored | ⏭ ignored |
+| `--pages` | ✅ selected pages only | ✅ keeps selected pages only | ⏭ ignored | ✅ packs selected pages only | ✅ selected pages only |
+| `--double-page` | ✅ writes DoublePage marks | ⏭ ignored | ⏭ ignored | ✅ keeps existing marks when ComicInfo is carried back | ⏭ ignored |
+| `--rename` | ✅ renames output | ⏭ ignored | ⏭ ignored | ⏭ not applicable | ✅ in-place rename |
+| `--setinfo` | ✅ ComicInfo override | ⏭ ignored | ⏭ ignored | ✅ overrides/generates ComicInfo | ✅ in-place ComicInfo edit |
+| `--no-comicinfo` | ✅ no ComicInfo generated | ⏭ ignored | ⏭ ignored | ✅ no ComicInfo carried back | ⏭ ignored |
+| `--delete` | ✅ deletes source after success | ⏭ ignored | ⏭ ignored | ⏭ not applicable | ⏭ not applicable |
+
+> Note: rows for `--double-page` / `--rename` / `--setinfo` / `--no-comicinfo` / `--delete` follow the actual code behavior; `--unpack` also handles existing `.cbz` / `.epub` inputs (plain zip extraction), and `--pages` keeps only the selected page images after unpacking, numbered by natural sort order.
+
 ## Output
 
 - By default, the converted `.cbz` file is placed in the same directory as the original ebook; with `--output-dir`, it goes to that directory (auto-created), preserving the relative subdirectory structure of the input, or flattened into the directory root with `--flatten` (same-name files are skipped unless `--overwrite` is given)
@@ -304,6 +319,28 @@ A: Yes. Since v2.4.0 the accepted input extensions are `.mobi` / `.azw` / `.azw3
 
 ## Changelog
 
+### [3.6.2] - 2026-09-15
+
+#### Fixes
+
+- **`--pages small` was ineffective in unpack/repack paths** — `_dir_attrs_roll` hardcoded `None`, dropping the small ratio; now uniformly extracted from the `--pages` expression (default ratio without a value, the given value with one), symmetric with `_cbz_attrs_roll`
+- **`--unpack` did not select the mobi7/mobi8 directory before numbering** — pages were numbered across the whole tree and could delete/mis-select across both directories; now `select_mobi_dir` runs right after `mobi.extract` before any page logic
+- **`--repack` failed when the output directory did not exist** — the output directory is now auto-created before packing
+- **Extremely small images crashed `--img-edit` whitespace trimming** — corner sampling raised IndexError when width or height was below 3px; now falls back to the center pixel
+- **Mixed input (mobi conversion + CBZ modification) discarded CBZ-modification failures** — the final exit code now includes `cbz_failed`; any failure returns non-zero
+- **Top-level hard `mobi` dependency check broke `--help` / `--version`** — replaced with lazy loading (`_require_mobi`); only modes that actually unpack mobi fail without the library
+- **Preview stats reused the `run.error` message** — added a dedicated `img_edit.preview_fail` key in all four languages
+  
+  #### Docs
+  
+- **Removed unimplemented `denoise` / `whitebalance` pipeline promises** — the fixed pipeline order in all four help texts and README is now the actually implemented `rotate→flip→grayscale→format→quality→scale→trim→strip` (denoise/whitebalance remain as reserved words in comments only)
+- **zh-TW `help.output_dir` synced with the other three languages** — `--unpack` outputs to the given directory
+- **Added a parameter × mode matrix** — documents which modes honor `--img-edit` / `--drop` / `--pages` etc. (see "Parameter and Mode Effectiveness Matrix")
+  
+  #### Internal
+  
+- Removed the unused `delete_original` parameter of `ebook_to_cbz`
+
 ### [3.6.1] - 2026-09-07
 
 #### Fixed
@@ -323,7 +360,7 @@ A: Yes. Since v2.4.0 the accepted input extensions are `.mobi` / `.azw` / `.azw3
 #### Added
 
 - **`--pages` page selection** — process only the selected pages (page numbers start at 1, page 1 = the 1st image in the volume); repeatable (union semantics), comma-separated in one value without quoting: supports single `5`, closed range `1-3`, open range `7-*` (* = last page), mixed with commas (`1-3,5,7-*`); out-of-range pages are ignored with per-page warnings, all-out-of-range / empty hit errors out; combined with `--img-edit` only selected pages go through the pipeline, coexists with `--drop` (AND), and with `--unpack` / `--repack` only selected pages are processed
-- **`--img-edit` image processing pipeline** — applies rotation / mirror flipping / grayscale / format conversion / re-encode quality control / scaling / whitespace trimming / EXIF stripping to output images, with three entry points: before mobi→cbz conversion output, before `--repack` packing, and in-place fixing of an existing `.cbz` (CBZ orientation-fix mode). `rotate[=auto|90|180|270]` handles orientation as described above; `flip=x|y|both` mirrors; `grayscale` converts to grayscale (always inserted right after flip, output stays RGB with equal channels); `format=jpeg|png|webp` (alias jpg; target format, entry suffix inside the cbz is renamed to match after re-encode; transparent-to-JPEG backfills with white by default, override with `format=jpeg,black` or a `#RRGGBB` color; JPEG/WebP saved with quality, PNG lossless); `quality=1-100` overrides the re-encode quality; `scale=NNN%` scales relative by percent keeping aspect ratios across pages (e.g. `200%` = double size, 1~1000) or `scale=NNNw` unifies target width in px with height scaled to the original ratio (e.g. `1200w`, 1~100000; the two syntaxes are mutually exclusive); `trim[=tolerance]` auto-trims uniform border whitespace; `strip` clears all EXIF metadata (always the last pipeline stage); fixed pipeline order `denoise→whitebalance→rotate→flip→grayscale→format→quality→scale→trim→strip` regardless of writing order
+- **`--img-edit` image processing pipeline** — applies rotation / mirror flipping / grayscale / format conversion / re-encode quality control / scaling / whitespace trimming / EXIF stripping to output images, with three entry points: before mobi→cbz conversion output, before `--repack` packing, and in-place fixing of an existing `.cbz` (CBZ orientation-fix mode). `rotate[=auto|90|180|270]` handles orientation as described above; `flip=x|y|both` mirrors; `grayscale` converts to grayscale (always inserted right after flip, output stays RGB with equal channels); `format=jpeg|png|webp` (alias jpg; target format, entry suffix inside the cbz is renamed to match after re-encode; transparent-to-JPEG backfills with white by default, override with `format=jpeg,black` or a `#RRGGBB` color; JPEG/WebP saved with quality, PNG lossless); `quality=1-100` overrides the re-encode quality; `scale=NNN%` scales relative by percent keeping aspect ratios across pages (e.g. `200%` = double size, 1~1000) or `scale=NNNw` unifies target width in px with height scaled to the original ratio (e.g. `1200w`, 1~100000; the two syntaxes are mutually exclusive); `trim[=tolerance]` auto-trims uniform border whitespace; `strip` clears all EXIF metadata (always the last pipeline stage); fixed pipeline order `rotate→flip→grayscale→format→quality→scale→trim→strip` regardless of writing order
 - **`name=` filename glob filter** — when the `name=` value contains `*` / `?`, filenames are matched with glob (case-insensitive; only `*` and `?` are special, `[]` is treated literally), otherwise substring matching is kept; enabled in all three entry points `--list-images` / `--drop` / `--pages`, e.g. `name=*_cover*`, `name=p00?`
 - **`--drop` repeatable and takes an OR union** — repeated flags accumulate (`--drop a --drop b` = OR of both conditions); the hidden alias `--drop-extra` is retained
 - **`--unpack` supports `--output-dir`** — optional output directory; if omitted, the folder containing the source file is used
