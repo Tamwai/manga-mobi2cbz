@@ -138,6 +138,29 @@ manga-mobi2cbz — 将 mobi/azw/azw3/epub 电子书漫画文件批量转换为 c
 要求: Python 3.10+
 
 更新日志:
+    v3.6.2 (2026-09-15)
+        - 修复：--pages small 在解包/重打包路径失效——_dir_attrs_roll 硬编码
+          None 导致 small 比例丢失，现从 --pages 表达式统一提取（无参默认
+          比例、带参用指定值），与 _cbz_attrs_roll 同构
+        - 修复：--unpack 解包 mobi 后未先定位 mobi7/mobi8 目录即编号——
+          页面跨两目录编号可能误删/误选，现于 mobi.extract 之后、页面
+          逻辑之前执行 select_mobi_dir
+        - 修复：--repack 输出目录不存在时报错——打包前自动创建输出目录
+        - 修复：极小图像触发 --img-edit 白边裁剪崩溃——宽或高小于 3px 时
+          四角采样抛 IndexError，现退化为取中心像素
+        - 修复：混合输入（mobi 转换 + CBZ 修改）丢弃 CBZ 修改失败——
+          最终退出码并入 cbz_failed，任一失败即返回非零
+        - 修复：顶层 mobi 硬依赖检查误伤 --help / --version——改为按需
+          加载 _require_mobi，仅实际解包 mobi 的模式在缺库时退出
+        - 修复：预览统计复用 run.error 文案——四语新增独立 img_edit.preview_fail key
+        - 文档：移除未实现的 denoise / whitebalance 管线承诺——四语 help 与
+          README 固定顺序统一为实际实现的 rotate→flip→grayscale→format→
+          quality→scale→trim→strip（denoise/whitebalance 仅保留为注释预留词）
+        - 文档：zh-TW help.output_dir 同步其余三语——明确 --unpack 输出到指定目录
+        - 文档：新增「参数 × 模式生效矩阵」——明示 --img-edit / --drop /
+          --pages 等在转换 / --unpack / --list-images / --repack / 就地修正
+          各模式的生效范围
+        - 内部：移除 ebook_to_cbz 未使用的 delete_original 参数
     v3.6.1 (2026-09-07)
         - 修复：--pages 筛选词 small 失效——mobi 转换与 CBZ 就地修正路径
           未回填小图标记（_fill_small_mark 传 None），现从 --pages 表达式
@@ -170,9 +193,9 @@ manga-mobi2cbz — 将 mobi/azw/azw3/epub 电子书漫画文件批量转换为 c
           避免误切；无参=智能容差，可给 0~1 容差比）、scale=NNN% 或
           scale=NNNw（百分比相对缩放保持页间比例，如 200%=放大 2 倍；
           或按目标宽度像素统一拉齐，如 1200w；二选一）、strip（清光图片
-          全部 EXIF 元数据，管线恒为末位）；固定管线顺序 denoise→
-          whitebalance→rotate→flip→grayscale→format→quality→scale→
-          trim→strip 与书写顺序无关；同一操作重复给不同值报错、相同值
+          全部 EXIF 元数据，管线恒为末位）；固定管线顺序 rotate→
+          flip→grayscale→format→quality→scale→trim→strip 与书写顺序
+          无关；同一操作重复给不同值报错、相同值
           幂等忽略；三入口
           全开：mobi→cbz 转换输出前 / --repack 打包前 / 目标为已有
           .cbz 且不带 --repack 时的就地修正（CBZ 方向修正模式）；完整
@@ -794,7 +817,7 @@ manga-mobi2cbz — 将 mobi/azw/azw3/epub 电子书漫画文件批量转换为 c
           EOCD + testzip 完整性校验、失败清理半成品
 """
 
-__version__ = "3.6.1"
+__version__ = "3.6.2"
 
 SCRIPT_NAME = "manga-mobi2cbz"
 
@@ -844,7 +867,7 @@ LANGUAGES = {
         "help.delete": "转换成功后删除原始电子书文件",
         "help.prefer": "双目录 mobi（mobi7/mobi8）时保留哪份：auto 默认优先 mobi8、空壳自动回退 mobi7；指定 mobi7/mobi8 时，指定目录为空也自动回退另一份",
         "help.ext_priority": "同目录同名（仅扩展名不同）时保留哪种格式：逗号分隔、顺序即优先级从高到低，仅接受 mobi/azw/azw3/epub，默认 azw3；优先级未覆盖时回退兜底顺序 azw3→epub→mobi→azw；与 --prefer（双目录选择）无关",
-        "help.img_edit": "图像处理管线（可多次，值内 '+' 切分摊平）：rotate[=auto|90|180|270]（无参=auto 按 EXIF Orientation 烧录像素并删除 Orientation 字段后重编码；90/180/270 手动旋转，先归一 EXIF 方向再转）；flip=x|y|both（x=水平镜像 / y=垂直镜像 / both=两者）；grayscale（灰度化，恒插在 flip 之后，输出 RGB 三通道等值）；format=jpeg|png|webp（别名 jpg；目标格式，重编码后 cbz 内条目后缀同步改；透明转 JPEG 默认补白，可 format=jpeg,black 或 #RRGGBB 改色；JPEG/WebP 走 quality 保存、PNG 无损）；quality=1-100（重编码保存质量覆盖，默认 95，越界报错）；scale=NNN%%（百分比相对缩放，保持页间比例，如 200%%=放大 2 倍；1~1000）或 scale=NNNw（统一目标宽度像素、高度按原始比例，如 1200w；1~100000，二选一）；trim[=容差]（自动白边裁剪：按边缘统一背景色四向收缩并外扩安全边界，无参=智能容差 0.05，可给 0~1）；strip（清光图片全部 EXIF/元数据，恒为管线末位）；固定顺序 denoise→whitebalance→rotate→flip→grayscale→format→quality→scale→trim→strip 与书写顺序无关；同一操作重复给不同值报错、相同值幂等忽略；三入口：mobi→cbz 转换 / --repack 打包前 / 对已有 .cbz 就地修正；联动 --dry-run/--json/--json-out/--log",
+        "help.img_edit": "图像处理管线（可多次，值内 '+' 切分摊平）：rotate[=auto|90|180|270]（无参=auto 按 EXIF Orientation 烧录像素并删除 Orientation 字段后重编码；90/180/270 手动旋转，先归一 EXIF 方向再转）；flip=x|y|both（x=水平镜像 / y=垂直镜像 / both=两者）；grayscale（灰度化，恒插在 flip 之后，输出 RGB 三通道等值）；format=jpeg|png|webp（别名 jpg；目标格式，重编码后 cbz 内条目后缀同步改；透明转 JPEG 默认补白，可 format=jpeg,black 或 #RRGGBB 改色；JPEG/WebP 走 quality 保存、PNG 无损）；quality=1-100（重编码保存质量覆盖，默认 95，越界报错）；scale=NNN%%（百分比相对缩放，保持页间比例，如 200%%=放大 2 倍；1~1000）或 scale=NNNw（统一目标宽度像素、高度按原始比例，如 1200w；1~100000，二选一）；trim[=容差]（自动白边裁剪：按边缘统一背景色四向收缩并外扩安全边界，无参=智能容差 0.05，可给 0~1）；strip（清光图片全部 EXIF/元数据，恒为管线末位）；固定顺序 rotate→flip→grayscale→format→quality→scale→trim→strip 与书写顺序无关；同一操作重复给不同值报错、相同值幂等忽略；三入口：mobi→cbz 转换 / --repack 打包前 / 对已有 .cbz 就地修正；联动 --dry-run/--json/--json-out/--log",
         "help.pages": "指定页处理（可多次；值内逗号切分、无需引号）：只保留/处理选中页，其余页不输出或原样透传。语法：单页 5｜闭区间 1-3｜开区间 7-*（*=最后1页）｜逗号混合，如 --pages 1-3,5,7-*。页码从 1 起（第 1 页 = 卷内第 1 张图，按各链路有序图片列表编号）。适用链路：mobi→cbz 转换（CBZ 只含选中页）/ --repack 只打选中页 / --unpack 只解选中页 / --img-edit 就地修正只处理选中页；与 --drop 共存按 AND（先锁定页再丢）。越界页汇总提示『忽略第 N 页（越界）』；全部越界/空命中报错终止。亦可按筛选词选页：非数字段复用 --list-images/--drop 词库（name=文件名子串、name==完整文件名精确、name=\"文件名\"引号亦精确｜标签如 封面/双页/方向异常/small/超大页/动图｜方向/格式/尺寸），逗号=OR、'+'=AND，命中页并入选中集，如 --pages 1-3,name=cover 或 --pages 封面。",
         "error.pages_invalid": "非法 --pages 表达式 '{expr}': {reason}",
         "pages.enabled": "已启用 --pages（{expr}）",
@@ -864,6 +887,7 @@ LANGUAGES = {
     "error.img_edit_conflict": "--img-edit 同一操作 {op} 冲突：'{prev}' vs '{cur}'（重复请给相同值，不同值会歧义）",
     "error.img_edit_missing_pillow": "--img-edit 需要 Pillow 但未安装，请先安装：pip install Pillow",
     "img_edit.skip_warn": "无法处理图片 {name}，已保留原始字节：{err}",
+    "img_edit.preview_fail": "预览统计失败 {name}，将按 0 张处理：{err}",
     "img_edit.header": "将为 {count} 个已有 CBZ 就地修正内部图片",
     "img_edit.plan": "[计划] {name}：将就地修正 {count} 张图片",
     "img_edit.modified": "已修正 {name}：{edited}/{total} 张图片重编码",
@@ -1203,7 +1227,7 @@ LANGUAGES = {
         "help.delete": "轉換成功後刪除原始電子書檔案",
         "help.prefer": "雙目錄 mobi（mobi7/mobi8）時保留哪份：auto 預設優先 mobi8、空殼自動回退 mobi7；指定 mobi7/mobi8 時，指定目錄為空也自動回退另一份",
         "help.ext_priority": "同目錄同名（僅副檔名不同）時保留哪種格式：逗號分隔、順序即優先級從高到低，僅接受 mobi/azw/azw3/epub，預設 azw3；優先級未覆蓋時回退兜底順序 azw3→epub→mobi→azw；與 --prefer（雙目錄選擇）無關",
-        "help.img_edit": "圖像處理管線（可多次，值內 '+' 切分攤平）：rotate[=auto|90|180|270]（無參=auto 依 EXIF Orientation 燒錄像素並刪除 Orientation 欄位後重編碼；90/180/270 手動旋轉，先歸一 EXIF 方向再轉）；flip=x|y|both（x=水平鏡像 / y=垂直鏡像 / both=兩者）；grayscale（灰階化，恆插在 flip 之後，輸出 RGB 三通道等值）；format=jpeg|png|webp（別名 jpg；目標格式，重編碼後 cbz 內條目後綴同步改；透明轉 JPEG 預設補白，可 format=jpeg,black 或 #RRGGBB 改色；JPEG/WebP 走 quality 儲存、PNG 無損）；quality=1-100（重編碼儲存品質覆蓋，預設 95，越界報錯）；scale=NNN%%（百分比相對縮放，保持頁間比例，如 200%%=放大 2 倍；1~1000）或 scale=NNNw（統一目標寬度像素、高度按原始比例，如 1200w；1~100000，二選一）；trim[=容差]（自動白邊裁切：依邊緣統一背景色四向收縮並外擴安全邊界，無參=智慧容差 0.05，可給 0~1）；strip（清光圖片全部 EXIF/中繼資料，恆為管線末位）；固定順序 denoise→whitebalance→rotate→flip→grayscale→format→quality→scale→trim→strip 與書寫順序無關；同一操作重複給不同值報錯、相同值冪等忽略；三入口：mobi→cbz 轉換 / --repack 打包前 / 對既有 .cbz 就地修正；連動 --dry-run/--json/--json-out/--log",
+        "help.img_edit": "圖像處理管線（可多次，值內 '+' 切分攤平）：rotate[=auto|90|180|270]（無參=auto 依 EXIF Orientation 燒錄像素並刪除 Orientation 欄位後重編碼；90/180/270 手動旋轉，先歸一 EXIF 方向再轉）；flip=x|y|both（x=水平鏡像 / y=垂直鏡像 / both=兩者）；grayscale（灰階化，恆插在 flip 之後，輸出 RGB 三通道等值）；format=jpeg|png|webp（別名 jpg；目標格式，重編碼後 cbz 內條目後綴同步改；透明轉 JPEG 預設補白，可 format=jpeg,black 或 #RRGGBB 改色；JPEG/WebP 走 quality 儲存、PNG 無損）；quality=1-100（重編碼儲存品質覆蓋，預設 95，越界報錯）；scale=NNN%%（百分比相對縮放，保持頁間比例，如 200%%=放大 2 倍；1~1000）或 scale=NNNw（統一目標寬度像素、高度按原始比例，如 1200w；1~100000，二選一）；trim[=容差]（自動白邊裁切：依邊緣統一背景色四向收縮並外擴安全邊界，無參=智慧容差 0.05，可給 0~1）；strip（清光圖片全部 EXIF/中繼資料，恆為管線末位）；固定順序 rotate→flip→grayscale→format→quality→scale→trim→strip 與書寫順序無關；同一操作重複給不同值報錯、相同值冪等忽略；三入口：mobi→cbz 轉換 / --repack 打包前 / 對既有 .cbz 就地修正；連動 --dry-run/--json/--json-out/--log",
         "help.pages": "指定頁處理（可多次；值內逗號切分、免引號）：只保留/處理選取頁，其餘頁不輸出或原樣透傳。語法：單頁 5｜閉區間 1-3｜開區間 7-*（*=最後1頁）｜逗號混合，如 --pages 1-3,5,7-*。頁碼從 1 起（第 1 頁 = 卷內第 1 張圖，依各鏈路有序圖片列表編號）。適用鏈路：mobi→cbz 轉換（CBZ 只含選取頁）/ --repack 只打包選取頁 / --unpack 只解開選取頁 / --img-edit 就地修正只處理選取頁；與 --drop 共存按 AND（先鎖定頁再丟棄）。越界頁彙總提示『忽略第 N 頁（越界）』；全部越界/空命中報錯終止。亦可按篩選詞選頁：非數字段沿用 --list-images/--drop 詞庫（name=檔名子串（值含 * 或 ? 按 glob 通配，如 name=*_封面*、name=p00?）、name==完整檔名精確、name=\"檔名\"引號亦精確｜標籤如 封面/雙頁/方向異常/small/超大頁/動圖｜方向/格式/尺寸），逗號=OR、'+'=AND，命中頁併入選取集，如 --pages 1-3,name=cover 或 --pages 封面。",
         "error.pages_invalid": "無效 --pages 表達式 '{expr}': {reason}",
         "pages.enabled": "已啟用 --pages（{expr}）",
@@ -1223,6 +1247,7 @@ LANGUAGES = {
     "error.img_edit_conflict": "--img-edit 同一操作 {op} 衝突：'{prev}' vs '{cur}'（重複請給相同值，不同值會歧義）",
     "error.img_edit_missing_pillow": "--img-edit 需要 Pillow 但未安裝，請先安裝：pip install Pillow",
     "img_edit.skip_warn": "無法處理圖片 {name}，已保留原始位元組：{err}",
+    "img_edit.preview_fail": "預覽統計失敗 {name}，將按 0 張處理：{err}",
     "img_edit.header": "將為 {count} 個既有 CBZ 就地修正內部圖片",
     "img_edit.plan": "[計畫] {name}：將就地修正 {count} 張圖片",
     "img_edit.modified": "已修正 {name}：{edited}/{total} 張圖片重編碼",
@@ -1235,7 +1260,7 @@ LANGUAGES = {
         "help.overwrite": "目標 cbz 已存在時強制重新生成（預設跳過）",
         "help.timeout": "單檔轉換逾時秒數，逾時自動跳過並計入失敗（預設 600，0 表示不限制；逾時後底層解包執行緒可能於背景殘留）",
         "help.min_size": "過濾小於指定位元組的電子書；不帶數字預設1000位元組，0關閉大小過濾，不傳則關閉；帶值請用 --選項=值 寫法，或將目標路徑放在本選項之前",
-        "help.output_dir": "CBZ 輸出到指定目錄（自動建立），預設保留相對輸入的子目錄結構（如 Sample Series/001.mobi → DIR/Sample Series/001.cbz），加 --flatten 可平鋪到目錄根下；--unpack 模式會忽略此參數",
+        "help.output_dir": "CBZ 輸出到指定目錄（自動建立），預設保留相對輸入的子目錄結構（如 Sample Series/001.mobi → DIR/Sample Series/001.cbz），加 --flatten 可平鋪到目錄根下；--unpack 模式解包輸出到該目錄（未指定時預設輸入檔案所在目錄）",
         "help.top_only": "僅處理 target 目錄頂層的電子書檔案，不遞迴子目錄",
     "help.flatten": "僅與 --output-dir 聯用：所有 CBZ 平鋪到輸出目錄根下，同名檔案未指定 --overwrite 時跳過（SKIP），指定時覆蓋首選名；單獨使用將報錯退出",
         "help.dry_run": "試運行：只掃描檔案並列印轉換流程，不實際解壓打包、不建立輸出目錄",
@@ -1562,7 +1587,7 @@ LANGUAGES = {
         "help.delete": "Delete the original ebook file after successful conversion",
         "help.prefer": "Which directory to keep when both mobi7/mobi8 exist: auto (default) prefers mobi8 and falls back to mobi7 if empty; when mobi7/mobi8 is specified, falls back to the other if the chosen one is empty",
         "help.ext_priority": "When same-name files differ only by extension in the same directory, which format to keep: comma-separated, order is priority high->low, only mobi/azw/azw3/epub accepted, default azw3; falls back to azw3->epub->mobi->azw when not covered; unrelated to --prefer (mobi7/mobi8 selection)",
-        "help.img_edit": "Image processing pipeline (repeatable; use '+' inside a value to split into separate ops): rotate[=auto|90|180|270] (no value = auto: burn EXIF Orientation into pixels, strip the Orientation field and re-encode; 90/180/270 rotate manually after normalizing EXIF orientation); flip=x|y|both (x=horizontal mirror / y=vertical mirror / both=both); grayscale (grayscale conversion, always inserted right after flip, output stays RGB with equal channels); format=jpeg|png|webp (alias jpg; target format, entry suffix inside the cbz is renamed to match after re-encode; transparent-to-JPEG backfills with white by default, override with format=jpeg,black or a #RRGGBB color; JPEG/WebP saved with quality, PNG lossless); quality=1-100 (override re-encode save quality, default 95, out-of-range errors); scale=NNN%% (percent relative scale keeping aspect ratios across pages, e.g. 200%% = double size; 1~1000) OR scale=NNNw (unify target width in px with height scaled to the original ratio, e.g. 1200w; 1~100000, pick one); trim[=tolerance] (auto white-border crop: shrink to the content bbox on the uniform background color with a safe margin; no value = smart tolerance 0.05, or give 0~1); strip (remove all EXIF/metadata, always the last pipeline stage); fixed pipeline order denoise→whitebalance→rotate→flip→grayscale→format→quality→scale→trim→strip regardless of writing order; repeating the same op with a different value errors, the same value is idempotently ignored; three entry points: mobi→cbz conversion / before --repack packing / in-place fixing of existing .cbz; works with --dry-run/--json/--json-out/--log",
+        "help.img_edit": "Image processing pipeline (repeatable; use '+' inside a value to split into separate ops): rotate[=auto|90|180|270] (no value = auto: burn EXIF Orientation into pixels, strip the Orientation field and re-encode; 90/180/270 rotate manually after normalizing EXIF orientation); flip=x|y|both (x=horizontal mirror / y=vertical mirror / both=both); grayscale (grayscale conversion, always inserted right after flip, output stays RGB with equal channels); format=jpeg|png|webp (alias jpg; target format, entry suffix inside the cbz is renamed to match after re-encode; transparent-to-JPEG backfills with white by default, override with format=jpeg,black or a #RRGGBB color; JPEG/WebP saved with quality, PNG lossless); quality=1-100 (override re-encode save quality, default 95, out-of-range errors); scale=NNN%% (percent relative scale keeping aspect ratios across pages, e.g. 200%% = double size; 1~1000) OR scale=NNNw (unify target width in px with height scaled to the original ratio, e.g. 1200w; 1~100000, pick one); trim[=tolerance] (auto white-border crop: shrink to the content bbox on the uniform background color with a safe margin; no value = smart tolerance 0.05, or give 0~1); strip (remove all EXIF/metadata, always the last pipeline stage); fixed pipeline order rotate→flip→grayscale→format→quality→scale→trim→strip regardless of writing order; repeating the same op with a different value errors, the same value is idempotently ignored; three entry points: mobi→cbz conversion / before --repack packing / in-place fixing of existing .cbz; works with --dry-run/--json/--json-out/--log",
         "help.pages": "Page-range processing (repeatable; comma-separated inside the value, no quoting needed): keep/process only the selected pages, drop the rest or pass them through untouched. Syntax: single page 5 | closed range 1-3 | open range 7-* (* = last page) | comma mix, e.g. --pages 1-3,5,7-*. Pages are 1-based (page 1 = 1st image in the volume, numbered by the ordered image list of each path). Applicable paths: mobi→cbz conversion (CBZ contains only selected pages) / --repack packs only selected pages / --unpack extracts only selected pages / --img-edit in-place fixing processes only selected pages; combines with --drop as AND (pages locked first, then dropped). Out-of-range pages produce one summary hint (ignoring page N, out of range); empty match / all out of range errors out and aborts. Filter words can also select pages: non-numeric segments reuse the --list-images/--drop lexicon (name=filename substring (with * or ? it becomes glob matching, e.g. name=*_cover*, name=p00?), name==exact full filename, name=\"filename\" quotes also exact | marks like cover / double / orientation / small / oversize / animated | orientation/format/size), comma=OR, '+'(plus)=AND; matching pages merge into the selection, e.g. --pages 1-3,name=cover or --pages 封面 (cover).",
         "error.pages_invalid": "invalid --pages expression '{expr}': {reason}",
         "pages.enabled": "--pages enabled ({expr})",
@@ -1582,6 +1607,7 @@ LANGUAGES = {
     "error.img_edit_conflict": "--img-edit conflicting values for {op}: '{prev}' vs '{cur}' (repeat with the same value; different values are ambiguous)",
     "error.img_edit_missing_pillow": "--img-edit requires Pillow which is not installed; install it first: pip install Pillow",
     "img_edit.skip_warn": "Cannot process image {name}, kept original bytes: {err}",
+    "img_edit.preview_fail": "Preview stats failed for {name}, treated as 0 images: {err}",
     "img_edit.header": "Will in-place fix images inside {count} existing CBZ file(s)",
     "img_edit.plan": "[plan] {name}: will in-place fix {count} image(s)",
     "img_edit.modified": "Fixed {name}: {edited}/{total} image(s) re-encoded",
@@ -1921,7 +1947,7 @@ LANGUAGES = {
         "help.delete": '変換成功後に元の電子書籍ファイルを削除',
         "help.prefer": '二重ディレクトリ mobi（mobi7/mobi8）がある場合にどちらを残すか：auto（デフォルト）は mobi8 優先、空なら mobi7 に自動フォールバック。mobi7/mobi8 指定時も、指定先が空ならもう一方に自動フォールバック',
         "help.ext_priority": '同じディレクトリで同名（拡張子のみ異なる）の場合にどの形式を残すか：カンマ区切り、順序が優先度（高→低）、mobi/azw/azw3/epub のみ指定可能、デフォルト azw3；優先度がカバーしない場合は azw3→epub→mobi→azw にフォールバック；--prefer（二重ディレクトリ選択）とは無関係',
-        "help.img_edit": "画像処理パイプライン（複数回指定可、値内の '+' で分割してフラット化）：rotate[=auto|90|180|270]（値なし=auto：EXIF Orientation をピクセルに焼き込み Orientation フィールドを削除して再エンコード；90/180/270 は EXIF 方向を正規化した上で手動回転）；flip=x|y|both（x=水平ミラー / y=垂直ミラー / both=両方）；grayscale（グレースケール化、常に flip の直後に挿入、出力は RGB 三チャンネル等値）；format=jpeg|png|webp（別名 jpg；目標形式、再エンコード後に cbz 内エントリの拡張子を同期変更；透明→JPEG はデフォルトで白を補填、format=jpeg,black や #RRGGBB で色変更可；JPEG/WebP は quality で保存、PNG は可逆）；quality=1-100（再エンコードの保存品質を上書き、デフォルト 95、範囲外はエラー）；scale=NNN%%（パーセント相対拡縮、ページ間の比率を維持、例 200%%=2 倍に拡大；1〜1000）または scale=NNNw（目標幅ピクセルに統一、高さは元の比率でスケール、例 1200w；1〜100000、どちらか一方）；trim[=許容差]（自動白縁トリミング：端の一様な背景色に基づき内容 bbox まで縮め、安全マージンを外側に確保。値なし=スマート許容差 0.05、0~1 も指定可）；strip（画像の全 EXIF/メタデータを除去、常にパイプライン末尾）；固定順序 denoise→whitebalance→rotate→flip→grayscale→format→quality→scale→trim→strip は記述順に関係なし；同一操作を異なる値で繰り返すとエラー、同じ値は冪等に無視；三つの入口：mobi→cbz 変換 / --repack パッキング前 / 既存 .cbz のその場修正；--dry-run/--json/--json-out/--log と連動",
+        "help.img_edit": "画像処理パイプライン（複数回指定可、値内の '+' で分割してフラット化）：rotate[=auto|90|180|270]（値なし=auto：EXIF Orientation をピクセルに焼き込み Orientation フィールドを削除して再エンコード；90/180/270 は EXIF 方向を正規化した上で手動回転）；flip=x|y|both（x=水平ミラー / y=垂直ミラー / both=両方）；grayscale（グレースケール化、常に flip の直後に挿入、出力は RGB 三チャンネル等値）；format=jpeg|png|webp（別名 jpg；目標形式、再エンコード後に cbz 内エントリの拡張子を同期変更；透明→JPEG はデフォルトで白を補填、format=jpeg,black や #RRGGBB で色変更可；JPEG/WebP は quality で保存、PNG は可逆）；quality=1-100（再エンコードの保存品質を上書き、デフォルト 95、範囲外はエラー）；scale=NNN%%（パーセント相対拡縮、ページ間の比率を維持、例 200%%=2 倍に拡大；1〜1000）または scale=NNNw（目標幅ピクセルに統一、高さは元の比率でスケール、例 1200w；1〜100000、どちらか一方）；trim[=許容差]（自動白縁トリミング：端の一様な背景色に基づき内容 bbox まで縮め、安全マージンを外側に確保。値なし=スマート許容差 0.05、0~1 も指定可）；strip（画像の全 EXIF/メタデータを除去、常にパイプライン末尾）；固定順序 rotate→flip→grayscale→format→quality→scale→trim→strip は記述順に関係なし；同一操作を異なる値で繰り返すとエラー、同じ値は冪等に無視；三つの入口：mobi→cbz 変換 / --repack パッキング前 / 既存 .cbz のその場修正；--dry-run/--json/--json-out/--log と連動",
         "help.pages": "指定ページ処理（複数回指定可、値内はカンマ区切りで引用符不要）：選択ページのみ保持/処理し、その他は出力しないかそのまま透過。記法：単ページ 5｜閉区間 1-3｜開区間 7-*（*=最終ページ）｜カンマ混在、例 --pages 1-3,5,7-*。ページ番号は 1 始まり（1 ページ目 = 巻内の 1 枚目の画像、各経路の整列済み画像リストで採番）。対応経路：mobi→cbz 変換（CBZ は選択ページのみ）/ --repack は選択ページのみパック / --unpack は選択ページのみ展開 / --img-edit のその場修正は選択ページのみ処理；--drop とは AND で併用（先にページを確定してから除去）。範囲外ページは『ページ N（範囲外）を無視』と要約提示され、全範囲外/空ヒットならエラー終了。またフィルタ語でページを選択できます：非数値セグメントは --list-images/--drop と同じ語彙（name=ファイル名部分文字列（* か ? を含むと glob 一致、例 name=*_表紙*・name=p00?）、name==完全一致のファイル名、name=\"ファイル名\"引用符でも完全一致｜タグ例 表紙/見開き/向き異常/small/超大/アニメ｜向き/形式/サイズ）を使用、カンマ=OR、'+'=AND、一致ページは選択に合流、例 --pages 1-3,name=cover や --pages 表紙。",
         "error.pages_invalid": "無効な --pages 式 '{expr}': {reason}",
         "pages.enabled": "--pages 有効（{expr}）",
@@ -1941,6 +1967,7 @@ LANGUAGES = {
     "error.img_edit_conflict": "--img-edit 同一操作 {op} で競合：'{prev}' と '{cur}'（同じ値を指定してください。異なる値は曖昧です）",
     "error.img_edit_missing_pillow": "--img-edit には Pillow が必要ですがインストールされていません。先にインストールしてください：pip install Pillow",
     "img_edit.skip_warn": "画像 {name} を処理できませんでした。元のバイト列を保持：{err}",
+    "img_edit.preview_fail": "プレビュー統計に失敗 {name}、0 枚として処理：{err}",
     "img_edit.header": "{count} 個の既存 CBZ の内部画像をその場修正します",
     "img_edit.plan": "[計画] {name}：{count} 枚の画像をその場修正します",
     "img_edit.modified": "{name} を修正：{edited}/{total} 枚の画像を再エンコード",
@@ -2370,14 +2397,29 @@ def t(key: str, **kwargs) -> str:
         return tmpl
 
 
-# 全局前置依赖检测，启动即校验，无需等到循环文件
-try:
-    import mobi
-except ImportError:
-    set_language("auto")
-    print(t("error.missing_dependency"))
-    print("    pip install mobi")
-    sys.exit(1)
+# 全局依赖探测：mobi 库仅在真正处理 mobi/azw/azw3 时按需加载，
+# 避免仅用 CBZ/EPUB 功能（--help/--repack/--list-images 等）时被强制安装 mobi。
+mobi = None
+
+
+def _require_mobi():
+    """按需加载 mobi 依赖；缺失时给出明确安装指引并退出。
+
+    调用方必须先经过扩展名判断（仅 .mobi/.azw/.azw3 需要），
+    因此这里不再重复判断，只负责加载与报错。
+    """
+    global mobi
+    if mobi is not None:
+        return mobi
+    try:
+        import mobi as _mobi
+    except ImportError:
+        set_language("auto")
+        print(t("error.missing_dependency"))
+        print("    pip install mobi")
+        sys.exit(1)
+    mobi = _mobi
+    return mobi
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".tiff", ".tif"}
 EOCD_SIGNATURE = b"\x50\x4b\x05\x06"  # End of Central Directory 签名
@@ -3180,7 +3222,7 @@ def select_mobi_dir(tempdir: Path, prefer: str) -> Path:
 
 
     # 输入：电子书路径与转换选项（delete/prefer/drop_extra/overwrite/output_dir/compress）；输出：(cbz 路径或 None, ConvStatus, 原因, 来源)
-def ebook_to_cbz(ebook_path: Path, delete_original: bool = False, prefer: str = "mobi8", drop_expr: object | None = None, overwrite: bool = False, output_dir: Path | None = None, compress: int = 0, flatten: bool = False, input_root: Path | None = None, comicinfo: bool = True, setinfo_args: list | None = None, double_page: float | None = None, rename_template: str | None = None, img_edit_ops: object | None = None,
+def ebook_to_cbz(ebook_path: Path, prefer: str = "mobi8", drop_expr: object | None = None, overwrite: bool = False, output_dir: Path | None = None, compress: int = 0, flatten: bool = False, input_root: Path | None = None, comicinfo: bool = True, setinfo_args: list | None = None, double_page: float | None = None, rename_template: str | None = None, img_edit_ops: object | None = None,
                 pages_expr: object | None = None) -> tuple[Path | None, ConvStatus, str | None, dict | None]:
     """将单个电子书文件转换为 cbz
 
@@ -3252,6 +3294,7 @@ def ebook_to_cbz(ebook_path: Path, delete_original: bool = False, prefer: str = 
         if ebook_path.suffix.lower() == ".epub":
             tempdir = extract_epub_to_temp(ebook_path)
         else:
+            _require_mobi()
             tempdir_raw, _ = mobi.extract(str(ebook_path))
             tempdir = Path(tempdir_raw)
         extract_temp_paths.append(tempdir)
@@ -3279,9 +3322,6 @@ def ebook_to_cbz(ebook_path: Path, delete_original: bool = False, prefer: str = 
             else:
                 emit(t("convert.drm_hint"), level="error")
             return None, ConvStatus.FAIL, "no_images", None
-
-        # 确保封面在第一位（兼容 cover/front 命名，封面可能未被 spine 引用）
-        images = ensure_cover_first(images, base_dir)
 
         # 目录对齐兜底：目录图片数 vs 收集数不一致时，多出的图片追加到末尾
         # drop 表达式含 extra 条件时放弃追加（否则多余图默认追加，符合历史 --drop-extra 语义）
@@ -3400,6 +3440,11 @@ def ebook_to_cbz(ebook_path: Path, delete_original: bool = False, prefer: str = 
             if dropped_filter_names:
                 names_suffix = ": " + ", ".join(dropped_filter_names) if not _short_summary else ""
                 emit(t("convert.drop_filter", count=dropped_filter, names=names_suffix))
+
+        # 封面补位（v2.0.0）：spine/OPF 未引用封面时按文件名关键词把封面提到首位。
+        # P1-3 后置到 pages/drop 之后：--pages 编号与 --drop 判定均以 spine/目录收集的
+        # 原始列表为基准，补位封面不参与编号（--pages 1 = 卷内第 1 张图）
+        images = ensure_cover_first(images, base_dir)
 
         # 封面来源判定（json/inspect 来源标注用）：OPF guide > 文件名关键字 > spine > first
         cover_source = None
@@ -5384,6 +5429,7 @@ def inspect_ebook(p: Path, min_bytes: int, prefer: str = "mobi8", setinfo_args: 
         if p.suffix.lower() == ".epub":
             tempdir = extract_epub_to_temp(p)
         else:
+            _require_mobi()
             tempdir_raw, _ = mobi.extract(str(p))
             tempdir = Path(tempdir_raw)
         extract_temp_paths.append(tempdir)
@@ -6057,8 +6103,8 @@ def _preview_img_edit_count(cbz_path: Path, pages_expr: object | None = None) ->
                 emit(t("pages.hit_line", n=i + 1, name=infos[i].filename), level="summary")
             return len(sel_idx)
     except Exception as e:
-        # v3.6.1：预览统计失败不再静默吞掉，输出错误提示后返回 0
-        emit(t("run.error", name=cbz_path.name, err=e), level="warning")
+        # v3.6.1：预览统计失败不再静默吞掉，输出独立错误提示后返回 0（与运行期 skip_warn 区分）
+        emit(t("img_edit.preview_fail", name=cbz_path.name, err=e), level="warning")
         return 0
 
 
@@ -6298,7 +6344,8 @@ def _unpack_target_dir(p: Path, out_root: Path) -> Path:
     return out_dir
 
 
-def unpack_ebook(p: Path, out_root: Path, pages_expr: object | None = None) -> Path:
+def unpack_ebook(p: Path, out_root: Path, pages_expr: object | None = None,
+                 prefer: str = "auto") -> Path:
     """解包电子书到 out_root 下的同名子目录（默认 源名_扩展名，撞名时再以 (N) 序号避让）。
 
     目录名为 `源名_扩展名`（如 vol.cbz → vol_cbz/，vol.mobi → vol_mobi/），
@@ -6316,8 +6363,12 @@ def unpack_ebook(p: Path, out_root: Path, pages_expr: object | None = None) -> P
         with zipfile.ZipFile(str(p)) as zf:
             _safe_zip_extract(zf, out_dir)
     else:
+        _require_mobi()
         tempdir_raw, _ = mobi.extract(str(p))
         tempdir = Path(tempdir_raw)
+        # P0-2: 先按 --prefer 选择 mobi7/mobi8 主目录再平移内容；
+        # 否则 --pages 的 os.walk 编号把两份目录都算进页码，可能跨目录误删
+        tempdir = select_mobi_dir(tempdir, prefer)
         try:
             for item in tempdir.iterdir():
                 shutil.move(str(item), str(out_dir / item.name))
@@ -6393,7 +6444,8 @@ def unpack_mode(ebook_files: list[Path], args) -> int:
     ok_n = fail_n = 0
     for mf in ebook_files:
         try:
-            out_dir = unpack_ebook(mf, out_root or mf.parent, pages_expr=args.pages_expr)
+            out_dir = unpack_ebook(mf, out_root or mf.parent, pages_expr=args.pages_expr,
+                                   prefer=args.prefer)
             emit(t("unpack.done", name=mf.name, dir=out_dir))
             ok_n += 1
         except Exception as e:
@@ -6430,7 +6482,7 @@ def repack_one(src_dir: Path, args) -> bool:
 
     # --pages 指定页：只打包选中页（页码 = 卷内第 1 张图 = 第 1 页，自然排序基准）
     if getattr(args, "pages_expr", None) is not None:
-        attrs_list = _dir_attrs_roll(images) if _pages_need_attrs(args.pages_expr) else []
+        attrs_list = _dir_attrs_roll(images, args.pages_expr) if _pages_need_attrs(args.pages_expr) else []
         sel_idx, oob = _pages_merge_selection(args.pages_expr, len(images), attrs_list)
         if oob:
             _emit_pages_oob(oob, len(images))
@@ -6487,10 +6539,14 @@ def repack_one(src_dir: Path, args) -> bool:
             xml_bytes = built[0].encode("utf-8")
 
     # 输出路径：解包目录旁，文件名还原为源文件（vol_cbz → vol.cbz）；
-    # --output-dir 指定目录
+    # --output-dir 指定目录（不存在则自动创建，P2-1）
     out_name = recon_stem + num_suffix + ".cbz"
     if args.output_dir:
-        out_file = Path(args.output_dir) / out_name
+        out_dir = Path(args.output_dir)
+        if not out_dir.exists():
+            out_dir.mkdir(parents=True, exist_ok=True)
+            emit(t("repack.created_output_dir", dir=out_dir), level="summary")
+        out_file = out_dir / out_name
     else:
         out_file = src_dir.parent / out_name
     if out_file.exists() and not args.overwrite:
@@ -7177,10 +7233,12 @@ def _cbz_attrs_roll(zf, img_infos, pages_expr=None) -> list:
     return attrs_list
 
 
-def _dir_attrs_roll(paths) -> list:
+def _dir_attrs_roll(paths, pages_expr=None) -> list:
     """目录内图片（解包目录 / --repack 源目录）属性批量构建：
 
     与 --list-images 的电子书分支同口径：cover 按文件名关键词兜底（目录场景无 OPF guide）。
+    pages_expr 非 None 时按 _pages_small_ratio 回填 small 标记（--pages small[=比例]
+    筛选词需要），与 _cbz_attrs_roll / 转换链路口径一致（P0-1）。
     """
     attrs_list = []
     for p in paths:
@@ -7188,7 +7246,7 @@ def _dir_attrs_roll(paths) -> list:
         if any(k in p.name.lower() for k in COVER_KEYWORDS):
             a["cover"] = True
         attrs_list.append(a)
-    _fill_small_mark(attrs_list, None)
+    _fill_small_mark(attrs_list, _pages_small_ratio(pages_expr))
     _fill_overscale_mark(attrs_list)
     _fill_orientation_mark(attrs_list)
     return attrs_list
@@ -7335,8 +7393,8 @@ def format_pages_hint(pages) -> str:
 
 # ---------------------------------------------------------------------------
 # --img-edit 图像处理管线（v3.6.0）
-# 固定管线顺序：denoise→whitebalance→rotate→flip→quality→scale→strip，
-# 与用户书写顺序无关；首版仅实现 rotate 与 strip，其余操作词暂未开放。
+# 固定管线顺序：rotate→flip→grayscale→format→quality→scale→trim→strip，
+# 与用户书写顺序无关；denoise/whitebalance 为文档预留词，暂未实现，不进入顺序。
 # 同一操作重复给不同值报错、相同值幂等忽略；strip 恒为管线末位。
 # 三入口共用本模块：mobi→cbz 转换输出前 / --repack 打包前 / CBZ 就地修正。
 # 处理策略：仅对"方向需改"或"需剥离 EXIF"的图重编码，其余原样透传，
@@ -7345,7 +7403,7 @@ def format_pages_hint(pages) -> str:
 import io  # noqa: E402  （图像管线局部依赖，此处集中声明）
 
 _IMAGEDIT_PIPELINE_ORDER = (
-    "denoise", "whitebalance", "rotate", "flip", "grayscale", "format",
+    "rotate", "flip", "grayscale", "format",
     "quality", "scale", "trim", "strip",
 )
 _IMAGEDIT_IMPLEMENTED = ("rotate", "flip", "quality", "trim", "strip", "scale",
@@ -7653,10 +7711,13 @@ def _imi_bg_color(img):
     """估算图像边缘统一背景色：取四角内侧采样点，返回出现次数最多的颜色。
 
     采样点各位于四角向内 1/10 边长处，避免角落单点噪讯干扰；全部不同则
-    取第一个（四角不一致即属于非统一背景，后续 trim 判定不会误裁）。"""
+    取第一个（四角不一致即属于非统一背景，后续 trim 判定不会误裁）。
+    极小图（任一边长 < 3px）无法取四角内侧采样点，退化为取中心像素。"""
     from PIL import Image, ImageChops, ImageOps  # 懒加载：仅在启用 --img-edit 时依赖 Pillow
     rgb = img.convert("RGB")
     w, h = rgb.size
+    if w < 3 or h < 3:
+        return rgb.getpixel((w // 2, h // 2))
     mx, my = max(1, w // 10), max(1, h // 10)
     pts = (
         (mx, my), (w - 1 - mx, my),
@@ -8724,6 +8785,7 @@ def _list_ebook(p: Path, args, double_ratio, list_expr) -> None:
         if p.suffix.lower() == ".epub":
             tempdir = extract_epub_to_temp(p)
         else:
+            _require_mobi()
             tempdir_raw, _ = mobi.extract(str(p))
             tempdir = Path(tempdir_raw)
     except Exception as e:
@@ -9064,8 +9126,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     # 输入：图像处理管线（--img-edit，可重复，值内 '+' 切分摊平）；输出：输出图应用旋转/剥离
     # 取值：rotate[=auto|90|180|270]（无参=auto 按 EXIF Orientation 烧录并删字段）、
-    #       strip（清光全部 EXIF，恒为管线末位）。固定管线 denoise→whitebalance→rotate
-    #       →flip→quality→scale→strip 与书写顺序无关；同操作重复给不同值报错、相同幂等忽略。
+    #       strip（清光全部 EXIF，恒为管线末位）。固定管线 rotate→flip→
+    #       grayscale→format→quality→scale→trim→strip 与书写顺序无关；同操作重复给不同值报错、相同幂等忽略。
     # 三入口：mobi→cbz 转换 / --repack 打包前 / 目标为已有 .cbz 的就地修正（CBZ 方向修正模式）。
     parser.add_argument(
         "--img-edit",
@@ -9610,7 +9672,7 @@ def _main() -> None:
             emit(disk_warn, level="warning")
         timed_out, converted = run_with_timeout(
             ebook_to_cbz, args.timeout,
-            mf, delete_original=args.delete, prefer=args.prefer,
+            mf, prefer=args.prefer,
             drop_expr=args.drop, overwrite=args.overwrite,
             output_dir=output_dir, compress=_compress_level,
             flatten=args.flatten, input_root=input_root,
@@ -9739,9 +9801,9 @@ def _main() -> None:
               failed=len(failed_files), interrupted=interrupted,
               total_elapsed=total_elapsed)
 
-    # 退出码语义：0=全部成功（含全部跳过，无失败）；1=存在转换失败文件（失败/DRM/校验失败）；
-    # 130=转换过程中收到 Ctrl+C 中断（即使已转换部分也以中断码退出，与包装层一致）
-    sys.exit(130 if interrupted else (1 if failed_files else 0))
+    # 退出码语义：0=全部成功（含全部跳过，无失败）；1=存在失败（转换失败/DRM/校验失败，
+    # 或混合输入时 CBZ 修改模式有失败，cbz_failed 不再被丢弃）；130=转换过程中收到 Ctrl+C 中断（即使已转换部分也以中断码退出，与包装层一致）
+    sys.exit(130 if interrupted else (1 if (failed_files or cbz_failed) else 0))
 
 
 if __name__ == "__main__":
