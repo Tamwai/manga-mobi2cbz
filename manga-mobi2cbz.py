@@ -138,6 +138,13 @@ manga-mobi2cbz — 将 mobi/azw/azw3/epub 电子书漫画文件批量转换为 c
 要求: Python 3.10+
 
 更新日志:
+    v3.6.3 (2026-09-24)
+        - 修复：--unpack --pages small 组合仍失效——v3.6.2 统一提取 small
+          比例时仅 repack 路径传入 pages_expr，unpack 路径调用
+          _dir_attrs_roll 仍漏传导致 small 标记为空，现补齐透传
+        - 内部：抽取 _render_rename_preview 合并三处 rename 预览着色 DRY
+        - 内部：新增 _IMAGEDIT_PIPELINE_ORDER / _IMAGEDIT_IMPLEMENTED
+          集合一致性自检，防止文档/常量承诺未实现操作的回归
     v3.6.2 (2026-09-15)
         - 修复：--pages small 在解包/重打包路径失效——_dir_attrs_roll 硬编码
           None 导致 small 比例丢失，现从 --pages 表达式统一提取（无参默认
@@ -817,7 +824,7 @@ manga-mobi2cbz — 将 mobi/azw/azw3/epub 电子书漫画文件批量转换为 c
           EOCD + testzip 完整性校验、失败清理半成品
 """
 
-__version__ = "3.6.2"
+__version__ = "3.6.3"
 
 SCRIPT_NAME = "manga-mobi2cbz"
 
@@ -5875,9 +5882,7 @@ def rename_cbz_mode(cbz_files: list[Path], args) -> int:
                 # rename 预览着色（颜色③）：主干青色、自动标记前缀绿色（仅 TTY 且未 --no-color 时生效）
                 if info["new_stem"] != info["old_stem"]:
                     mark = info.get("mark") or ""
-                    new_stem = info["new_stem"]
-                    head = new_stem[:-len(mark)] if mark and new_stem.endswith(mark) else new_stem
-                    out_disp = _c(36, head) + (_c(32, mark) if mark else "") + ".cbz"
+                    out_disp = _render_rename_preview(info["new_stem"], mark)
                     emit(f"  {state_tag} {mf.name} -> {out_disp}", level="summary")
                 else:
                     emit(f"  {state_tag} {mf.name} -> {out.name}", level="summary")
@@ -6385,7 +6390,7 @@ def unpack_ebook(p: Path, out_root: Path, pages_expr: object | None = None,
                 if Path(fn).suffix.lower() in IMAGE_EXTENSIONS:
                     imgs.append(Path(_root) / fn)
         imgs.sort(key=natural_key)
-        attrs_list = _dir_attrs_roll(imgs) if _pages_need_attrs(pages_expr) else []
+        attrs_list = _dir_attrs_roll(imgs, pages_expr) if _pages_need_attrs(pages_expr) else []
         sel_idx, oob = _pages_merge_selection(pages_expr, len(imgs), attrs_list)
         if oob:
             _emit_pages_oob(oob, len(imgs))
@@ -6705,9 +6710,7 @@ def inspect_mode(ebook_files: list[Path], precheck_skipped: list, args) -> int:
                     new_stem, rinfo = _build_rename_basename(mf, args.rename)
                     if rinfo["new_stem"] != rinfo["old_stem"]:
                         mark = rinfo.get("mark") or ""
-                        ns = rinfo["new_stem"]
-                        head = ns[:-len(mark)] if mark and ns.endswith(mark) else ns
-                        out_disp = _c(36, head) + (_c(32, mark) if mark else "") + ".cbz"
+                        out_disp = _render_rename_preview(rinfo["new_stem"], mark)
                         emit(f"  {t('tag.rename_preview')} {mf.name} -> {out_disp}", level="summary")
                 except Exception:
                     pass
@@ -7408,6 +7411,11 @@ _IMAGEDIT_PIPELINE_ORDER = (
 )
 _IMAGEDIT_IMPLEMENTED = ("rotate", "flip", "quality", "trim", "strip", "scale",
                          "grayscale", "format")
+# 自检：两个常量集合必须一致，防止出现"文档/常量承诺了未实现操作"的回归
+# （历史上 denoise / whitebalance 正是此类不一致的教训）。
+assert set(_IMAGEDIT_PIPELINE_ORDER) == set(_IMAGEDIT_IMPLEMENTED), (
+    "_IMAGEDIT_PIPELINE_ORDER / _IMAGEDIT_IMPLEMENTED 不一致，请同步"
+)
 _IMAGEDIT_ROTATE_VALUES = {"auto": None, "90": 90, "180": 180, "270": 270}
 _IMAGEDIT_FLIP_VALUES = {"x": None, "y": None, "both": None}
 _IMAGEDIT_QUALITY_DEFAULT = 95  # --img-edit 重编码默认保存质量（1-100）
@@ -8603,6 +8611,12 @@ def _c(code: int | None, s: str) -> str:
     return f"\x1b[{code}m{s}{_ANSI_RESET}"
 
 
+def _render_rename_preview(new_stem: str, mark: str) -> str:
+    """rename 预览着色（颜色③）：主干青色、自动标记前缀绿色，追加 .cbz 后缀。"""
+    head = new_stem[:-len(mark)] if mark and new_stem.endswith(mark) else new_stem
+    return _c(36, head) + (_c(32, mark) if mark else "") + ".cbz"
+
+
 def _strip_ansi(s: str) -> str:
     """剥离 ANSI 转义序列（日志文件写入前调用，避免色码污染日志）。"""
     return re.sub(r"\x1b\[[0-9;]*m", "", s)
@@ -9600,9 +9614,7 @@ def _main() -> None:
                 # rename 预览着色（颜色③）：主干青色、自动标记前缀绿色（仅 TTY 且未 --no-color 时生效）
                 if rinfo and rinfo["new_stem"] != rinfo["old_stem"]:
                     mark = rinfo.get("mark") or ""
-                    new_stem = rinfo["new_stem"]
-                    head = new_stem[:-len(mark)] if mark and new_stem.endswith(mark) else new_stem
-                    out_disp = _c(36, head) + (_c(32, mark) if mark else "") + ".cbz"
+                    out_disp = _render_rename_preview(rinfo["new_stem"], mark)
                     emit(f"  {state_tag} {mf} -> {out_disp}", level="summary")
                 else:
                     emit(f"  {state_tag} {mf} -> {out}", level="summary")
