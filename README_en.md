@@ -319,6 +319,17 @@ A: Yes. Since v2.4.0 the accepted input extensions are `.mobi` / `.azw` / `.azw3
 
 ## Changelog
 
+### [3.6.3] - 2026-09-24
+
+#### Fixes
+
+- **`--unpack --pages small` still ineffective** — when v3.6.2 unified the small-ratio extraction, only the `repack` path passed `pages_expr`; the `unpack` path still called `_dir_attrs_roll` without it, leaving the small mark empty. Now the argument is forwarded.
+  
+  #### Internal
+  
+- Extracted `_render_rename_preview` to merge the three rename-preview coloring sites (DRY)
+- Added a set-consistency self-check between `_IMAGEDIT_PIPELINE_ORDER` and `_IMAGEDIT_IMPLEMENTED` to prevent regressions where docs/constants promise unimplemented operations
+
 ### [3.6.2] - 2026-09-15
 
 #### Fixes
