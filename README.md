@@ -321,6 +321,17 @@ A: 支持。v2.4.0 起输入扩展名扩展为 `.mobi` / `.azw` / `.azw3` / `.ep
 
 ## 更新日志
 
+### [3.6.3] - 2026-09-24
+
+#### 修复
+
+- **`--unpack --pages small` 组合仍失效** — v3.6.2 统一提取 small 比例时仅 `repack` 路径传入了 `pages_expr`，`unpack` 路径调用 `_dir_attrs_roll` 仍漏传导致 small 标记为空；现已补齐透传
+  
+  #### 内部
+  
+- 抽取 `_render_rename_preview` 合并三处 rename 预览着色 DRY
+- 新增 `_IMAGEDIT_PIPELINE_ORDER` / `_IMAGEDIT_IMPLEMENTED` 集合一致性自检，防止文档/常量承诺未实现操作的回归
+
 ### [3.6.2] - 2026-09-15
 
 #### 修复
