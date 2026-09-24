@@ -316,6 +316,17 @@ A: 対応しています。v2.4.0 以降、入力は `.mobi` / `.azw` / `.azw3` 
 
 ## 更新履歴
 
+### [3.6.3] - 2026-09-24
+
+#### 修正
+
+- **`--unpack --pages small` の組み合わせが依然として無効** — v3.6.2 で small 比率の一元的抽出を導入した際、`repack` 経路のみ `pages_expr` を渡し、`unpack` 経路の `_dir_attrs_roll` 呼び出しでは引き続き漏れて small マークが空のままでした。現在は引き渡しを補完
+  
+  #### 内部
+  
+- `_render_rename_preview` を抽出し、rename プレビュー着色の 3 箇所を一本化（DRY）
+- `_IMAGEDIT_PIPELINE_ORDER` / `_IMAGEDIT_IMPLEMENTED` の集合一致性セルフチェックを追加 — ドキュメント/定数が未実装操作を約束してしまう回帰を防止
+
 ### [3.6.2] - 2026-09-15
 
 #### 修正
