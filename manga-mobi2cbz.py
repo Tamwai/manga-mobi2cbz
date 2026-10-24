@@ -138,6 +138,18 @@ manga-mobi2cbz — 将 mobi/azw/azw3/epub 电子书漫画文件批量转换为 c
 要求: Python 3.10+
 
 更新日志:
+    v3.6.4 (2026-10-24)
+        - 修复：OPF/HTML 资源路径越界——新增 _path_inside 边界校验并应用到
+          extract_images_from_html / extract_images_by_spine / find_ncx /
+          parse_nav_toc / 封面 href / _resolve_toc_href_to_image，防 .. /
+          绝对路径 / Windows 盘符逃逸
+        - 修复：--unpack 失败残留半成品目录——改临时目录解包+成功后整体
+          提交，失败/异常/--pages 空命中清理临时目录，不残留最终输出目录，
+          也不误删已存在用户目录
+        - 修复：--unpack --dry-run 同名输入预览不一致——_unpack_target_dir
+          增加 reserved 批次集合，dry-run 与实跑共用同一命名规划
+        - 内部：补 TestPathInside / TestUnpackSafety / TestExtractPathEscape
+          回归护栏
     v3.6.3 (2026-09-24)
         - 修复：--unpack --pages small 组合仍失效——v3.6.2 统一提取 small
           比例时仅 repack 路径传入 pages_expr，unpack 路径调用
@@ -824,7 +836,7 @@ manga-mobi2cbz — 将 mobi/azw/azw3/epub 电子书漫画文件批量转换为 c
           EOCD + testzip 完整性校验、失败清理半成品
 """
 
-__version__ = "3.6.3"
+__version__ = "3.6.4"
 
 SCRIPT_NAME = "manga-mobi2cbz"
 

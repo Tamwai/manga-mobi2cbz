@@ -319,6 +319,18 @@ A: Yes. Since v2.4.0 the accepted input extensions are `.mobi` / `.azw` / `.azw3
 
 ## Changelog
 
+### [3.6.4] - 2026-10-24
+
+#### Fixes
+
+- **OPF/HTML resource path traversal** — added `_path_inside` boundary check and applied it to `extract_images_from_html` / `extract_images_by_spine` / `find_ncx` / `parse_nav_toc` / cover href / `_resolve_toc_href_to_image`, rejecting `..` traversal, absolute paths and Windows drive-relative escapes
+- **`--unpack` leaves a half-baked directory on failure** — switched to unpack-into-temp-dir + commit-on-success; failures / exceptions / empty `--pages` hits clean up the temp dir, never leaving the final output directory and never touching existing user directories
+- **`--unpack --dry-run` inconsistent preview for same-named inputs** — `_unpack_target_dir` gained a `reserved` batch set; dry-run and real run share the same naming plan
+
+#### Internal
+
+- Added `TestPathInside` / `TestUnpackSafety` / `TestExtractPathEscape` regression guards
+
 ### [3.6.3] - 2026-09-24
 
 #### Fixes

@@ -316,6 +316,18 @@ A: 対応しています。v2.4.0 以降、入力は `.mobi` / `.azw` / `.azw3` 
 
 ## 更新履歴
 
+### [3.6.4] - 2026-10-24
+
+#### 修正
+
+- **OPF/HTML リソースパスの境界外参照** — `_path_inside` 境界チェックを追加し、`extract_images_from_html` / `extract_images_by_spine` / `find_ncx` / `parse_nav_toc` / 表紙 href / `_resolve_toc_href_to_image` に適用。`..` トラバーサル・絶対パス・Windows ドライブ相対エスケープを拒否
+- **`--unpack` 失敗時に半成品ディレクトリが残る** — 一時ディレクトリへ解凍 + 成功後に一括コミット方式へ変更。失敗 / 例外 / `--pages` 空ヒット時は一時ディレクトリを自動クリーンアップし、最終出力ディレクトリを残さず、既存のユーザーディレクトリにも触れない
+- **`--unpack --dry-run` の同名入力プレビュー不一致** — `_unpack_target_dir` に `reserved` バッチ集合を追加し、dry-run と実実行が同じ命名計画を共有
+
+#### 内部
+
+- `TestPathInside` / `TestUnpackSafety` / `TestExtractPathEscape` の回帰ガードを追加
+
 ### [3.6.3] - 2026-09-24
 
 #### 修正

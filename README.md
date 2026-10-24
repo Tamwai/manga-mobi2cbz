@@ -321,6 +321,18 @@ A: 支持。v2.4.0 起输入扩展名扩展为 `.mobi` / `.azw` / `.azw3` / `.ep
 
 ## 更新日志
 
+### [3.6.4] - 2026-10-24
+
+#### 修复
+
+- **OPF/HTML 资源路径越界** — 新增 `_path_inside` 边界校验并应用到 `extract_images_from_html` / `extract_images_by_spine` / `find_ncx` / `parse_nav_toc` / 封面 href / `_resolve_toc_href_to_image`，拒绝 `..` 跳转、绝对路径与 Windows 盘符逃逸
+- **`--unpack` 失败残留半成品目录** — 改为临时目录解包 + 成功后整体提交，失败 / 异常 / `--pages` 空命中自动清理临时目录，不残留最终输出目录，也不误删已存在的用户目录
+- **`--unpack --dry-run` 同名输入预览不一致** — `_unpack_target_dir` 增加 `reserved` 批次集合，dry-run 与实跑共用同一命名规划
+
+#### 内部
+
+- 补 `TestPathInside` / `TestUnpackSafety` / `TestExtractPathEscape` 回归护栏
+
 ### [3.6.3] - 2026-09-24
 
 #### 修复
