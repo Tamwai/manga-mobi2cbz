@@ -6,11 +6,14 @@ on:
         description: 'Release tag (例: v1.0.0)'
         required: true
         default: 'v3.6.3'
+  push:
+    tags:
+      - 'v*'
 permissions:
   contents: write
 env:
   APP_NAME: manga-mobi2cbz
-  VERSION: ${{ github.event.inputs.tag }}
+  VERSION: ${{ github.event.inputs.tag || github.ref_name }}
   PACKAGE_FOLDER: manga-mobi2cbz-cli
 jobs:
   build-binary:
@@ -88,15 +91,25 @@ jobs:
     needs: build-binary
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout source
+        uses: actions/checkout@v5
       - name: Download all artifacts
         uses: actions/download-artifact@v5
         with:
           path: ./build_assets
+      - name: Prepare release notes
+        run: |
+          awk '/^## \[/{c++} c==1{print} c==2{exit}' CHANGELOG.md > body.md
+          printf -- '---\n' >> body.md
+          awk '/^## \[/{c++} c==1{print} c==2{exit}' CHANGELOG_en.md >> body.md
+          printf -- '---\n' >> body.md
+          awk '/^## \[/{c++} c==1{print} c==2{exit}' CHANGELOG_ja.md >> body.md
       - name: Publish Release
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: ${{ github.event.inputs.tag }}
-          name: Release ${{ github.event.inputs.tag }}
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          name: Release ${{ github.event.inputs.tag || github.ref_name }}
+          body_path: body.md
           files: ./build_assets/*/*
           overwrite_files: true
           draft: false
