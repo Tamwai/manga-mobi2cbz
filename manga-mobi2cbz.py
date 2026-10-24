@@ -3013,6 +3013,26 @@ def extract_img_srcs_with_parser(content: str) -> list[str]:
         return []
 
 
+def _path_inside(root: Path, p: Path) -> bool:
+    """路径边界校验：p 的解析结果必须位于 root 目录内。
+
+    OPF/HTML href 等相对引用（如 src="../../evil.png"、绝对路径、盘符
+    相对路径 C:foo、UNC 等）经拼接 resolve 后若逃逸出 root 目录则拒绝，
+    防资源路径越界读取解压根目录之外的文件。resolve 失败或越界一律返回
+    False；配合调用方仅在本目录树内解析资源引用。
+    """
+    try:
+        root_abs = root.resolve()
+        p_abs = p.resolve()
+    except OSError:
+        return False
+    try:
+        p_abs.relative_to(root_abs)
+        return True
+    except ValueError:
+        return False
+
+
 def extract_images_from_html(html_path: Path) -> list[Path]:
     """从 HTML 文件中提取所有 <img> 引用的本地图片路径"""
     try:
@@ -3034,7 +3054,9 @@ def extract_images_from_html(html_path: Path) -> list[Path]:
             # 兼容带 query/fragment 的 src（如 image.jpg?width=800 / image.jpg#page1）
             clean = src.split("?", 1)[0].split("#", 1)[0]
             img_path = (base_dir / clean).resolve()
-            if img_path.exists() and img_path.suffix.lower() in IMAGE_EXTENSIONS:
+            if (_path_inside(base_dir, img_path)
+                    and img_path.exists()
+                    and img_path.suffix.lower() in IMAGE_EXTENSIONS):
                 result.append(img_path)
         return result
     except Exception:
@@ -3101,7 +3123,7 @@ def extract_images_by_spine(opf_path: Path) -> list[Path] | None:
             if not href:
                 continue
             html_path = (opf_dir / href).resolve()
-            if not html_path.exists():
+            if not (_path_inside(opf_dir, html_path) and html_path.exists()):
                 continue
             imgs = extract_images_from_html(html_path)
             images.extend(imgs)
@@ -5090,7 +5112,7 @@ def find_ncx(base_dir: Path) -> Path | None:
                     href = item.get("href")
                     if href:
                         cand = (opf_path.parent / href.split("#", 1)[0]).resolve()
-                        if cand.exists():
+                        if _path_inside(opf_path.parent, cand) and cand.exists():
                             return cand
             if toc_id:
                 for item in root.findall(".//opf:manifest/opf:item", OPF_NS):
@@ -5098,7 +5120,7 @@ def find_ncx(base_dir: Path) -> Path | None:
                         href = item.get("href")
                         if href:
                             cand = (opf_path.parent / href.split("#", 1)[0]).resolve()
-                            if cand.exists():
+                            if _path_inside(opf_path.parent, cand) and cand.exists():
                                 return cand
     except Exception:
         pass
@@ -5144,7 +5166,7 @@ def parse_nav_toc(base_dir: Path) -> tuple[int, list[str]]:
                     href = item.get("href")
                     if href:
                         cand = (opf_path.parent / href.split("#", 1)[0]).resolve()
-                        if cand.exists():
+                        if _path_inside(opf_path.parent, cand) and cand.exists():
                             nav = cand
                             break
         if nav is None:
@@ -5524,9 +5546,13 @@ def inspect_ebook(p: Path, min_bytes: int, prefer: str = "mobi8", setinfo_args: 
             if href:
                 # href 相对 OPF 所在目录（epub 的 OPF 常在 OEBPS/ 子目录），未命中回退解压根目录
                 cand = (opf_path.parent / href).resolve()
-                if not (cand.is_file() and cand.suffix.lower() in IMAGE_EXTENSIONS):
+                if not (_path_inside(opf_path.parent, cand)
+                        and cand.is_file()
+                        and cand.suffix.lower() in IMAGE_EXTENSIONS):
                     cand = (base_dir / href).resolve()
-                if cand.is_file() and cand.suffix.lower() in IMAGE_EXTENSIONS:
+                if (_path_inside(base_dir, cand)
+                        and cand.is_file()
+                        and cand.suffix.lower() in IMAGE_EXTENSIONS):
                     cover = cand
                     cover_src = t("inspect.cover_src_guide")
                 else:
@@ -6335,82 +6361,99 @@ def _is_unpack_cbz_dir(name: str) -> bool:
     return _unpack_dir_parts(name)[2] == "cbz"
 
 
-def _unpack_target_dir(p: Path, out_root: Path) -> Path:
+def _unpack_target_dir(p: Path, out_root: Path, reserved: set | None = None) -> Path:
     """计算解包目标目录（源名_扩展名，撞名时以 (N) 序号避让），只计算不创建。
 
-    供真实解包与 --dry-run 共用同一命名规则，保证试运行预览与实跑一致。
+    供真实解包与 --dry-run 共用同一命名规则；reserved 为同批次内已预分配
+    的目标目录集合（同名双输入等场景先到先得，保证试运行预览与实跑一致）。
     """
     base = f"{p.stem}_{p.suffix.lstrip('.')}"
     out_dir = out_root / base
     n = 2
-    while out_dir.exists():
+    while out_dir.exists() or (reserved is not None and out_dir in reserved):
         out_dir = out_root / f"{base} ({n})"
         n += 1
+    if reserved is not None:
+        reserved.add(out_dir)
     return out_dir
 
 
 def unpack_ebook(p: Path, out_root: Path, pages_expr: object | None = None,
-                 prefer: str = "auto") -> Path:
+                 prefer: str = "auto", reserved: set | None = None) -> Path:
     """解包电子书到 out_root 下的同名子目录（默认 源名_扩展名，撞名时再以 (N) 序号避让）。
 
     目录名为 `源名_扩展名`（如 vol.cbz → vol_cbz/，vol.mobi → vol_mobi/），
     统一来源标签且与源文件不撞名；--repack 按 _cbz 结尾识别 cbz 解包目录。
-    mobi 走 mobi.extract 保留完整结构（mobi7/mobi8 等），cbz/epub 逐条目
-    安全解压（含 zip-slip 路径穿越防护）。返回实际解包到的目录。
+    解包采用「临时目录 + 成功后整体提交」：cbz/epub 先解到 out_root 下的
+    同盘临时目录，mobi 走 mobi.extract 保留完整结构（mobi7/mobi8 等）；
+    --pages 筛选在临时目录内完成；全部成功才 move 到最终输出目录，失败 /
+    异常 / --pages 空命中时由 finally 清理临时目录，不残留半成品输出目录，
+    也不误删已存在的用户目录（从不删除最终输出目录本身）。
+    reserved 为同批次预分配目标目录集合（与 --dry-run 共用同一命名规划）。
     pages_expr 非 None 时（--pages）：只保留选中页对应的图片文件，删除其余
     图片文件（非图片文件如 ComicInfo.xml/OPF/版式文件原样保留）。页码 = 卷内
     第 1 张图 = 第 1 页（自然排序基准）；越界页汇总提示忽略，全部越界/空命中
     → 报错终止（sys.exit 2）。
     """
-    out_dir = _unpack_target_dir(p, out_root)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    if p.suffix.lower() in (".cbz", ".epub"):
-        with zipfile.ZipFile(str(p)) as zf:
-            _safe_zip_extract(zf, out_dir)
-    else:
-        _require_mobi()
-        tempdir_raw, _ = mobi.extract(str(p))
-        tempdir = Path(tempdir_raw)
-        # P0-2: 先按 --prefer 选择 mobi7/mobi8 主目录再平移内容；
-        # 否则 --pages 的 os.walk 编号把两份目录都算进页码，可能跨目录误删
-        tempdir = select_mobi_dir(tempdir, prefer)
-        try:
-            for item in tempdir.iterdir():
-                shutil.move(str(item), str(out_dir / item.name))
-        finally:
+    out_dir = _unpack_target_dir(p, out_root, reserved)
+    work: Path | None = None
+    try:
+        if p.suffix.lower() in (".cbz", ".epub"):
+            # 方案A：先解包到 out_root 下同盘临时目录，全部成功后再整体 move 提交；
+            # 失败/异常/--pages 空命中时由 finally 清理，不留下最终输出目录
+            out_root.mkdir(parents=True, exist_ok=True)
+            work = Path(tempfile.mkdtemp(prefix=".manga_unpack_", dir=str(out_root)))
+            with zipfile.ZipFile(str(p)) as zf:
+                _safe_zip_extract(zf, work)
+        else:
+            _require_mobi()
+            tempdir_raw, _ = mobi.extract(str(p))
+            tempdir = Path(tempdir_raw)
+            # P0-2: 先按 --prefer 选择 mobi7/mobi8 主目录再平移内容；
+            # 否则 --pages 的 os.walk 编号把两份目录都算进页码，可能跨目录误删
+            work = select_mobi_dir(tempdir, prefer)
+        # --pages 指定页：只保留选中页图片文件（作用于临时工作目录）
+        if pages_expr is not None:
+            imgs: list = []
+            for _root, _dirs, files in os.walk(work):
+                for fn in files:
+                    if Path(fn).suffix.lower() in IMAGE_EXTENSIONS:
+                        imgs.append(Path(_root) / fn)
+            imgs.sort(key=natural_key)
+            attrs_list = _dir_attrs_roll(imgs, pages_expr) if _pages_need_attrs(pages_expr) else []
+            sel_idx, oob = _pages_merge_selection(pages_expr, len(imgs), attrs_list)
+            if oob:
+                _emit_pages_oob(oob, len(imgs))
+            if sel_idx is None or not sel_idx:
+                # 全部越界/空命中 → 报错终止（finally 清理 work，不留输出目录）
+                emit(t("pages.empty", total=len(imgs)), level="error")
+                sys.exit(2)
+            keep = set(sel_idx)
+            removed = 0
+            for i, imgp in enumerate(imgs):
+                if i not in keep:
+                    try:
+                        imgp.unlink(missing_ok=True)
+                        removed += 1
+                    except OSError:
+                        pass
+            if removed:
+                emit(t("pages.selected", count=len(sel_idx), total=len(imgs),
+                       expr=format_pages_hint(pages_expr)), level="summary")
+        # 全部成功：提交到最终输出目录（提交前重算避让，防御解包期间目录被占用）
+        if out_dir.exists():
+            out_dir = _unpack_target_dir(p, out_root, reserved)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        for item in work.iterdir():
+            shutil.move(str(item), str(out_dir / item.name))
+        return out_dir
+    finally:
+        # 清理临时工作目录（mobi 的 mobi.extract 临时目录同样在此统一清理）
+        if work is not None and work.exists():
             try:
-                shutil.rmtree(str(tempdir))
+                shutil.rmtree(work)
             except Exception as e:
-                emit(t("warn.cleanup_tmp_fail", path=tempdir, err=e), level="warning")
-    # --pages 指定页：只保留选中页图片文件
-    if pages_expr is not None:
-        imgs: list = []
-        for _root, _dirs, files in os.walk(out_dir):
-            for fn in files:
-                if Path(fn).suffix.lower() in IMAGE_EXTENSIONS:
-                    imgs.append(Path(_root) / fn)
-        imgs.sort(key=natural_key)
-        attrs_list = _dir_attrs_roll(imgs, pages_expr) if _pages_need_attrs(pages_expr) else []
-        sel_idx, oob = _pages_merge_selection(pages_expr, len(imgs), attrs_list)
-        if oob:
-            _emit_pages_oob(oob, len(imgs))
-        if sel_idx is None or not sel_idx:
-            # 全部越界/空命中 → 报错终止
-            emit(t("pages.empty", total=len(imgs)), level="error")
-            sys.exit(2)
-        keep = set(sel_idx)
-        removed = 0
-        for i, imgp in enumerate(imgs):
-            if i not in keep:
-                try:
-                    imgp.unlink(missing_ok=True)
-                    removed += 1
-                except OSError:
-                    pass
-        if removed:
-            emit(t("pages.selected", count=len(sel_idx), total=len(imgs),
-                   expr=format_pages_hint(pages_expr)), level="summary")
-    return out_dir
+                emit(t("warn.cleanup_tmp_fail", path=work, err=e), level="warning")
 
 
 def unpack_mode(ebook_files: list[Path], args) -> int:
@@ -6431,8 +6474,9 @@ def unpack_mode(ebook_files: list[Path], args) -> int:
         # 试运行：只打印每个文件将解包到的目标目录，不创建任何输出目录
         emit(t("run.dryrun_banner"), level="summary")
         json_files: list = []
+        reserved: set = set()
         for i, mf in enumerate(ebook_files, 1):
-            out_dir = _unpack_target_dir(mf, out_root or mf.parent)
+            out_dir = _unpack_target_dir(mf, out_root or mf.parent, reserved)
             emit(f"  {i}. {mf.name} -> {out_dir}", level="summary")
             json_files.append({
                 "source": str(mf),
@@ -6447,10 +6491,11 @@ def unpack_mode(ebook_files: list[Path], args) -> int:
                   interrupted=False, total_elapsed=0.0)
         return 0
     ok_n = fail_n = 0
+    reserved: set = set()
     for mf in ebook_files:
         try:
             out_dir = unpack_ebook(mf, out_root or mf.parent, pages_expr=args.pages_expr,
-                                   prefer=args.prefer)
+                                   prefer=args.prefer, reserved=reserved)
             emit(t("unpack.done", name=mf.name, dir=out_dir))
             ok_n += 1
         except Exception as e:
@@ -8399,11 +8444,13 @@ def _resolve_toc_href_to_image(anchor_dir: Path, href: str, base_dir: Path):
     if not clean:
         return None
     cand = (anchor_dir / clean).resolve()
-    if not cand.exists():
+    if not (_path_inside(anchor_dir, cand) and cand.exists()):
+        cand = None
+    if cand is None:
         alt = (base_dir / clean).resolve()
-        if alt.exists():
+        if _path_inside(base_dir, alt) and alt.exists():
             cand = alt
-    if not cand.is_file():
+    if cand is None or not cand.is_file():
         return None
     if cand.suffix.lower() in IMAGE_EXTENSIONS:
         return cand
@@ -8414,7 +8461,9 @@ def _resolve_toc_href_to_image(anchor_dir: Path, href: str, base_dir: Path):
             if m:
                 sub = m.group(1).split("#", 1)[0]
                 subp = (cand.parent / sub).resolve()
-                if subp.is_file() and subp.suffix.lower() in IMAGE_EXTENSIONS:
+                if (_path_inside(cand.parent, subp)
+                        and subp.is_file()
+                        and subp.suffix.lower() in IMAGE_EXTENSIONS):
                     return subp
         except Exception:
             return None
@@ -8483,7 +8532,7 @@ def parse_nav_entries(base_dir: Path):
                     href = item.get("href")
                     if href:
                         cand = (opf_path.parent / href.split("#", 1)[0]).resolve()
-                        if cand.exists():
+                        if _path_inside(opf_path.parent, cand) and cand.exists():
                             nav = cand
                             break
         if nav is None:

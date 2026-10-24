@@ -1133,5 +1133,209 @@ class TestCbzPageOrderNatsort(unittest.TestCase):
         self.assertEqual(self._changed(), ["p003.png"])
 
 
+class TestPathInside(unittest.TestCase):
+    """_path_inside 边界校验（v3.6.4 P1 修复护栏）。"""
+
+    def test_normal_child_ok(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "manga"
+            root.mkdir()
+            child = root / "images" / "a.jpg"
+            child.parent.mkdir()
+            child.write_bytes(b"x")
+            self.assertTrue(mod._path_inside(root, child))
+            self.assertTrue(mod._path_inside(root, root), "root 自身视为内部")
+
+    def test_dotdot_escape_blocked(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "manga"
+            root.mkdir()
+            evil = Path(td) / "evil.jpg"
+            evil.write_bytes(b"x")
+            joined = (root / "../evil.jpg").resolve()
+            self.assertTrue(joined.exists(), "样本文件应存在")
+            self.assertFalse(mod._path_inside(root, joined), ".. 跳转应被拒绝")
+
+    def test_absolute_and_parent_escape_blocked(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "manga"
+            root.mkdir()
+            # 系统绝对路径天然在 root 之外
+            abs_path = Path("C:/Windows/System32/notepad.exe").resolve()
+            self.assertFalse(mod._path_inside(root, abs_path), "绝对路径应被拒绝")
+            # root 的父目录整体
+            self.assertFalse(mod._path_inside(root, Path(td)), "父目录应被拒绝")
+
+    def test_identity_ok(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "manga"
+            root.mkdir()
+            self.assertTrue(mod._path_inside(root, root / "sub" / ".." / "a.png"))
+
+
+class TestUnpackSafety(unittest.TestCase):
+    """--unpack 临时目录提交 + reserved 一致性（v3.6.4 P1/P2 修复护栏）。"""
+
+    PNG1X1 = bytes.fromhex(
+        "89504e470d0a1a0a0000000d494844520000000100000001080600000"
+        "01f15c4890000000d49444154789c626001000000ffff030000060005"
+        "7fbfabd40000000049454e44ae426082")
+
+    @staticmethod
+    def _make_cbz(d: Path, name: str = "vol.cbz") -> Path:
+        p = d / name
+        with zipfile.ZipFile(p, "w") as z:
+            z.writestr("p001.png", TestUnpackSafety.PNG1X1)
+            z.writestr("p002.png", TestUnpackSafety.PNG1X1)
+        return p
+
+    def test_broken_unpack_leaves_no_output_dir(self):
+        """损坏 zip：解包抛异常，不得残留最终输出目录或临时目录。"""
+        with tempfile.TemporaryDirectory() as td:
+            d = Path(td)
+            ep = _make_mini_epub(d, broken=True)
+            out_root = d / "out"
+            out_root.mkdir()
+            with self.assertRaises(zipfile.BadZipFile):
+                mod.unpack_ebook(ep, out_root)
+            self.assertFalse((out_root / f"{ep.stem}_epub").exists(),
+                             "失败解包不应残留最终输出目录")
+            leftovers = [p for p in out_root.iterdir() if p.name.startswith(".manga_unpack_")]
+            self.assertEqual(leftovers, [], "失败解包不应残留临时目录")
+
+    def test_pages_empty_hit_leaves_no_output_dir(self):
+        """--pages 全部越界空命中：sys.exit(2) 且不残留输出目录。"""
+        with tempfile.TemporaryDirectory() as td:
+            d = Path(td)
+            cbz = self._make_cbz(d)
+            out_root = d / "out"
+            out_root.mkdir()
+            with self.assertRaises(SystemExit) as cm:
+                mod.unpack_ebook(cbz, out_root, pages_expr=parse_pages_expr(["99"]))
+            self.assertEqual(cm.exception.code, 2, "空命中应退出 2")
+            self.assertFalse((out_root / "vol_cbz").exists(),
+                             "空命中不应残留最终输出目录")
+
+    def test_does_not_touch_existing_user_dir(self):
+        """已存在同名用户目录：避让到 (N)，原目录原样保留不误删。"""
+        with tempfile.TemporaryDirectory() as td:
+            d = Path(td)
+            cbz = self._make_cbz(d)
+            out_root = d / "out"
+            out_root.mkdir()
+            user = out_root / "vol_cbz"
+            user.mkdir()
+            sentinel = user / "keep.txt"
+            sentinel.write_text("user data", encoding="utf-8")
+            got = mod.unpack_ebook(cbz, out_root)
+            self.assertEqual(got.name, "vol_cbz (2)", "已存在目录应避让到 (2)")
+            self.assertEqual(sentinel.read_text(encoding="utf-8"), "user data",
+                             "用户目录不得被删改")
+            self.assertTrue((got / "p001.png").exists(), "新解包目录应有内容")
+
+    def test_unpack_success_creates_output(self):
+        with tempfile.TemporaryDirectory() as td:
+            d = Path(td)
+            cbz = self._make_cbz(d)
+            out_root = d / "out"
+            out_root.mkdir()
+            got = mod.unpack_ebook(cbz, out_root)
+            self.assertEqual(got, out_root / "vol_cbz")
+            self.assertTrue((got / "p001.png").exists())
+            self.assertTrue((got / "p002.png").exists())
+
+    def test_dryrun_matches_real_reserved_allocation(self):
+        """同名同后缀双输入（不同目录 vol.cbz + vol.cbz）：dry-run 预览与实跑一致。"""
+        with tempfile.TemporaryDirectory() as td:
+            d = Path(td)
+            d1 = d / "a"
+            d2 = d / "b"
+            d1.mkdir()
+            d2.mkdir()
+            cbz1 = self._make_cbz(d1, "vol.cbz")
+            cbz2 = self._make_cbz(d2, "vol.cbz")
+            out_root = d / "out"
+            out_root.mkdir()
+            dry: set = set()
+            targets_dry = [mod._unpack_target_dir(f, out_root, dry) for f in (cbz1, cbz2)]
+            real: set = set()
+            targets_real = [mod.unpack_ebook(f, out_root, reserved=real) for f in (cbz1, cbz2)]
+            self.assertEqual(targets_dry, targets_real,
+                             "dry-run 预览与实跑目标目录应一致")
+            self.assertEqual([t.name for t in targets_real], ["vol_cbz", "vol_cbz (2)"])
+
+
+class TestExtractPathEscape(unittest.TestCase):
+    """OPF/HTML 资源路径越界拒绝（v3.6.4 P1 修复护栏）。"""
+
+    PNG1X1 = bytes.fromhex(
+        "89504e470d0a1a0a0000000d494844520000000100000001080600000"
+        "01f15c4890000000d49444154789c626001000000ffff030000060005"
+        "7fbfabd40000000049454e44ae426082")
+
+    def test_html_src_dotdot_escape_blocked(self):
+        """<img src="../outside.png"> 越界：拒绝；合法相对引用仍可解析。"""
+        with tempfile.TemporaryDirectory() as td:
+            d = Path(td)
+            manga = d / "manga"
+            manga.mkdir()
+            (d / "outside.png").write_bytes(self.PNG1X1)
+            (manga / "a.html").write_text(
+                '<html><body><img src="../outside.png"/></body></html>',
+                encoding="utf-8")
+            self.assertEqual(mod.extract_images_from_html(manga / "a.html"), [],
+                             "越界 img src 不得被解析")
+            (manga / "in.png").write_bytes(self.PNG1X1)
+            (manga / "b.html").write_text(
+                '<html><body><img src="in.png"/></body></html>', encoding="utf-8")
+            got = mod.extract_images_from_html(manga / "b.html")
+            self.assertEqual([p.name for p in got], ["in.png"], "合法引用应可解析")
+
+    def test_spine_href_escape_blocked(self):
+        """OPF spine itemref href="../outside.xhtml"：越界 spine 不得返回图片。"""
+        with tempfile.TemporaryDirectory() as td:
+            d = Path(td)
+            opf_dir = d / "OEBPS"
+            opf_dir.mkdir()
+            (d / "outside.xhtml").write_text(
+                '<html><body><img src="evil.png"/></body></html>', encoding="utf-8")
+            opf = opf_dir / "content.opf"
+            opf.write_text(
+                '<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf">'
+                '<manifest>'
+                '<item id="p1" href="../outside.xhtml" media-type="application/xhtml+xml"/>'
+                '</manifest>'
+                '<spine><itemref idref="p1"/></spine></package>',
+                encoding="utf-8")
+            self.assertIsNone(mod.extract_images_by_spine(opf),
+                              "越界 spine href 不得返回图片")
+
+    def test_find_ncx_escape_blocked(self):
+        """OPF manifest dtbncx href="../evil.ncx"：find_ncx 不得返回越界 ncx。"""
+        with tempfile.TemporaryDirectory() as td:
+            d = Path(td) / "book"
+            opf_dir = d / "OEBPS"
+            opf_dir.mkdir(parents=True)
+            (Path(td) / "evil.ncx").write_text("<ncx/>", encoding="utf-8")
+            opf = opf_dir / "content.opf"
+            opf.write_text(
+                '<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf">'
+                '<manifest>'
+                '<item id="ncx" href="../evil.ncx" media-type="application/x-dtbncx+xml"/>'
+                '</manifest></package>',
+                encoding="utf-8")
+            self.assertIsNone(mod.find_ncx(d), "越界 ncx href 不得被定位")
+
+    def test_toc_href_escape_blocked(self):
+        """目录条目 href="../outside.png"：_resolve_toc_href_to_image 拒绝。"""
+        with tempfile.TemporaryDirectory() as td:
+            d = Path(td)
+            anchor = d / "OEBPS"
+            anchor.mkdir()
+            (d / "outside.png").write_bytes(self.PNG1X1)
+            got = mod._resolve_toc_href_to_image(anchor, "../outside.png", anchor)
+            self.assertIsNone(got, "越界目录 href 不得解析为图片")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
